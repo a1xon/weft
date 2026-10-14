@@ -1,0 +1,90 @@
+/* ------------------------------------------------------------ state */
+const S = {
+  project: {}, cfg: { agents: {} }, lib: [],
+  nodes: new Map(), edges: new Map(), rt: new Map(),
+  sel: new Set(), selEdge: null, focus: null, scroll: 0, hist: 0,
+  fly: null, lens: new Map(), rid: 0, acks: new Map(),
+  v: { x: 90, y: 110, k: 1 }, lastAgent: 'claude', lastNode: null, undo: [],
+  prefs: {}, models: {}, modelErr: {}, omniMode: 'then',
+};
+const nodeEls = new Map(), edgeEls = new Map(), juncEls = new Map();
+let ws = null, token = null, loaded = false;
+const primary = () => (S.sel.size === 1 ? [...S.sel][0] : null);
+const KINDS = ['note', 'gate', 'shot', 'tests', 'git'];
+const kindOf = n => (n && KINDS.includes(n.agent)) ? n.agent : 'agent';
+const isGate = k => k === 'gate' || k === 'shot' || k === 'tests';
+const incoming = id => [...S.edges.values()].filter(e => e.to === id);
+const outgoing = id => [...S.edges.values()].filter(e => e.from === id);
+
+/* ------------------------------------------------------------ network */
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws?t=${encodeURIComponent(token)}`);
+  ws.onopen = () => { $('#banner').hidden = true; const d = $('#liveDot'); d.className = 'live-dot'; d.textContent = 'live'; };
+  ws.onmessage = e => onMsg(JSON.parse(e.data));
+  ws.onclose = () => { if (gone) return; if (leaving) return farewell(leaving); $('#banner').hidden = false; const d = $('#liveDot'); d.className = 'live-dot off'; d.textContent = 'offline'; setTimeout(connect, 1000); };
+}
+function send(op, args = {}) { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ op, ...args })); }
+function req(op, args = {}) {
+  return new Promise(res => {
+    const rid = ++S.rid;
+    S.acks.set(rid, res);
+    send(op, { ...args, rid });
+    setTimeout(() => { if (S.acks.delete(rid)) res({ ok: false, error: 'timeout' }); }, 8000);
+  });
+}
+function onMsg(m) {
+  switch (m.t) {
+    case 'state': loadState(m); break;
+    case 'flow': applyFlow(m.nodes, m.edges); break;
+    case 'rt': queueRt(m); break;
+    case 'scr': onScreen(m); break;
+    case 'lib': S.lib = m.library; onLibChanged(); break;
+    case 'prefs': if (!prefDirty) { S.prefs = m.prefs || {}; if (pad.open) renderPad(); omni._key = null; renderOmni(); } break;
+    case 'proj': S.project.git = m.git; renderWhere(); if (pad.open) renderPad(); break;
+    case 'models': {
+      S.models[m.agent] = m.models || []; S.modelErr[m.agent] = m.err || null;
+      if (menuEl && menuEl.dataset.kind === 'model' && modelMenu.last) modelMenu.last.again();
+      if (pad.open) renderPad();
+      omni._key = null; renderOmni();
+      break;
+    }
+    case 'toast': toast(m.k, m.m); break;
+    case 'bye': farewell(m); break;
+    case 'hand': bead(m.edge, m.ok); break;
+    case 'ack': { const f = S.acks.get(m.rid); if (f) { S.acks.delete(m.rid); f(m.r); } break; }
+  }
+}
+function loadState(m) {
+  // the daemon was replaced by another build (a new install): fetch the matching page
+  const meta = document.querySelector('meta[name=weft-build]');
+  const mine = meta ? meta.content : '';
+  if (m.build && mine && mine !== '__BUILD__' && mine !== m.build) { location.reload(); return; }
+  S.project = m.project; S.cfg = m.cfg; S.lib = m.library;
+  S.prefs = m.cfg.prefs && typeof m.cfg.prefs === 'object' ? m.cfg.prefs : {};
+  S.models = m.models || {};
+  const dir = m.project.dir || '';
+  const hm = m.project.home || '';
+  $('#projName').textContent = hm && (dir === hm || dir.startsWith(hm + '/')) ? '~' + dir.slice(hm.length) : dir;
+  document.title = `${m.project.name} – weft`;
+  S.rt.clear();
+  for (const r of m.rt) S.rt.set(r.id, r);
+  if (!loaded) {
+    loaded = true;
+    try {
+      const v = JSON.parse(localStorage.getItem('weft-view:' + m.project.dir) || 'null');
+      if (v && isFinite(v.k)) S.v = v;
+      S.lastAgent = localStorage.getItem('weft-agent') || S.lastAgent;
+    } catch {}
+    // what you used last wins, wherever you used it
+    if (S.prefs.agent && S.cfg.agents[S.prefs.agent] && S.prefs.agent !== 'sh') S.lastAgent = S.prefs.agent;
+  }
+  applyFlow(m.flow.nodes, m.flow.edges);
+  for (const id of S.nodes.keys()) renderRt(id);
+  applyView();
+  renderTicker(); renderOmni(); renderWhere();
+  if (S.focus) send('watch', { id: S.focus });
+  // the first thing you see: where you are, and a prompt waiting for you
+  if (!padShown) { padShown = true; openPad(); }
+}
+let padShown = false;

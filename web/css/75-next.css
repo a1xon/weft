@@ -1,0 +1,14 @@
+/* "and then": continue here, hand over, or branch */
+#nextbar{position:fixed;z-index:46;width:410px;--bd:var(--cy2);--fill:#080c12;--c:12px;padding:11px 13px 11px;animation:rise .12s ease-out}
+#nextbar .nh{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+#nextbar .nt{flex:1;min-width:0;font:600 11.5px var(--display);letter-spacing:.04em;color:var(--i3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#nextbar .seg button{padding:5px 10px;font:600 11.5px var(--display);letter-spacing:.03em}
+#nextbar textarea{display:block;width:100%;min-height:62px;max-height:210px;resize:none;border:1px solid var(--l1);background:var(--void);padding:8px 10px;color:var(--i0);font:13px/1.55 var(--mono);outline:0}
+#nextbar textarea:focus{border-color:var(--cy2)}
+#nextbar textarea.nope{animation:nope .22s;border-color:var(--rd)}
+#nextbar .nx{margin:9px 0 0;color:var(--i2);font:11.5px/1.5 var(--mono)}
+#nextbar .nf{display:flex;align-items:center;gap:8px;margin-top:9px;flex-wrap:wrap}
+#nextbar .nf .sp{flex:1}
+#nextbar .nf .seg button{padding:4px 9px;font:500 11.5px var(--mono)}
+.hand{fill:none;stroke:var(--vi);stroke-width:1.5;stroke-dasharray:1 6;stroke-linecap:round;opacity:.75}
+.hand.wait{stroke:var(--am);opacity:1;animation:march .8s linear infinite}

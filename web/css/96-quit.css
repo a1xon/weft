@@ -1,0 +1,16 @@
+/* quitting: a short question when agents would end, then a calm last screen */
+#bQuit{padding:0 8px}
+#bQuit:hover:not(:disabled){border-color:var(--rd);color:var(--rd);box-shadow:0 0 14px rgba(255,92,122,.18)}
+#modal .win.quit{width:min(470px,100%);height:auto}
+#modal .qb{padding:4px 22px 20px;display:flex;flex-direction:column;gap:10px;color:var(--i1)}
+#modal .qb p{margin:0}
+#modal .qb .who{color:var(--i0)}
+#modal .qb .note{color:var(--i2);font-size:12px}
+#modal .qa{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+#modal .qa .btn{height:32px}
+#bye{position:fixed;inset:0;z-index:95;display:flex;align-items:center;justify-content:center;background:var(--void);padding:24px}
+#bye .by{max-width:520px;display:flex;flex-direction:column;gap:12px}
+#bye .by .word{font-size:30px}
+#bye .by h2{margin:6px 0 0;font:600 17px var(--display);letter-spacing:.03em;color:var(--i0)}
+#bye .by p{margin:0;color:var(--i2)}
+#bye .by code{display:block;padding:8px 12px;border:1px solid var(--l1);background:var(--s1);color:var(--cy);font:12.5px var(--mono);user-select:all}

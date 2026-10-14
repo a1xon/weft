@@ -1,0 +1,37 @@
+@font-face{font-family:"Chakra Petch";src:url(/f/chakra-500.woff2) format("woff2");font-weight:500;font-display:swap}
+@font-face{font-family:"Chakra Petch";src:url(/f/chakra-600.woff2) format("woff2");font-weight:600;font-display:swap}
+@font-face{font-family:"Chakra Petch";src:url(/f/chakra-700.woff2) format("woff2");font-weight:700;font-display:swap}
+@font-face{font-family:"JetBrains Mono";src:url(/f/jbmono.woff2) format("woff2");font-weight:100 800;font-display:swap}
+
+/* ------------------------------------------------------------------ tokens
+   Black with a blue undertone. One cold accent; state colours stay out of its way. */
+:root{
+  color-scheme:dark;
+  --display:"Chakra Petch",ui-sans-serif,system-ui,sans-serif;
+  --mono:"JetBrains Mono","Fira Code",ui-monospace,"DejaVu Sans Mono",Menlo,Consolas,monospace;
+  --void:#04060a; --bg:#070a10; --s1:#0a0e15; --s2:#0e141d; --s3:#151d29;
+  --l0:#111823; --l1:#1b2634; --l2:#2a3a50; --l3:#3d5370;
+  --i0:#eaf2ff; --i1:#c6d2e4; --i2:#8496b0; --i3:#566782; --i4:#394659;
+  --cy:#5cc8ff; --cy2:#2f95c9; --am:#ffb454; --gr:#3ddc97; --rd:#ff5c7a; --vi:#b78cff; --st:#6f84a3; --nt:#7aa7e0;
+  --tbg:#03050a; --tfg:#c3cfe0;
+  --c0:#2b3648;--c1:#ff5c7a;--c2:#3ddc97;--c3:#ffb454;--c4:#5cc8ff;--c5:#b78cff;--c6:#4fd8d0;--c7:#c3cfe0;
+  --c8:#566782;--c9:#ff8da0;--c10:#7cf0bd;--c11:#ffd08a;--c12:#9bdcff;--c13:#d2b8ff;--c14:#8cf0ea;--c15:#f2f7ff;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--void);color:var(--i1);font:400 12.5px/1.5 var(--mono);font-variant-ligatures:none;
+  -webkit-font-smoothing:antialiased;overflow:hidden;letter-spacing:.005em}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+button:disabled{opacity:.35;cursor:default}
+:focus-visible{outline:1px solid var(--cy);outline-offset:2px}
+[hidden]{display:none!important}
+::selection{background:rgba(92,200,255,.28)}
+*{scrollbar-width:thin;scrollbar-color:var(--l2) transparent}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-thumb{background:var(--l1)}::-webkit-scrollbar-thumb:hover{background:var(--l2)}
+
+/* chamfered panel: the border is a 1px inset of the fill over the border colour */
+.chamf{--c:10px;position:relative;background:var(--bd,var(--l2));
+  clip-path:polygon(0 0,calc(100% - var(--c)) 0,100% var(--c),100% 100%,var(--c) 100%,0 calc(100% - var(--c)))}
+.chamf::before{content:"";position:absolute;inset:1px;z-index:0;background:var(--fill,var(--s1));
+  clip-path:polygon(0 0,calc(100% - var(--c) + .41px) 0,100% calc(var(--c) - .41px),100% 100%,calc(var(--c) - .41px) 100%,0 calc(100% - var(--c) + .41px))}
+.chamf>*{position:relative;z-index:1}

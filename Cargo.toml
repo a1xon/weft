@@ -1,0 +1,19 @@
+[package]
+name = "weft"
+version = "0.1.0"
+edition = "2021"
+description = "A canvas for coding agents. tmux is the only runtime."
+license = "MIT"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "sync", "time", "net", "fs", "signal"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws", "json", "query"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+vt100 = "0.16"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"

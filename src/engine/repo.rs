@@ -1,0 +1,250 @@
+//! Git plumbing: small async calls that say what git said. Nothing in here knows about nodes,
+//! queues or the UI, so each function can be read (and tested by hand) on its own.
+
+use super::*;
+
+/// `git -C dir <args>`: whether it succeeded, and everything it printed (stdout, then stderr).
+pub(super) async fn git_run(dir: &Path, args: &[&str]) -> Result<(bool, String), String> {
+    let out = tokio::process::Command::new("git").arg("-C").arg(dir).args(args).output().await.map_err(|e| format!("git: {e}"))?;
+    let mut s = String::from_utf8_lossy(&out.stdout).into_owned();
+    s.push_str(&String::from_utf8_lossy(&out.stderr));
+    Ok((out.status.success(), s))
+}
+
+/// What git printed when it succeeded, trimmed.
+async fn git_out(dir: &Path, args: &[&str]) -> Option<String> {
+    match git_run(dir, args).await {
+        Ok((true, out)) => Some(out.trim().to_string()),
+        _ => None,
+    }
+}
+
+/// Switch to `branch`, creating it from where HEAD is when it does not exist yet.
+async fn switch_branch(dir: &Path, branch: &str) -> Result<(), String> {
+    let (exists, _) = git_run(dir, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).await?;
+    let args: Vec<&str> = if exists { vec!["checkout", "-q", branch] } else { vec!["checkout", "-q", "-b", branch] };
+    let (ok, out) = git_run(dir, &args).await?;
+    if ok {
+        Ok(())
+    } else {
+        Err(format!("could not switch to {branch}: {}", out.trim()))
+    }
+}
+
+/// `git add -A`, minus weft's own folder and anything that looks like a credential:
+/// weft commits and pushes on its own, so it must never sweep up secrets by accident.
+fn add_args() -> Vec<&'static str> {
+    vec![
+        "add",
+        "-A",
+        "--",
+        ".",
+        ":(exclude).weft",
+        ":(exclude,glob)**/.env",
+        ":(exclude,glob)**/.env.*",
+        ":(exclude,glob)**/*.pem",
+        ":(exclude,glob)**/*.key",
+        ":(exclude,glob)**/id_rsa*",
+        ":(exclude,glob)**/id_ed25519*",
+        ":(exclude,glob)**/*.p12",
+        ":(exclude,glob)**/.npmrc",
+        ":(exclude,glob)**/.netrc",
+    ]
+}
+
+/// Stage what changed and commit it. `place` ("" or " in the worktree") says where, for the error.
+/// Returns whether there was anything to commit.
+async fn stage_and_commit(dir: &Path, place: &str, subject: &str, body: &str) -> Result<bool, String> {
+    let (ok, out) = git_run(dir, &add_args()).await?;
+    if !ok {
+        return Err(format!("git add failed{place}: {}", out.trim()));
+    }
+    let (clean, _) = git_run(dir, &["diff", "--cached", "--quiet"]).await?;
+    if clean {
+        return Ok(false);
+    }
+    let mut args: Vec<&str> = vec!["commit", "-q", "-m", subject];
+    if !body.is_empty() {
+        args.extend(["-m", body]);
+    }
+    let (ok, out) = git_run(dir, &args).await?;
+    if ok {
+        Ok(true)
+    } else {
+        Err(format!("git commit failed{place}: {}", out.trim()))
+    }
+}
+
+/// How a merge of an agent's branch ended.
+enum Merged {
+    /// nothing new came in
+    Nothing,
+    /// a merge commit, abbreviated
+    At(String),
+    /// it conflicts (the merge was aborted): git's first line about it
+    Conflict(String),
+}
+
+async fn merge_no_ff(dir: &Path, branch: &str, subject: &str) -> Result<Merged, String> {
+    let before = git_out(dir, &["rev-parse", "HEAD"]).await.unwrap_or_default();
+    let (ok, out) = git_run(dir, &["merge", "--no-ff", "-q", "-m", subject, branch]).await?;
+    if !ok {
+        let _ = git_run(dir, &["merge", "--abort"]).await;
+        return Ok(Merged::Conflict(out.trim().lines().next().unwrap_or("").to_string()));
+    }
+    if git_out(dir, &["rev-parse", "HEAD"]).await.unwrap_or_default() == before {
+        return Ok(Merged::Nothing);
+    }
+    Ok(Merged::At(git_out(dir, &["rev-parse", "--short", "HEAD"]).await.unwrap_or_default()))
+}
+
+/// The name of the branch checked out in `dir`.
+async fn branch_of(dir: &Path) -> String {
+    git_out(dir, &["rev-parse", "--abbrev-ref", "HEAD"]).await.unwrap_or_default()
+}
+
+/// Commit whatever changed in the working tree (except weft's own folder). An agent that worked in
+/// its own worktree has its work committed there and merged here with a merge commit.
+pub(super) async fn commit_work(
+    dir: &Path,
+    branch: &str,
+    switch_first: bool,
+    subject: &str,
+    body: &str,
+    worktree: Option<&Path>,
+) -> Result<String, String> {
+    if switch_first && !branch.is_empty() {
+        switch_branch(dir, branch).await?;
+    }
+    if let Some(wt) = worktree {
+        stage_and_commit(wt, " in the worktree", subject, body).await?;
+        let b = branch_of(wt).await;
+        return match merge_no_ff(dir, &b, subject).await? {
+            Merged::Conflict(line) => Err(format!("merging {b} conflicts: {line}")),
+            Merged::Nothing => Ok(format!("nothing new to merge from {b}")),
+            Merged::At(h) => Ok(format!("{h} {subject} (merged {b})")),
+        };
+    }
+    if !stage_and_commit(dir, "", subject, body).await? {
+        return Ok(format!("nothing new to commit ({})", head_chars(subject, 48)));
+    }
+    let h = git_out(dir, &["rev-parse", "--short", "HEAD"]).await.unwrap_or_default();
+    Ok(format!("{h} {subject}"))
+}
+
+/// An agent committed on its own: report what git itself shows, and merge its worktree branch
+/// if it has one. A conflict comes back as `CONFLICT:<branch>: <line>` so the agent can be asked.
+pub(super) async fn after_reply(
+    dir: &Path,
+    branch: &str,
+    worktree: Option<&Path>,
+    name: &str,
+    note: &str,
+    subject: &str,
+) -> Result<String, String> {
+    let at = worktree.unwrap_or(dir);
+    let (_, head) = git_run(at, &["log", "-1", "--format=%h %s"]).await?;
+    let (_, st) = git_run(at, &["status", "--porcelain", "--", ".", ":(exclude).weft"]).await?;
+    let dirty = st.lines().filter(|l| !l.trim().is_empty()).count();
+    let tail = if dirty > 0 { format!("  [{dirty} file(s) still uncommitted]") } else { String::new() };
+    let Some(wt) = worktree else {
+        let said = if note.is_empty() { String::new() } else { format!(": {note}") };
+        return Ok(format!("{}  ({name}{said}){tail}", head.trim()));
+    };
+    if !branch.is_empty() {
+        switch_branch(dir, branch).await?;
+    }
+    let b = branch_of(wt).await;
+    match merge_no_ff(dir, &b, subject).await? {
+        Merged::Conflict(line) => Err(format!("CONFLICT:{b}: {line}")),
+        Merged::Nothing => Ok(format!("nothing new to merge from {b} ({name}){tail}")),
+        Merged::At(h) => Ok(format!("{h} {subject} (merged {b}){tail}")),
+    }
+}
+
+/// Push the branch. Besides the log line it returns what the repository looks like now, with
+/// exactly the commits this push added to the remote (or the commits of the round when there is
+/// no remote branch yet to compare with). A push the remote refused because it has commits this
+/// branch lacks is reported as `REJECTED:...` so the caller can have the branch brought up to date.
+pub(super) async fn push(dir: &Path, remote: &str, branch: &str, hashes: &[String]) -> (Result<String, String>, Option<Facts>) {
+    let remote = if remote.is_empty() { "origin" } else { remote };
+    match git_run(dir, &["remote", "get-url", remote]).await {
+        Err(e) => return (Err(e), None),
+        Ok((false, _)) => {
+            let f = facts(dir, hashes, None).await;
+            return (Ok(format!("no remote \"{remote}\": the commits stay local")), Some(f));
+        }
+        Ok(_) => {}
+    }
+    let branch = if branch.is_empty() {
+        match branch_of(dir).await.as_str() {
+            "" | "HEAD" => return (Err("not on a branch: set one on the node".into()), None),
+            b => b.to_string(),
+        }
+    } else {
+        branch.to_string()
+    };
+    // what the remote has now, to tell what this push adds
+    let before =
+        git_out(dir, &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/{remote}/{branch}")]).await.filter(|o| !o.is_empty());
+    match git_run(dir, &["push", "-u", remote, &branch]).await {
+        Err(e) => (Err(e), None),
+        Ok((true, _)) => (Ok(format!("pushed {branch} to {remote}")), Some(facts(dir, hashes, before.as_deref()).await)),
+        Ok((false, out)) => {
+            let rejected = out.contains("[rejected]") || out.contains("non-fast-forward") || out.contains("fetch first");
+            let tag = if rejected { "REJECTED:" } else { "" };
+            (Err(format!("{tag}push failed: {}", out.trim().lines().last().unwrap_or(""))), None)
+        }
+    }
+}
+
+/// The repository as a step after this one will want to know it: branch, HEAD, the commits and the
+/// files they touched. With `since` it is everything from there to HEAD, else the given commits.
+pub(super) async fn facts(dir: &Path, hashes: &[String], since: Option<&str>) -> Facts {
+    let lines = |s: String| -> Vec<String> { s.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect() };
+    let mut f = Facts {
+        branch: branch_of(dir).await,
+        head: git_out(dir, &["log", "-1", "--format=%h %s"]).await.unwrap_or_default(),
+        ..Facts::default()
+    };
+    let mut files: Vec<String> = Vec::new();
+    match since.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(old) => {
+            let range = format!("{old}..HEAD");
+            f.commits = lines(git_out(dir, &["log", "-n", "30", "--format=%h %s", &range]).await.unwrap_or_default());
+            files = lines(git_out(dir, &["diff", "--name-only", &range]).await.unwrap_or_default());
+        }
+        None => {
+            for h in hashes {
+                for c in lines(git_out(dir, &["log", "-1", "--format=%h %s", h]).await.unwrap_or_default()) {
+                    if !f.commits.contains(&c) {
+                        f.commits.push(c);
+                    }
+                }
+                // a merge shows what came in over its first parent
+                for x in lines(git_out(dir, &["show", "--name-only", "--format=", "-m", "--first-parent", h]).await.unwrap_or_default()) {
+                    if !files.contains(&x) {
+                        files.push(x);
+                    }
+                }
+            }
+        }
+    }
+    files.retain(|x| !x.starts_with(".weft/"));
+    files.sort();
+    files.dedup();
+    f.files = files;
+    f
+}
+
+/// The repository after a commit job that logged `res`.
+pub(super) async fn facts_of(dir: &Path, res: &Result<String, String>) -> Option<Facts> {
+    let h = lead_hash(res.as_ref().ok()?)?;
+    Some(facts(dir, &[h], None).await)
+}
+
+/// The abbreviated commit a log line starts with, if it starts with one.
+pub(super) fn lead_hash(line: &str) -> Option<String> {
+    let t = line.split_whitespace().next()?;
+    (t.len() >= 7 && t.len() <= 40 && t.chars().all(|c| c.is_ascii_hexdigit())).then(|| t.to_string())
+}

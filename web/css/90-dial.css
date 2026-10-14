@@ -1,0 +1,17 @@
+/* the dial */
+#dial{position:fixed;z-index:44;width:0;height:0;pointer-events:none}
+#dial .dring{position:absolute;left:-170px;top:-170px;overflow:visible}
+#dial .dshade{fill:url(#dialShade)}
+#dial .dbody{fill:url(#dialFill)}
+#dial .dseg.on .dbody{fill:url(#dialOn)}
+#dial .dedge{fill:none;stroke:var(--l3);stroke-width:2;stroke-linecap:round}
+#dial .dseg.on .dedge{stroke:var(--cy);stroke-width:3;filter:drop-shadow(0 0 5px rgba(92,200,255,.9))}
+#dial .dhole{fill:var(--void);stroke:var(--l2);stroke-width:1;stroke-dasharray:2 3}
+#dial .dcore{fill:var(--cy);filter:drop-shadow(0 0 4px var(--cy))}
+#dial .dpill{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center;white-space:nowrap;pointer-events:auto;cursor:pointer;text-shadow:0 0 6px #000,0 0 14px #000}
+#dial .dpill b{font:700 12.5px var(--display);letter-spacing:.06em;color:var(--i2);transition:color .1s}
+#dial .dpill span{font:500 10.5px/1.35 var(--mono);color:var(--i2);white-space:normal;width:166px;opacity:0;transition:opacity .1s}
+#dial .dpill.on b{color:var(--cy);text-shadow:0 0 10px rgba(92,200,255,.55),0 0 6px #000}
+#dial .dpill.on span{opacity:1}
+.prlink{display:block;color:var(--cy);font:600 11.5px var(--mono);text-decoration:underline;text-underline-offset:3px;word-break:break-all;margin:2px 0}
+.nw[data-step=true] .ag{border-style:dashed;color:var(--cy);border-color:var(--cy2)}

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="weft-build" content="__BUILD__">
+<title>weft</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2304060a'/%3E%3Crect x='7' y='6' width='8' height='20' fill='%235cc8ff'/%3E%3Crect x='19' y='21' width='7' height='5' fill='%235cc8ff' opacity='.55'/%3E%3C/svg%3E">
+<style>
+/*__CSS__*/
+</style>
+</head>
+<body>
+<div id="app">
+  <svg id="grid" aria-hidden="true"><defs>
+    <pattern id="pat" width="120" height="120" patternUnits="userSpaceOnUse">
+      <circle class="dot" cx="0" cy="0" r="1"/><circle class="dot" cx="30" cy="0" r="1"/><circle class="dot" cx="60" cy="0" r="1"/><circle class="dot" cx="90" cy="0" r="1"/>
+      <circle class="dot" cx="0" cy="30" r="1"/><circle class="dot" cx="30" cy="30" r="1"/><circle class="dot" cx="60" cy="30" r="1"/><circle class="dot" cx="90" cy="30" r="1"/>
+      <circle class="dot" cx="0" cy="60" r="1"/><circle class="dot" cx="30" cy="60" r="1"/><circle class="dot" cx="60" cy="60" r="1"/><circle class="dot" cx="90" cy="60" r="1"/>
+      <circle class="dot" cx="0" cy="90" r="1"/><circle class="dot" cx="30" cy="90" r="1"/><circle class="dot" cx="60" cy="90" r="1"/><circle class="dot" cx="90" cy="90" r="1"/>
+      <path class="plus" d="M-5 0H5M0 -5V5"/>
+    </pattern></defs><rect width="100%" height="100%" fill="url(#pat)"/></svg>
+  <div id="canvas">
+    <div id="world">
+      <svg id="edges"><g id="handG"></g><g id="edgeG"></g><g id="juncG"></g><g id="beadG"></g><path id="rubber"/></svg>
+      <div id="ghost"></div>
+      <div id="nodes"></div>
+      <div id="edgebar" hidden></div>
+    </div>
+  </div>
+
+  <header id="top">
+    <div class="brand"><span class="word">weft<i></i></span><span class="proj" id="projName"></span></div>
+    <div id="tick"></div>
+    <div id="etaTop" hidden title="when the last agent says it will be done"><span class="el">ETA</span><b class="et">0:00</b><span class="en"></span></div>
+    <div class="acts">
+      <span class="live-dot" id="liveDot">live</span>
+      <button class="btn" id="bNew" title="Start a task (N)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3v10M3 8h10"/></svg>new task</button>
+      <button class="btn dim" id="bLib" title="Standard prompts and addenda">library</button>
+      <button class="btn dim" id="bTidy" title="Arrange agents left to right (T)">tidy</button>
+      <button class="btn dim" id="bMore" aria-label="More">&middot;&middot;&middot;</button>
+      <button class="btn pri" id="bRun" title="Reset progress and send the prompt of every starting agent"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4.5 3v10l8-5z"/></svg>run flow</button>
+      <button class="btn dim" id="bQuit" title="Quit weft (Q)" aria-label="Quit"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="square"><path d="M8 2v6M4.6 4.4a5 5 0 1 0 6.8 0"/></svg></button>
+    </div>
+  </header>
+  <div id="tray"></div>
+  <div id="zoom"><button class="btn dim" id="zOut" aria-label="Zoom out">&minus;</button><span class="pct" id="zPct">100%</span><button class="btn dim" id="zIn" aria-label="Zoom in">+</button><button class="btn dim" id="zFit" title="Fit everything (F)">fit</button></div>
+
+  <div id="empty" class="chamf" hidden>
+    <h2>no agents yet</h2>
+    <p>Each agent is a terminal session in tmux. Link their results and they run as a flow.</p>
+    <span class="ln"><b>N</b>press N for a new task: agent, model, prompt, go</span>
+    <span class="ln"><b>&gt;_</b>or type below and press enter to start an agent</span>
+    <span class="ln"><b>2&times;</b>double-click the canvas to place one right there</span>
+    <span class="ln"><b>&#9671;</b>click or drag a node's diamond to hand its result on</span>
+    <span class="ln"><b>&#8942;</b>right-click anything for what it can do</span>
+    <div class="row"><button class="btn pri" id="bStarter">load a starter flow</button></div>
+  </div>
+
+  <div id="pad" hidden role="dialog" aria-label="New task"></div>
+  <div id="dock"><div id="qpanel" hidden></div><div id="where"></div><div id="omniw"><div id="omni" class="chamf"></div></div></div>
+  <div id="fly" class="chamf" hidden></div>
+  <div id="nextbar" class="chamf" hidden></div>
+  <div id="shotbox" hidden></div>
+  <div id="focus" hidden></div>
+  <div id="modal" hidden></div>
+  <div id="bye" hidden></div>
+  <div id="toasts"></div>
+  <div id="banner" hidden>offline &mdash; reconnecting&hellip;</div>
+</div>
+
+<script>
+/*__JS__*/
+</script>
+</body>
+</html>
