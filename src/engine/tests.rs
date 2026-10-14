@@ -1821,3 +1821,22 @@ fn a_message_to_an_agent_at_a_dialog_waits_until_the_dialog_is_closed() {
     e.cmd_send("a".into(), "now".into(), SendMode::Now, true);
     assert_eq!(e.rt["a"].queue.len(), 2, "both wait in the queue");
 }
+
+#[test]
+fn a_resized_card_keeps_its_size_and_shows_more_of_its_terminal() {
+    let mut e = engine();
+    let r = e.cmd(None, Cmd::NodeAdd { node: json!({"agent": "claude", "draft": true}), from: None, run: false });
+    let id = r["id"].as_str().unwrap().to_string();
+    let saved = |e: &Engine| serde_json::to_value(e.node(&id).unwrap()).unwrap();
+    assert!(saved(&e).get("w").is_none() && saved(&e).get("h").is_none(), "the default size is not written down");
+    let r = e.cmd(None, Cmd::NodeSet { id: id.clone(), patch: json!({"w": 640, "h": 480}) });
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!((e.node(&id).unwrap().w, e.node(&id).unwrap().h), (640.0, 480.0));
+    e.cmd(None, Cmd::NodeSet { id: id.clone(), patch: json!({"prompt": "go"}) });
+    assert_eq!(e.node(&id).unwrap().w, 640.0, "another edit leaves the size alone");
+    e.cmd(None, Cmd::NodeSet { id: id.clone(), patch: json!({"w": 0, "h": 0}) });
+    assert!(saved(&e).get("w").is_none(), "back to the default");
+    assert_eq!(crate::model::preview_rows(0.0), 12, "a card of the default height");
+    assert_eq!(crate::model::preview_rows(232.0), 12);
+    assert!(crate::model::preview_rows(480.0) > 25, "a taller card shows more of the terminal");
+}

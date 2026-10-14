@@ -104,7 +104,11 @@ impl Engine {
         } else {
             Value::Null
         };
-        let pv = if with_preview { term::preview(rt.parser.screen(), 12, &self.cfg.chrome) } else { vec![] };
+        let pv = if with_preview {
+            term::preview(rt.parser.screen(), crate::model::preview_rows(node.map_or(0.0, |n| n.h)), &self.cfg.chrome)
+        } else {
+            vec![]
+        };
         let queue: Vec<Value> =
             rt.queue.iter().map(|q| json!({"id": q.id, "text": head_chars(q.shown.trim(), 240), "src": q.src})).collect();
         let out = rt.output.as_deref().map(|o| head_chars(o.trim(), 1500));

@@ -172,6 +172,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await p.screenshot({ path: W + '/dial-5-pr.png' });
 
   // to the right of the PR: an agent that tests it live, starting from everything that was carried
+  await p.evaluate(id => centerOn(id), prid); await sleep(300); // in view, not under the toast in the corner
   const o4 = await p.locator('.nw[data-id="' + prid + '"] .port.out').boundingBox();
   await p.mouse.move(o4.x + o4.width / 2, o4.y + o4.height / 2); await p.mouse.down();
   await p.mouse.move(o4.x + o4.width / 2 + 240, o4.y + o4.height / 2 + 6, { steps: 10 });

@@ -100,7 +100,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(await p.locator('.nw[data-kind=note] .ans').innerText().then(t => t.includes('House rules')), 'a note holds free text');
 
   // --- H: gate: right-click canvas -> approve; link; it holds until a human clicks
-  await p.mouse.click(900, 600); await p.keyboard.press('f'); await sleep(600); // everything in view again
+  { const e0 = await emptySpot(); await p.mouse.click(e0.x, e0.y); } await p.keyboard.press('f'); await sleep(600); // everything in view again
   sp_ = await emptySpot();
   await p.mouse.click(sp_.x, sp_.y, { button: 'right' });
   await p.locator('.menu .mi', { hasText: /^approve/ }).click();

@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ cards */
-.nw{position:absolute;left:0;top:0;width:340px;height:232px;--edge:var(--l1);--stc:var(--st);--kc:var(--st)}
+.nw{position:absolute;left:0;top:0;width:var(--nw,420px);height:var(--nh,232px);--edge:var(--l1);--stc:var(--st);--kc:var(--st)}
 .nw[data-kind=note]{--kc:var(--nt)}
 .nw[data-kind=gate]{--kc:var(--vi)}
 .nw[data-kind=shot]{--kc:var(--cy)}
@@ -97,6 +97,12 @@
 .nw[data-kind=note] .port.in{display:none}
 .lod .ask,.lod .body,.lod .ft .ib,.lod .ag,.lod .qchip,.lod .fb{display:none}
 .lod .nw{height:84px}
+/* the corner a card is resized by: drag it, double-click for the default size */
+.grip{position:absolute;right:0;bottom:0;width:14px;height:14px;cursor:nwse-resize;z-index:6;opacity:0;transition:opacity .12s}
+.grip::before{content:"";position:absolute;right:3px;bottom:3px;width:7px;height:7px;border-right:2px solid var(--l3);border-bottom:2px solid var(--l3)}
+.nw:hover .grip,.nw.sizing .grip{opacity:1}
+.grip:hover::before,.nw.sizing .grip::before{border-color:var(--cy)}
+.lod .grip{display:none}
 .lod .nm{font-size:calc(17px*var(--fs))}
 .lod .ft{height:40px}
 .lod .stx{font-size:calc(13px*var(--fs))}

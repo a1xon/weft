@@ -99,6 +99,11 @@ pub struct Node {
     pub x: f64,
     #[serde(default)]
     pub y: f64,
+    /// The card's size when the person resized it; 0 = the default size.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub w: f64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub h: f64,
     /// Prompt template sent when the node is triggered.
     #[serde(default)]
     pub prompt: String,
@@ -220,6 +225,15 @@ pub fn image_ext(b: &[u8]) -> Option<&'static str> {
 
 fn yes_push() -> bool {
     true
+}
+
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
+}
+
+/// How many terminal rows a card shows: 12 on a card of the default height, more on a taller one.
+pub fn preview_rows(card_h: f64) -> usize {
+    12 + ((card_h - 232.0).max(0.0) / 16.0) as usize
 }
 
 fn two() -> u32 {

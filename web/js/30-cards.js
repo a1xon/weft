@@ -43,11 +43,12 @@ function mkNode(n) {
   el.bShip = h('button', { class: 'fb', hidden: true, title: 'commit what is there and push now' }, 'ship now');
   el.pin = h('div', { class: 'port in', title: 'input: click to add a step before this one, drag to link another agent in' });
   el.pout = h('div', { class: 'port out', title: 'what next: click to continue this agent, hand over or branch. Drag onto an agent to link, drag to empty canvas to spawn one there' });
+  el.grip = h('div', { class: 'grip', title: 'drag to resize: more of the terminal and the result. Double-click: the default size' });
   el.root = h('div', { class: 'nw', 'data-id': n.id },
     h('div', { class: 'node chamf' },
       h('div', { class: 'hd' }, el.st, el.nm, el.ag, el.gear), el.ask, el.body,
       h('div', { class: 'ft' }, el.stx, el.q, el.bGo, el.bChg, el.bNo, el.bArm, el.bShip, el.bRun, el.bStop, el.bOpen)),
-    el.pin, el.pout);
+    el.pin, el.pout, el.grip);
   nodeEls.set(n.id, el);
   const id = n.id;
 
@@ -121,13 +122,43 @@ function mkNode(n) {
   el.pin.addEventListener('pointerdown', e => startConnect(e, id, 'in'));
   el.pout.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); portMenu(id, 'out', e.clientX, e.clientY); });
   el.pin.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); portMenu(id, 'in', e.clientX, e.clientY); });
-  el.root.style.transform = `translate(${n.x}px,${n.y}px)`;
+  el.grip.addEventListener('pointerdown', e => { if (e.button === 0) { e.stopPropagation(); closeMenu(); resizeNode(e, id); } });
+  el.grip.addEventListener('dblclick', e => { e.stopPropagation(); sizeNode(id, 0, 0); });
+  placeNode(n);
   $('#nodes').append(el.root);
   return el;
 }
 function placeNode(n) {
   const el = nodeEls.get(n.id);
-  if (el) el.root.style.transform = `translate(${n.x}px,${n.y}px)`;
+  if (!el) return;
+  el.root.style.transform = `translate(${n.x}px,${n.y}px)`;
+  el.root.style.setProperty('--nw', nw(n) + 'px'); el.root.style.setProperty('--nh', nh(n) + 'px');
+}
+/* a card's size: dragged by its corner in 10px steps, kept in the flow (n.w, n.h; 0 = the default) */
+const MIN_W = 300, MIN_H = 200, MAX_W = 1600, MAX_H = 1200;
+function resizeNode(e, id) {
+  const n = S.nodes.get(id), el = nodeEls.get(id); if (!n || !el) return;
+  const sx = e.clientX, sy = e.clientY, w0 = nw(n), h0 = nh(n);
+  const step = v => Math.round(v / 10) * 10;
+  el.root.classList.add('sizing');
+  const mv = ev => {
+    const w = step(Math.min(MAX_W, Math.max(MIN_W, w0 + (ev.clientX - sx) / S.v.k)));
+    const hh = step(Math.min(MAX_H, Math.max(MIN_H, h0 + (ev.clientY - sy) / S.v.k)));
+    n.w = w === NW ? 0 : w; n.h = hh === NH ? 0 : hh;
+    placeNode(n); redrawEdgesOf(id); placeEdgeBar(); placeFly();
+  };
+  const up = () => {
+    removeEventListener('pointermove', mv); el.root.classList.remove('sizing');
+    if (nw(n) !== w0 || nh(n) !== h0) sizeNode(id, n.w || 0, n.h || 0);
+  };
+  addEventListener('pointermove', mv);
+  addEventListener('pointerup', up, { once: true });
+}
+function sizeNode(id, w, hh) {
+  const n = S.nodes.get(id); if (!n) return;
+  n.w = w; n.h = hh;
+  placeNode(n); redrawEdgesOf(id); placeFly();
+  send('node_set', { id, patch: { w, h: hh } });
 }
 function dragNodes(e, ids, then) {
   const sx = e.clientX, sy = e.clientY;

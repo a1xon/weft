@@ -178,7 +178,7 @@ async function linkNodes(from, to) {
   const tn = S.nodes.get(to), fn = S.nodes.get(from);
   if (tn && fn && kindOf(tn) === 'git' && tn.git_op === 'commit' && incoming(to).some(e => e.from !== from)) {
     const after = [...S.edges.values()].filter(e => e.from === to).map(e => e.to);
-    const id = await addGit(from, { x: tn.x, y: tn.y + NH + 70 }, 'commit');
+    const id = await addGit(from, { x: tn.x, y: tn.y + nh(tn) + 70 }, 'commit');
     if (!id) return;
     if (tn.branch) patchNode(id, { branch: tn.branch }, 0);
     for (const a of after) send('edge_add', { from: id, to: a });
@@ -201,7 +201,7 @@ function startConnect(e, fromId, side) {
   if (e.button !== 0) return;
   e.preventDefault(); e.stopPropagation(); closeMenu(); closeFly();
   const n = S.nodes.get(fromId);
-  const p0 = side === 'out' ? { x: n.x + NW, y: n.y + PY } : { x: n.x, y: n.y + PY };
+  const p0 = side === 'out' ? { x: n.x + nw(n), y: n.y + PY } : { x: n.x, y: n.y + PY };
   const sx = e.clientX, sy = e.clientY;
   let moved = false, over = null, last = e;
   const opts = side === 'out' && n ? dialFor(n) : [];

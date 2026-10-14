@@ -103,7 +103,7 @@ function drawHands() {
     want.add(n.id);
     let el = handEls.get(n.id);
     if (!el) { el = sv('path', { class: 'hand' }); handG.append(el); handEls.set(n.id, el); }
-    el.setAttribute('d', pathBetween(a.x + NW, a.y + PY, n.x, n.y + PY));
+    el.setAttribute('d', pathBetween(a.x + nw(a), a.y + PY, n.x, n.y + PY));
     const r = S.rt.get(n.id);
     el.classList.toggle('wait', !!(r && r.hand_wait));
   }
@@ -142,7 +142,7 @@ function drawEdge(e) {
     edgeEls.set(e.id, el);
   }
   const p = targetPoint(e);
-  const x1 = a.x + NW, y1 = a.y + PY;
+  const x1 = a.x + nw(a), y1 = a.y + PY;
   const d = pathBetween(x1, y1, p.x, p.y);
   el.vis.setAttribute('d', d); el.hit.setAttribute('d', d);
   const dx = Math.max(54, Math.abs(p.x - x1) * 0.5);

@@ -4,7 +4,9 @@
    in place: prompts are edited on the card, results unfold from the card,
    links are dragged, clicked and right-clicked. No side panels.
    ==================================================================== */
-const NW = 340, NH = 232, PY = 21, JX = 82;
+/* a card's size: the default, or what the person dragged it to (n.w, n.h) */
+const NW = 420, NH = 232, PY = 21, JX = 82;
+const nw = n => (n && n.w) || NW, nh = n => (n && n.h) || NH;
 const $ = (s, r = document) => r.querySelector(s);
 const nn = a => a.flat(9).filter(x => x != null && x !== false);
 const PROPS = new Set(['value', 'checked', 'selected', 'disabled', 'hidden']);

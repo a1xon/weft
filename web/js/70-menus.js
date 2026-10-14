@@ -59,8 +59,8 @@ function nodeMenu(id, x, y) {
       { label: 'ask again', hint: 'send this prompt to ' + host.name + ' once more', run: () => runNode(id) },
       { label: 'open ' + host.name + "'s terminal", run: () => openFocus(host.id) },
       { sep: true },
-      { label: 'hand over to a fresh agent', run: () => spawnHandoff(id, { x: n.x + NW + 150, y: n.y }) },
-      { label: 'commit what ' + host.name + ' did', run: () => spawnGit(id, { x: n.x + NW + 150, y: n.y }, 'commit') },
+      { label: 'hand over to a fresh agent', run: () => spawnHandoff(id, { x: n.x + nw(n) + 150, y: n.y }) },
+      { label: 'commit what ' + host.name + ' did', run: () => spawnGit(id, { x: n.x + nw(n) + 150, y: n.y }, 'commit') },
     );
   } else if (k === 'agent') {
     items.push(
@@ -159,7 +159,7 @@ function edgeMenu(id, x, y) {
 /* where a new card fits without overlapping another (and without covering a junction) */
 const filmH = id => { const el = nodeEls.get(id); return el && el.under ? el.under.offsetHeight + 12 : 0; };
 function freeSpot(x, y) {
-  const boxes = [...S.nodes.values()].map(n => ({ x: n.x - JX - 20, y: n.y - 14, w: NW + JX + 40, h: NH + 28 + filmH(n.id) }));
+  const boxes = [...S.nodes.values()].map(n => ({ x: n.x - JX - 20, y: n.y - 14, w: nw(n) + JX + 40, h: nh(n) + 28 + filmH(n.id) }));
   const overlaps = (cx, cy) => boxes.some(b => cx - JX < b.x + b.w && cx + NW > b.x && cy < b.y + b.h && cy + NH > b.y);
   if (!overlaps(x, y)) return { x: Math.round(x / 10) * 10, y: Math.round(y / 10) * 10 };
   // walk outward: below, then above, then further right
@@ -225,19 +225,19 @@ const spawnHere = (agent, x, y) => spawnAt(agent, x, y, {});
 function spawnLinked(fromId, dir, agent) {
   const src = S.nodes.get(fromId); if (!src) return;
   const ag = agent || agentFor(src);
-  const x = dir === 'next' ? src.x + NW + 150 : src.x - NW - 150;
+  const x = dir === 'next' ? src.x + nw(src) + 150 : src.x - NW - 150;
   return spawnAt(ag, x, src.y, dir === 'next' ? { from: fromId } : { to: fromId });
 }
 async function cloneAt(id) {
   const n = S.nodes.get(id); if (!n) return;
-  const c = { ...n }; delete c.id; c.name = ''; c.auto_name = false; c.x = n.x + 40; c.y = n.y + NH + 30;
+  const c = { ...n }; delete c.id; c.name = ''; c.auto_name = false; c.x = n.x + 40; c.y = n.y + nh(n) + 30;
   const r = await req('node_add', { node: c });
   if (r.id) { await whenNode(r.id); select([r.id]); }
 }
 /* a parallel copy that receives the same inputs */
 async function fork(id) {
   const n = S.nodes.get(id); if (!n) return;
-  const c = { ...n }; delete c.id; c.name = ''; c.auto_name = false; c.x = n.x; c.y = n.y + NH + 40; c.draft = false;
+  const c = { ...n }; delete c.id; c.name = ''; c.auto_name = false; c.x = n.x; c.y = n.y + nh(n) + 40; c.draft = false;
   const p = freeSpot(c.x, c.y); c.x = p.x; c.y = p.y;
   const r = await req('node_add', { node: c });
   if (!r.id) return;
@@ -248,7 +248,7 @@ async function keepAsNote(id) {
   const r = await req('result', { id });
   if (!r.text) return toast('info', 'no result to keep yet');
   const n = S.nodes.get(id);
-  const nid = await spawnAt('note', n.x, n.y + NH + 40, { text: r.text, edit: false });
+  const nid = await spawnAt('note', n.x, n.y + nh(n) + 40, { text: r.text, edit: false });
   if (nid) toast('ok', 'saved as a note you can link into any agent');
 }
 /* splice a new step into a link: A -> B becomes A -> N -> B */
@@ -256,7 +256,7 @@ async function spliceInto(edgeId, agent) {
   const e = S.edges.get(edgeId); if (!e) return;
   const a = S.nodes.get(e.from), b = S.nodes.get(e.to); if (!a || !b) return;
   const [ag, kindFields] = splitKind(agent === 'agent' ? agentFor(a) : agent);
-  const at = { x: (a.x + NW + b.x) / 2 - NW / 2, y: Math.max(a.y, b.y) + NH + 40 };
+  const at = { x: (a.x + nw(a) + b.x) / 2 - NW / 2, y: Math.max(a.y + nh(a), b.y + nh(b)) + 40 };
   const p = freeSpot(at.x, at.y);
   const node = { agent: ag, x: p.x, y: p.y, ...kindFields };
   if (kindOf({ agent: ag }) === 'agent') node.draft = true;
@@ -273,14 +273,14 @@ async function spliceInto(edgeId, agent) {
 /* several results into one agent: a visible Promise.all */
 async function gather(ids) {
   const ns = ids.map(i => S.nodes.get(i)).filter(Boolean); if (ns.length < 2) return;
-  const x = Math.max(...ns.map(n => n.x)) + NW + 160, y = Math.round(ns.reduce((s, n) => s + n.y, 0) / ns.length);
+  const x = Math.max(...ns.map(n => n.x + nw(n))) + 160, y = Math.round(ns.reduce((s, n) => s + n.y, 0) / ns.length);
   const nid = await spawnAt(agentFor(ns[0]), x, y, { edit: true });
   if (!nid) return;
   for (const n of ns) send('edge_add', { from: n.id, to: nid });
 }
 async function shipThese(ids) {
   const ns = ids.map(i => S.nodes.get(i)).filter(n => n && kindOf(n) === 'agent'); if (!ns.length) return;
-  const x = Math.max(...ns.map(n => n.x)) + NW + 150, y = Math.round(ns.reduce((t, n) => t + n.y, 0) / ns.length);
+  const x = Math.max(...ns.map(n => n.x + nw(n))) + 150, y = Math.round(ns.reduce((t, n) => t + n.y, 0) / ns.length);
   // one commit per agent, and the commits meet in one push
   const commits = [];
   for (const n of ns) { const c = await addGit(n.id, { x, y: n.y }, 'commit'); if (c) commits.push(c); }

@@ -57,6 +57,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 | double-click a link | splice a step into it |
 | drag a **check** from the tray onto a link / an agent | a gate / a watch (below) |
 | `Alt`-drag a card | clone it |
+| drag a card's bottom-right corner | resize it: a taller card shows more rows of its terminal; double-click the corner for the default size |
 | marquee or shift-click, then `G` | gather several results into one agent |
 | right-click anything | what it can do |
 

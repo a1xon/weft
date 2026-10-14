@@ -11,7 +11,7 @@ function closeFly() { S.fly = null; fly.hidden = true; fly.replaceChildren(); }
 function placeFly() {
   if (!S.fly || fly.hidden) return;
   const n = S.nodes.get(S.fly.id); if (!n) return;
-  const k = S.v.k, x = S.v.x + n.x * k, y = S.v.y + n.y * k, w = NW * k, hgt = NH * k;
+  const k = S.v.k, x = S.v.x + n.x * k, y = S.v.y + n.y * k, w = nw(n) * k, hgt = nh(n) * k;
   const fw = fly.offsetWidth || 480, fh = fly.offsetHeight || 300;
   let left = Math.max(10, Math.min(x, innerWidth - fw - 10));
   let top = y + hgt + 10;

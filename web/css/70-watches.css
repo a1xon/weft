@@ -1,8 +1,8 @@
 /* watches: evidence that collects next to the agent while it works */
 .nw.hasunder{z-index:2}
 /* everything that unfolds under a card stacks in one column there */
-.under{position:absolute;left:0;top:calc(100% + 8px);width:340px;display:flex;flex-direction:column;gap:12px}
-.film{width:340px}
+.under{position:absolute;left:0;top:calc(100% + 8px);width:100%;display:flex;flex-direction:column;gap:12px}
+.film{width:100%}
 /* needs you: the question, big enough to read, and the answer box under it */
 .plea{--fill:rgba(9,8,18,.97);border:1px solid var(--vi);background:var(--fill);box-shadow:0 0 22px rgba(183,140,255,.16);padding:8px 10px 9px}
 .plea .fh2{color:var(--vi);padding-bottom:7px}

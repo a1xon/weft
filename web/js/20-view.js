@@ -21,7 +21,7 @@ function fit() {
   const ns = [...S.nodes.values()];
   if (!ns.length) { S.v = { x: 90, y: 110, k: 1 }; return applyView(); }
   const x0 = Math.min(...ns.map(n => n.x)) - JX, y0 = Math.min(...ns.map(n => n.y));
-  const x1 = Math.max(...ns.map(n => n.x + NW)), y1 = Math.max(...ns.map(n => n.y + NH));
+  const x1 = Math.max(...ns.map(n => n.x + nw(n))), y1 = Math.max(...ns.map(n => n.y + nh(n)));
   const W = innerWidth, Hh = innerHeight - 200;
   const k = Math.min(1.1, Math.max(0.15, Math.min((W - 120) / (x1 - x0), (Hh - 40) / (y1 - y0))));
   S.v = { k, x: (W - (x1 - x0) * k) / 2 - x0 * k, y: 70 + (Hh - (y1 - y0) * k) / 2 - y0 * k };
@@ -30,7 +30,7 @@ function fit() {
 /* pan just enough that a node is fully visible between the bars */
 function reveal(id) {
   const n = S.nodes.get(id); if (!n) return;
-  const k = S.v.k, x0 = S.v.x + n.x * k, y0 = S.v.y + n.y * k, x1 = x0 + NW * k, y1 = y0 + NH * k;
+  const k = S.v.k, x0 = S.v.x + n.x * k, y0 = S.v.y + n.y * k, x1 = x0 + nw(n) * k, y1 = y0 + nh(n) * k;
   const top = 60, bottom = innerHeight - 110, left = 24 + JX * k, right = innerWidth - 24;
   let dx = 0, dy = 0;
   if (x0 < left) dx = left - x0; else if (x1 > right) dx = right - x1;
@@ -39,7 +39,7 @@ function reveal(id) {
 }
 function centerOn(id) {
   const n = S.nodes.get(id); if (!n) return;
-  S.v.x = innerWidth / 2 - (n.x + NW / 2) * S.v.k; S.v.y = (innerHeight - 160) / 2 - (n.y + NH / 2) * S.v.k + 40;
+  S.v.x = innerWidth / 2 - (n.x + nw(n) / 2) * S.v.k; S.v.y = (innerHeight - 160) / 2 - (n.y + nh(n) / 2) * S.v.k + 40;
   applyView();
 }
 /* layered left-to-right layout: depth = longest path from a start agent */
@@ -61,10 +61,12 @@ function tidy() {
   for (const n of ns) { const d = depth.get(n.id) || 0; if (!cols.has(d)) cols.set(d, []); cols.get(d).push(n); }
   const x0 = Math.min(...ns.map(n => n.x)), y0 = Math.min(...ns.map(n => n.y));
   const moves = [];
-  for (const [d, list] of [...cols.entries()].sort((a, b) => a[0] - b[0])) {
+  let x = x0; // a column is as wide as its widest card
+  for (const [, list] of [...cols.entries()].sort((a, b) => a[0] - b[0])) {
     list.sort((a, b) => a.y - b.y);
     let y = y0;
-    list.forEach(n => { moves.push({ id: n.id, x: x0 + d * (NW + 150), y }); y += NH + 40 + filmH(n.id); });
+    list.forEach(n => { moves.push({ id: n.id, x, y }); y += nh(n) + 40 + filmH(n.id); });
+    x += Math.max(...list.map(nw)) + 150;
   }
   for (const m of moves) { const n = S.nodes.get(m.id); n.x = m.x; n.y = m.y; placeNode(n); }
   send('node_move', { moves });
@@ -112,7 +114,7 @@ function marquee(e) {
   const up = ev => {
     removeEventListener('pointermove', mv); box.remove();
     const a = toWorld(Math.min(sx, ev.clientX), Math.min(sy, ev.clientY)), b = toWorld(Math.max(sx, ev.clientX), Math.max(sy, ev.clientY));
-    select([...S.nodes.values()].filter(n => n.x < b.x && n.x + NW > a.x && n.y < b.y && n.y + NH > a.y).map(n => n.id));
+    select([...S.nodes.values()].filter(n => n.x < b.x && n.x + nw(n) > a.x && n.y < b.y && n.y + nh(n) > a.y).map(n => n.id));
   };
   addEventListener('pointermove', mv);
   addEventListener('pointerup', up, { once: true });
