@@ -5,7 +5,7 @@
 #focus .fh2{display:flex;align-items:center;gap:12px;padding:10px 12px 10px 16px}
 #focus .fh2 .nm{flex:none;max-width:40vw}
 #focus .fh2 .stx{flex:1}
-#term{margin:0 12px 12px;background:var(--tbg);overflow:auto;outline:none;cursor:text;font:400 13px/1.3 var(--mono);color:var(--tfg);
+#term{margin:0 12px 12px;background:var(--tbg);overflow:auto;outline:none;cursor:text;font:400 calc(13px*var(--fs))/1.3 var(--mono);color:var(--tfg);
   font-variant-ligatures:none;padding:8px 10px;border:1px solid var(--l0)}
 #term:focus{border-color:rgba(92,200,255,.55)}
 #term .r{white-space:pre;overflow:hidden;min-height:1.3em}

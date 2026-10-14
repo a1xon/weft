@@ -277,10 +277,10 @@ function buildEdgeBar() {
   edgeBar.className = 'chamf';
   edgeBar.style.setProperty('--c', '8px'); edgeBar.style.setProperty('--fill', '#080c12'); edgeBar.style.setProperty('--bd', 'var(--cy2)');
   edgeBar.append(
-    h('div', { style: 'font:600 11.5px var(--display);letter-spacing:.04em;color:var(--i3);padding:8px 10px 4px;white-space:nowrap' }, `${s ? s.name : '?'}  →  ${t ? t.name : '?'}`),
+    h('div', { style: 'font:600 calc(11.5px*var(--fs)) var(--display);letter-spacing:.04em;color:var(--i3);padding:8px 10px 4px;white-space:nowrap' }, `${s ? s.name : '?'}  →  ${t ? t.name : '?'}`),
     h('div', { class: 'seg', style: 'margin:0 8px' }, [['done', '›  always'], ['ok', '✓  if it succeeds'], ['fail', '✕  if it fails']].map(([v, label]) =>
       h('button', { 'aria-pressed': String(e.on === v), onclick: () => send('edge_set', { id: e.id, on: v }) }, label))),
-    h('div', { style: 'padding:6px 10px;max-width:400px;font:11.5px/1.45 var(--mono);color:var(--i2);white-space:pre-wrap' },
+    h('div', { style: 'padding:6px 10px;max-width:400px;font:calc(11.5px*var(--fs))/1.45 var(--mono);color:var(--i2);white-space:pre-wrap' },
       src && src.out ? 'carries: ' + (src.out.length > 140 ? src.out.slice(0, 140) + '…' : src.out) : 'carries nothing yet'),
     h('div', { style: 'display:flex;gap:6px;padding:0 8px 8px' },
       h('button', { class: 'btn sm', onclick: () => send('handover', { from: e.from, to: e.to }) }, 'hand over again'),

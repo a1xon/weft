@@ -7,6 +7,8 @@
    Black with a blue undertone. One cold accent; state colours stay out of its way. */
 :root{
   color-scheme:dark;
+  /* text size: every font size is a multiple of this (1 = the sizes as written) */
+  --fs:1.2;
   --display:"Chakra Petch",ui-sans-serif,system-ui,sans-serif;
   --mono:"JetBrains Mono","Fira Code",ui-monospace,"DejaVu Sans Mono",Menlo,Consolas,monospace;
   --void:#04060a; --bg:#070a10; --s1:#0a0e15; --s2:#0e141d; --s3:#151d29;
@@ -19,7 +21,7 @@
 }
 *{box-sizing:border-box}
 html,body{height:100%;margin:0}
-body{background:var(--void);color:var(--i1);font:400 12.5px/1.5 var(--mono);font-variant-ligatures:none;
+body{background:var(--void);color:var(--i1);font:400 calc(12.5px*var(--fs))/1.5 var(--mono);font-variant-ligatures:none;
   -webkit-font-smoothing:antialiased;overflow:hidden;letter-spacing:.005em}
 button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
 button:disabled{opacity:.35;cursor:default}

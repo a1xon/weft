@@ -3,17 +3,17 @@
 #omni .oc>*{flex:none}
 #omni .oc>.pmodel{flex:0 1 auto;min-width:0}
 #omni .oc>.pyolo{margin-left:auto}
-#omni .oc .pagents.seg button{padding:4px 11px;font-size:12px}
-#omni .oc .pmodel,#omni .oc .pyolo{height:26px;padding:0 9px;font-size:11.5px}
-#omni .oc .peff .seg button{padding:4px 7px;font-size:11px}
-#omni .oc .dl{font-size:10.5px}
+#omni .oc .pagents.seg button{padding:4px 11px;font-size:calc(12px*var(--fs))}
+#omni .oc .pmodel,#omni .oc .pyolo{height:26px;padding:0 9px;font-size:calc(11.5px*var(--fs))}
+#omni .oc .peff .seg button{padding:4px 7px;font-size:calc(11px*var(--fs))}
+#omni .oc .dl{font-size:calc(10.5px*var(--fs))}
 #omni .or{display:flex;align-items:flex-start;gap:10px}
 .nw.drop.watch .node{--bd:var(--cy)}
-.tchip{display:flex;align-items:center;gap:6px;padding:3px 9px;border:1px solid var(--l2);font:600 11.5px var(--display);letter-spacing:.04em;color:var(--i1);cursor:grab;touch-action:none}
+.tchip{display:flex;align-items:center;gap:6px;padding:3px 9px;border:1px solid var(--l2);font:600 calc(11.5px*var(--fs)) var(--display);letter-spacing:.04em;color:var(--i1);cursor:grab;touch-action:none}
 .tchip:hover{border-color:var(--cy);color:var(--i0)}
 .tchip .ti svg{width:13px;height:13px;display:block}
 .tchip[data-k=gate] .ti{color:var(--vi)}.tchip[data-k=shot] .ti{color:var(--cy)}.tchip[data-k=tests] .ti{color:#ffd08a}
-.gghost{position:fixed;z-index:90;pointer-events:none;padding:4px 10px;border:1px solid var(--cy);background:rgba(8,12,18,.92);color:var(--cy);font:600 12px var(--display);letter-spacing:.04em;box-shadow:0 0 16px rgba(92,200,255,.3)}
+.gghost{position:fixed;z-index:90;pointer-events:none;padding:4px 10px;border:1px solid var(--cy);background:rgba(8,12,18,.92);color:var(--cy);font:600 calc(12px*var(--fs)) var(--display);letter-spacing:.04em;box-shadow:0 0 16px rgba(92,200,255,.3)}
 .ed.drop .vis{stroke:var(--cy);stroke-width:3.4;opacity:1;filter:drop-shadow(0 0 6px var(--cy))}
 @media (prefers-reduced-motion:reduce){
   .ed.run .vis,.nw[data-st=busy] .st svg,.nw[data-st=starting] .st svg,.nw[data-st=busy] .node::after,.nw[data-st=attention] .node::after,.word i,.tk.vi,.jn .seg.run{animation:none}

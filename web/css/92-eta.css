@@ -1,16 +1,16 @@
 /* the estimate: a countdown on the card, big */
 .eta{position:absolute;right:6px;top:-40px;display:flex;align-items:baseline;gap:9px;padding:3px 11px 5px;background:rgba(4,6,10,.94);border:1px solid var(--cy2);pointer-events:none;white-space:nowrap;z-index:3}
-.eta .el{font:600 10px var(--display);letter-spacing:.12em;color:var(--i3)}
-.eta .et{font:700 28px/1 var(--mono);letter-spacing:.01em;color:var(--cy);font-variant-numeric:tabular-nums}
-.eta .en{max-width:170px;overflow:hidden;text-overflow:ellipsis;font:500 11px var(--mono);color:var(--i2)}
+.eta .el{font:600 calc(10px*var(--fs)) var(--display);letter-spacing:.12em;color:var(--i3)}
+.eta .et{font:700 calc(28px*var(--fs))/1 var(--mono);letter-spacing:.01em;color:var(--cy);font-variant-numeric:tabular-nums}
+.eta .en{max-width:170px;overflow:hidden;text-overflow:ellipsis;font:500 calc(11px*var(--fs)) var(--mono);color:var(--i2)}
 .eta .bar{position:absolute;left:0;bottom:0;height:2px;width:0;background:var(--cy)}
 .eta.soon{border-color:var(--am)}.eta.soon .et{color:var(--am)}.eta.soon .bar{background:var(--am)}
 .eta.over{border-color:var(--rd)}.eta.over .et{color:var(--rd)}.eta.over .bar{background:var(--rd);width:100%!important}
 .eta.wait .et{color:var(--i3)}
 #etaTop{display:flex;align-items:baseline;gap:9px;padding:0 12px;height:30px;align-self:center;border:1px solid var(--cy2);background:rgba(4,6,10,.9);cursor:pointer;white-space:nowrap}
-#etaTop .el{font:600 10px var(--display);letter-spacing:.12em;color:var(--i3)}
-#etaTop .et{font:700 22px/30px var(--mono);color:var(--cy);font-variant-numeric:tabular-nums}
-#etaTop .en{max-width:140px;overflow:hidden;text-overflow:ellipsis;font:500 11px var(--mono);color:var(--i2)}
+#etaTop .el{font:600 calc(10px*var(--fs)) var(--display);letter-spacing:.12em;color:var(--i3)}
+#etaTop .et{font:700 calc(22px*var(--fs))/calc(30px*var(--fs)) var(--mono);color:var(--cy);font-variant-numeric:tabular-nums}
+#etaTop .en{max-width:140px;overflow:hidden;text-overflow:ellipsis;font:500 calc(11px*var(--fs)) var(--mono);color:var(--i2)}
 #etaTop.soon{border-color:var(--am)}#etaTop.soon .et{color:var(--am)}
 #etaTop.over{border-color:var(--rd)}#etaTop.over .et{color:var(--rd)}
 .ftxt.chg{color:var(--i1)}.ftxt.chg .res{color:var(--cy)}

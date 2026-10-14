@@ -86,7 +86,7 @@ function renderOmni() {
   omni.replaceChildren(...nn([top, h('div', { class: 'or' }, h('span', { class: 'prompt' }, '>_'), omniTa, h('span', { class: 'hint2' }, ...hint))]));
   if (had) { omniTa.focus(); try { omniTa.setSelectionRange(sel[0], sel[1]); } catch {} }
 }
-function growOmni() { omniTa.style.height = '22px'; omniTa.style.height = Math.min(160, omniTa.scrollHeight) + 'px'; }
+function growOmni() { omniTa.style.height = ''; omniTa.style.height = Math.min(160, omniTa.scrollHeight) + 'px'; }
 async function submitOmni(mode) {
   const text = omniTa.value.trim(); if (!text) return;
   const ids = [...S.sel];

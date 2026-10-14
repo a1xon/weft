@@ -125,7 +125,7 @@ function renderOptionsTab(n) {
   const name = h('input', { class: 'fld', value: n.name, 'aria-label': 'Name', oninput: e => patchNode(id, { name: e.target.value }) });
   const del = h('div', { class: 'sec' }, h('button', { class: 'btn sm danger', onclick: () => deleteNodes([id]) }, 'delete'));
   if (k === 'git') {
-    const f = (key, label, ph) => h('div', {}, h('h3', { style: 'margin:0 0 4px;font:600 11.5px var(--display);letter-spacing:.08em;color:var(--i3)' }, label),
+    const f = (key, label, ph) => h('div', {}, h('h3', { style: 'margin:0 0 4px;font:600 calc(11.5px*var(--fs)) var(--display);letter-spacing:.08em;color:var(--i3)' }, label),
       h('input', { class: 'fld', value: n[key] || '', placeholder: ph, oninput: e => patchNode(id, { [key]: e.target.value }) }));
     const msg = h('textarea', { class: 'fld', value: n.message || '', rows: 2, placeholder: '{{agent}}: {{result}}', oninput: e => patchNode(id, { message: e.target.value }) });
     msg.value = n.message || '';

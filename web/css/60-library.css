@@ -2,14 +2,14 @@
 #modal{position:fixed;inset:0;z-index:58;display:flex;align-items:center;justify-content:center;background:rgba(2,3,6,.72);padding:20px}
 #modal .win{--bd:var(--l2);--fill:var(--s1);--c:14px;width:min(900px,100%);height:min(600px,100%);display:flex;flex-direction:column;animation:rise .14s ease-out}
 #modal .mh{display:flex;align-items:center;padding:14px 12px 10px 20px;gap:10px}
-#modal .mh h2{margin:0;font:700 17px var(--display);letter-spacing:.03em;flex:1;color:var(--i0)}
+#modal .mh h2{margin:0;font:700 calc(17px*var(--fs)) var(--display);letter-spacing:.03em;flex:1;color:var(--i0)}
 #modal .mb{flex:1;display:grid;grid-template-columns:270px 1fr;min-height:0;border-top:1px solid var(--l1)}
 #modal .ml{overflow:auto;padding:8px;border-right:1px solid var(--l1)}
-#modal .grp{display:flex;align-items:center;padding:10px 8px 4px;color:var(--i3);font:600 11.5px var(--display);letter-spacing:.08em}
+#modal .grp{display:flex;align-items:center;padding:10px 8px 4px;color:var(--i3);font:600 calc(11.5px*var(--fs)) var(--display);letter-spacing:.08em}
 #modal .grp .btn{margin-left:auto}
-#modal .li{display:block;width:100%;text-align:left;padding:6px 10px;font:12.5px var(--mono);color:var(--i1);border-left:2px solid transparent}
+#modal .li{display:block;width:100%;text-align:left;padding:6px 10px;font:calc(12.5px*var(--fs)) var(--mono);color:var(--i1);border-left:2px solid transparent}
 #modal .li:hover{background:var(--s3)}
 #modal .li.on{background:var(--s3);border-left-color:var(--cy);color:var(--i0)}
 #modal .me{padding:16px 18px;overflow:auto;display:flex;flex-direction:column;gap:10px}
 #modal .me textarea{flex:1;min-height:260px}
-#modal label.chk{display:flex;gap:8px;align-items:center;color:var(--i2);font-size:12px}
+#modal label.chk{display:flex;gap:8px;align-items:center;color:var(--i2);font-size:calc(12px*var(--fs))}
