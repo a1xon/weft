@@ -1,0 +1,91 @@
+/* ------------------------------------------------------------------ the git tree: bottom right, beside the bar
+   (above it when the window is too narrow for both). The lanes are drawn in one svg behind the rows. */
+#gtree{position:fixed;z-index:21;right:14px;bottom:16px;width:var(--gw,380px);display:flex;flex-direction:column;align-items:flex-end;pointer-events:none}
+#gtree>*{pointer-events:auto}
+body.padopen #gtree{visibility:hidden}
+#gtree .gpanel{--bd:var(--l1);--fill:rgba(7,10,16,.94);--c:12px;width:100%;max-height:var(--gh,40vh);display:flex;flex-direction:column;padding:7px 0 5px}
+#gtree.stale .gpanel,#gtree.stale .gbox{opacity:.55}
+#gtree.shut .gpanel{display:none}
+#gtree:not(.shut) .gbox{display:none}
+
+/* the head: which branch (a click picks another), how far it is from its upstream, the folder */
+#gtree .gh{display:flex;align-items:center;gap:8px;min-width:0;padding:0 6px 6px 10px;border-bottom:1px solid var(--l0)}
+#gtree .gbr{display:inline-flex;align-items:center;gap:6px;min-width:0;padding:1px 6px;margin-left:-6px;border:1px solid transparent;
+  font:600 calc(12px*var(--fs)) var(--display);letter-spacing:.03em;color:var(--i0)}
+#gtree .gi{flex:none;display:grid;place-items:center;color:var(--cy)}
+#gtree .gi svg{width:14px;height:14px}
+#gtree .gbr .gn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#gtree .gbr::after{content:"▾";flex:none;font:400 calc(11px*var(--fs)) var(--mono);color:var(--i3)}
+#gtree .gbr:hover,#gtree .gbr:focus-visible{border-color:var(--l2);background:var(--s1)}
+#gtree .gbr.pinned .gi{color:var(--vi)}
+#gtree .gab{flex:none;font:500 calc(10.5px*var(--fs)) var(--mono);color:var(--i3);white-space:nowrap}
+#gtree .gab b{font-weight:600;color:var(--am)}
+#gtree .gab i{font-style:normal;color:var(--cy)}
+#gtree .gdir{flex:1;min-width:0;text-align:right;font:500 calc(10.5px*var(--fs)) var(--mono);color:var(--i4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#gtree .gh .ib{width:22px;height:22px}
+
+/* the rows */
+#gtree .glist{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain}
+#gtree .gin{position:relative;padding:3px 0}
+#gtree svg.glanes{position:absolute;z-index:1;left:0;top:0;pointer-events:none;overflow:visible}
+#gtree .gr{position:relative;padding:0 10px 0 var(--gx,24px);cursor:pointer}
+#gtree .gline{display:flex;align-items:center;gap:6px;height:calc(20px*var(--fs));min-width:0;white-space:nowrap}
+#gtree .gs{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font:calc(11.5px*var(--fs)) var(--mono);color:var(--i1)}
+#gtree .ga{flex:none;font:500 calc(10.5px*var(--fs)) var(--mono);color:var(--i3)}
+#gtree .gr:hover{background:rgba(92,200,255,.045)}
+#gtree .gr:hover .gs{color:var(--i0)}
+#gtree .gr.open{background:var(--s2)}
+#gtree .gr.work{cursor:default}
+#gtree .gr.work .gs{color:var(--am)}
+#gtree .gr.fresh{animation:gfresh 2.4s ease-out}
+@keyframes gfresh{0%,20%{background:rgba(92,200,255,.2)}}
+#gtree .gempty{padding:10px 12px;color:var(--i3);font:calc(11.5px*var(--fs)) var(--mono)}
+#gtree .gfoot{padding:4px 10px 0}
+#gtree .gfoot:empty{display:none}
+#gtree .gfoot button{font:500 calc(10.5px*var(--fs)) var(--mono);color:var(--i3)}
+#gtree .gfoot button:hover{color:var(--cy)}
+
+/* where branches and tags are */
+#gtree .rf{flex:none;max-width:118px;overflow:hidden;text-overflow:ellipsis;padding:0 5px;border:1px solid var(--l2);
+  font:600 calc(10px*var(--fs))/calc(15px*var(--fs)) var(--mono);color:var(--i2)}
+#gtree .rf.loc{color:var(--cy);border-color:rgba(47,149,201,.6)}
+#gtree .rf.cur{color:#04121c;background:var(--cy);border-color:var(--cy)}
+#gtree .rf.rem{color:var(--i3);border-style:dashed}
+#gtree .rf.tag{color:var(--vi);border-color:rgba(183,140,255,.45)}
+#gtree .rf.card{color:var(--i0);border-color:var(--l3)}
+#gtree .rf i{font-style:normal;opacity:.75;margin-left:3px}
+
+/* the lanes: one colour per line of work, the uncommitted files dashed */
+#gtree .glanes path{fill:none;stroke-width:1.6;stroke-linecap:round}
+#gtree .glanes .hd{fill:none;stroke:var(--cy);stroke-width:1.4;filter:drop-shadow(0 0 4px rgba(92,200,255,.7))}
+#gtree .glanes circle.m{fill:var(--s1);stroke-width:1.8}
+#gtree .glanes circle.w{fill:none;stroke:var(--am);stroke-width:1.4;stroke-dasharray:2 2}
+#gtree .k0{stroke:var(--cy);fill:var(--cy)}
+#gtree .k1{stroke:var(--vi);fill:var(--vi)}
+#gtree .k2{stroke:var(--gr);fill:var(--gr)}
+#gtree .k3{stroke:#ff8da0;fill:#ff8da0}
+#gtree .k4{stroke:#4fd8d0;fill:#4fd8d0}
+#gtree .k5{stroke:var(--nt);fill:var(--nt)}
+#gtree .k6{stroke:#ffd08a;fill:#ffd08a}
+#gtree path.kw{stroke:var(--am);stroke-dasharray:2 3}
+
+/* one commit, unfolded: who, when, the whole message, the files */
+#gtree .gdet{margin:1px 0 7px;padding:6px 8px;background:var(--void);border-left:2px solid var(--l2);cursor:text;user-select:text;
+  font:calc(11px*var(--fs))/1.5 var(--mono);color:var(--i2)}
+#gtree .gdh{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--i3)}
+#gtree .ghash{font:600 calc(10.5px*var(--fs)) var(--mono);color:var(--cy);padding:0 4px;border:1px solid var(--l2)}
+#gtree .ghash:hover{border-color:var(--cy)}
+#gtree .gmsg{margin:5px 0 6px;color:var(--i1);white-space:pre-wrap;word-break:break-word;max-height:12em;overflow:auto}
+#gtree .gf{display:flex;gap:6px;min-width:0;white-space:nowrap}
+#gtree .gf b{flex:none;min-width:3.4em;text-align:right;font-weight:500}
+#gtree .gf .ad{color:var(--gr)}
+#gtree .gf .dl{color:var(--rd);min-width:2.8em}
+#gtree .gf span{overflow:hidden;text-overflow:ellipsis;color:var(--i2)}
+#gtree .gnote{color:var(--i3)}
+
+/* folded away: a box in the corner with the branch and its last commit */
+#gtree .gbox{display:flex;align-items:center;gap:8px;max-width:100%;height:28px;padding:0 11px;border:1px solid var(--l1);background:rgba(7,10,16,.9);
+  font:600 calc(11.5px*var(--fs)) var(--display);letter-spacing:.04em;color:var(--i1);transition:border-color .12s,color .12s}
+#gtree .gbox:hover{border-color:var(--l3);color:var(--i0)}
+#gtree .gbox .gs{font-size:calc(11px*var(--fs));color:var(--i3);letter-spacing:0}
+#gtree .gbox .gab{letter-spacing:0}

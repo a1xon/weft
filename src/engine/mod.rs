@@ -39,6 +39,7 @@ mod gates;
 mod git;
 mod graph;
 mod handover;
+mod history;
 mod info;
 mod repo;
 mod run;
@@ -523,6 +524,8 @@ impl Engine {
             Ev::Disc { id } => {
                 self.clients.remove(&id);
             }
+            // (git takes a moment: the log answers by itself, the engine does not wait for it)
+            Ev::Cmd { cmd: Cmd::Log { dir, branch, n, show }, reply, .. } => self.cmd_log(dir, branch, n, show, reply),
             Ev::Cmd { client, cmd, reply } => {
                 let r = self.cmd(client, cmd);
                 if let Some(rp) = reply {

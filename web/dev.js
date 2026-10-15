@@ -1,6 +1,6 @@
 /* dev: not part of weft proper (see src/dev.rs). The page was read from web/ on disk; this
    follows the edits there. A style sheet is swapped in place. A changed script or shell reloads
-   the page, but not while you type or drag (the tag in the corner says it is waiting), and puts
+   the page, but not while you type or drag (a tag top left says it is waiting), and puts
    back what was open: selection, flyout, terminal, launch pad. An error in the page's script
    shows in a bar that names its file and line. Its own <script>, so it runs even when the
    page's script does not parse, and reloads once that is fixed. */
@@ -13,12 +13,8 @@
 
   const style = document.createElement('style');
   style.textContent = `
-#devtag{position:fixed;z-index:90;right:14px;bottom:16px;pointer-events:none;font:500 10.5px/18px var(--mono,monospace);
-  color:var(--i3,#566782);border:1px solid var(--l1,#1b2634);background:rgba(7,10,16,.9);padding:2px 8px;letter-spacing:.03em}
-#devtag b{color:var(--cy,#5cc8ff);font-weight:600}
-#devtag.flash{color:var(--cy,#5cc8ff);border-color:var(--cy2,#2f95c9)}
-#devtag.stale{pointer-events:auto;cursor:pointer;color:#12040a;background:var(--am,#ffb454);border-color:var(--am,#ffb454)}
-#devtag.away{opacity:.5}
+#devtag{position:fixed;z-index:90;left:14px;top:50px;cursor:pointer;font:500 10.5px/18px var(--mono,monospace);letter-spacing:.03em;
+  color:#12040a;background:var(--am,#ffb454);border:1px solid var(--am,#ffb454);padding:2px 8px}
 #deverr{position:fixed;z-index:95;left:50%;top:50px;transform:translateX(-50%);max-width:min(900px,calc(100vw - 32px));display:flex;gap:12px;
   align-items:flex-start;padding:8px 10px 8px 12px;background:#1a0810;border:1px solid #5a1f2c;border-left:3px solid var(--rd,#ff5c7a);
   color:#ffd3dc;font:500 12px/1.5 var(--mono,monospace);white-space:pre-wrap;word-break:break-word}
@@ -26,26 +22,15 @@
 #deverr button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;opacity:.7;padding:0 2px}`;
   document.head.append(style);
 
-  /* ---------------------------------------------------------- the tag and the error bar */
-  let tag = null, bar = null, flashT = 0;
-  const mount = () => {
-    if (tag || !document.body) return !!tag;
+  /* ---------------------------------------------------------- the tag (only while a reload waits) and the error bar */
+  let tag = null, bar = null;
+  function waiting() {
+    if (tag || !document.body) return;
     tag = document.createElement('div'); tag.id = 'devtag';
     tag.title = 'dev: this page follows edits to web/ on disk (src/dev.rs). WEFT_WEB_DIR=off turns it off.';
-    tag.onclick = () => { if (stale) reload(); };
-    document.body.append(tag); show('live');
-    return true;
-  };
-  function show(what) {
-    if (!mount()) return;
-    tag.className = what === 'stale' ? 'stale' : what === 'away' ? 'away' : '';
-    tag.innerHTML = what === 'stale' ? 'ui changed &middot; reloads when you are done &middot; <u>now</u>'
-      : what === 'away' ? 'live ui &middot; waiting for weft' : '<b>&#9673;</b> live ui';
-  }
-  function flash(text) {
-    if (!mount() || stale) return;
-    tag.className = 'flash'; tag.innerHTML = '<b>&#8635;</b> ' + text;
-    clearTimeout(flashT); flashT = setTimeout(() => { if (!stale) show('live'); }, 1400);
+    tag.innerHTML = 'ui changed &middot; reloads when you are done &middot; <u>now</u>';
+    tag.onclick = reload;
+    document.body.append(tag);
   }
 
   // an inline script's error is reported by its line in the page: name the file and its line instead
@@ -95,7 +80,7 @@
   function settle() {
     if (!stale) return;
     clearTimeout(retry);
-    if (busy()) { show('stale'); retry = setTimeout(settle, 1000); return; }
+    if (busy()) { waiting(); retry = setTimeout(settle, 1000); return; }
     reload();
   }
   function reload() { keep(); location.reload(); }
@@ -107,7 +92,6 @@
       const css = await r.text();
       if (sheet) sheet.textContent = css;
       have.css = r.headers.get('x-weft-css') || have.css;
-      flash('styles');
     } catch { await sleep(1000); }
   }
 
@@ -118,10 +102,10 @@
         const res = await fetch(`/dev/wait?css=${have.css}&page=${have.page}`, { cache: 'no-store' });
         if (!res.ok) throw new Error(res.status);
         r = await res.json();
-      } catch { show('away'); await sleep(2000); continue; }
+      } catch { await sleep(2000); continue; }
       if (r.page !== have.page) { have.page = r.page; stale = true; }
       if (r.css !== have.css) await restyle();
-      if (stale) settle(); else if (tag && tag.className === 'away') show('live');
+      if (stale) settle();
     }
   }
 
@@ -161,6 +145,6 @@
     }, 50);
   }
 
-  addEventListener('DOMContentLoaded', () => { mount(); restore(); });
+  addEventListener('DOMContentLoaded', restore);
   addEventListener('load', () => follow());
 })(__DEVCFG__);

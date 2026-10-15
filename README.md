@@ -64,6 +64,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 | marquee or shift-click, then `G` | gather several results into one agent |
 | right-click anything | what it can do |
 | drag finished cards onto the **archive** (bottom left) | they are filed: off the canvas, their terminals end, their results kept (below) |
+| look at the **git tree** (bottom right) | the commits of the branch where you are, live; its name picks another branch, a click on a commit shows its files (below) |
 | **tidy** (top bar) or `T` | lines the cards up: each flow left to right in columns, a card level with what it is linked to (a chain is one straight row, a fork fans out around its start), no link crossing another or running through a card; flows stack, lone cards sit in a row under them. `Ctrl+Z` puts it back |
 
 Several links into one agent draw an **AND** ring (`Promise.all`): it starts when all have
@@ -214,6 +215,25 @@ in the bottom left corner.
 
 `archive_s` (1800) and `archive_flow_s` (3600) in `config.json` set the two times in seconds; `0`
 means never. The archive keeps the latest 100 drops.
+
+### The git tree
+
+Bottom right, beside the bar: the commits of the branch where you are, drawn as a graph (a lane
+per line of work, merges joining them, a ring on what is checked out, the branches and tags where
+they point). *Where you are* is the folder the line above the bar names; when that line shows
+another folder, the tree does too. It is live: weft looks at the folder every few seconds while a
+page is open, and a commit by any agent, a fetch or a new branch shows up by itself, lit up for a
+moment. Files nobody committed yet sit on top as *N uncommitted*.
+
+* **Another branch.** Click the name in its head: the checked-out one (it follows a switch),
+  *every branch* at once, or any local or remote branch. Only what is shown changes, nothing is
+  checked out; the choice is kept per folder. The head also says how far the branch is from its
+  upstream (`↑2` to push, `↓1` to pull, *pushed*). A branch weft cut for an agent's worktree wears
+  that card's name.
+* **A commit.** A click unfolds it: hash (click to copy), author, time, the whole message and the
+  files with lines added and removed. *older commits…* at the end loads more.
+* **Out of the way.** `–` folds it to a box with the branch and its last commit (remembered); the
+  launch pad hides it; when the window is too narrow for it beside the bar it sits above it.
 
 ## Prompt library
 
@@ -433,6 +453,7 @@ src/engine/        the single actor that owns all state
     git.rs         commit, push and open PR as steps; repo.rs is the git plumbing under them
     handover.rs    a fresh agent takes over another one's work
     archive.rs     finished work filed away (by hand or by itself), kept, brought back
+    history.rs     the commits of a branch for the git tree in the corner (read when asked, nothing kept)
     commands.rs    the command set and its dispatcher (each command lives in its domain's module)
     ui.rs          what browsers are told, and the state file
     info.rs        the project folder and each CLI's model list
@@ -504,10 +525,10 @@ tests/ui/run.sh                # browser simulation (see tests/ui/README.md)
 Run weft in its own source folder and the page is read from `web/` on disk instead of the
 binary, and an open tab follows every edit there, yours or an agent's: a style sheet is
 swapped in place, a changed script or `index.html` reloads the page and puts back what was
-open (view, selection, flyout, terminal, launch pad). It waits while you type or drag. A tag
-in the bottom right corner says it is on (amber while a reload is waiting; click it to reload
-now). An error in the page's script shows in a bar with its file and line; the follower runs
-apart from the page's script, so a script that no longer parses reloads by itself once fixed.
+open (view, selection, flyout, terminal, launch pad). It waits while you type or drag; an amber
+tag top left says so then (click it to reload now). An error in the page's script shows in a bar
+with its file and line; the follower runs apart from the page's script, so a script that no
+longer parses reloads by itself once fixed.
 A file added under `css/` or `js/` is part of the next load (and must be listed in `web.rs`
 before the next build; `cargo test` says so).
 

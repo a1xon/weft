@@ -31,8 +31,15 @@ function fitView(at) {
   const x0 = Math.min(...ns.map(n => n.x)) - JX, y0 = Math.min(...ns.map(n => n.y));
   const x1 = Math.max(...ns.map(n => n.x + nw(n))), y1 = Math.max(...ns.map(n => n.y + nh(n)));
   const W = innerWidth, Hh = Math.min(innerHeight - 200, barTop() - 10 - 70);
-  const k = Math.min(1.1, Math.max(0.15, Math.min((W - 120) / (x1 - x0), (Hh - 40) / (y1 - y0))));
-  return { k, x: (W - (x1 - x0) * k) / 2 - x0 * k, y: 70 + (Hh - (y1 - y0) * k) / 2 - y0 * k };
+  const place = (w, hh) => {
+    const k = Math.min(1.1, Math.max(0.15, Math.min((w - 120) / (x1 - x0), (hh - 40) / (y1 - y0))));
+    return { k, x: (w - (x1 - x0) * k) / 2 - x0 * k, y: 70 + (hh - (y1 - y0) * k) / 2 - y0 * k };
+  };
+  // the git tree in the corner: cards that would reach under it go beside it or above it, whichever is larger
+  const v = place(W, Hh), t = treeBox();
+  if (!t || v.x + x1 * v.k <= t.left || v.y + y1 * v.k <= t.top) return v;
+  const beside = place(t.left, Hh), above = place(W, Math.min(Hh, t.top - 80));
+  return beside.k >= above.k ? beside : above;
 }
 /* pan just enough that a node is fully visible between the bars */
 function reveal(id) {
@@ -42,6 +49,13 @@ function reveal(id) {
   let dx = 0, dy = 0;
   if (x0 < left) dx = left - x0; else if (x1 > right) dx = right - x1;
   if (y0 < top) dy = top - y0; else if (y1 > bottom) dy = bottom - y1;
+  // (and out from under the git tree in the corner, the shorter way)
+  const t = treeBox();
+  if (t && x1 + dx > t.left - 10 && y1 + dy > t.top - 10) {
+    const ux = t.left - 10 - (x1 + dx), uy = t.top - 10 - (y1 + dy);
+    const canX = x0 + dx + ux >= left, canY = y0 + dy + uy >= top;
+    if (canX && (!canY || ux >= uy)) dx += ux; else if (canY) dy += uy;
+  }
   if (dx || dy) { S.v.x += dx; S.v.y += dy; applyView(); }
 }
 function centerOn(id) {

@@ -40,6 +40,7 @@ function pathParts() {
 /* the line above every prompt input: which folder will an agent work in? */
 function renderWhere() {
   const p = pathParts(), g = (S.project && S.project.git) || {};
+  treeFollow(p.dir, g);   // (the git tree in the corner shows this folder too)
   $('#where').replaceChildren(...nn([
     h('span', { title: p.dir }, p.parent), h('b', { title: p.dir }, p.name),
     g.repo ? h('span', { class: 'br' }, g.branch) : null,

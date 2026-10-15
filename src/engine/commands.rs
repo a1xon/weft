@@ -6,6 +6,10 @@ pub(super) fn yes() -> bool {
     true
 }
 
+fn log_n() -> usize {
+    100
+}
+
 #[derive(Deserialize, Debug)]
 pub struct Mv {
     pub id: String,
@@ -72,6 +76,18 @@ pub enum Cmd {
     },
     /// Look at the project folder again (branch, uncommitted files).
     Proj {},
+    /// The commits of a folder's branch for the git tree in the corner ("": what is checked out,
+    /// "*": every branch), or one commit in full (`show`). Answered in `Engine::handle`, off the engine.
+    Log {
+        #[serde(default)]
+        dir: String,
+        #[serde(default)]
+        branch: String,
+        #[serde(default = "log_n")]
+        n: usize,
+        #[serde(default)]
+        show: String,
+    },
     /// The agent says how long it will take (seconds from now); an update replaces the last one.
     Eta {
         node: String,
@@ -306,6 +322,11 @@ impl Engine {
             Cmd::PrefSet { prefs } => self.cmd_pref_set(prefs),
             Cmd::Proj {} => self.cmd_proj(),
             Cmd::Models { agent, force } => self.cmd_models(agent, force),
+            Cmd::Log { dir, branch, n, show } => {
+                // (only a caller that waits for the answer gets one: see `Engine::handle`)
+                self.cmd_log(dir, branch, n, show, None);
+                json!({"ok": false, "error": "the log answers by itself"})
+            }
             Cmd::LibSet { library } => self.cmd_lib_set(library),
             Cmd::Start { id } => self.cmd_start(id),
             Cmd::Stop { id } => self.cmd_stop(id),

@@ -16,6 +16,7 @@ socket and config) and runs, one fresh daemon each:
 | `story.cjs` | the guided story: the launch pad, two agents in parallel, tests, push, counting gestures |
 | `features.cjs` | every gesture and node kind: drafts, links, splice, notes, approval gate, flyout, menus, gather, queue, library |
 | `pad.cjs` | the first screen: folder, agent / model / reasoning, addenda, remembered choices, start |
+| `tree.cjs` | the git tree in the corner: beside the bar, live (an uncommitted file, a commit made outside weft), a merge in two lanes, a commit unfolded with its files, another branch / every branch picked without checking out (kept per folder), folded to a box, above the bar in a narrow window, fit keeps cards out from under it |
 | `next.cjs` | then / hand over / branch from the ◇, the message bar's tab, the baton line |
 | `watch.cjs` | checks: tray, watch on an agent, grid, steer, approve, zoom, paste, tests watch, gate on a link |
 | `eta.cjs` | the countdown: asked once, large on the card, in the top bar, asked again when it runs out |
@@ -26,7 +27,7 @@ socket and config) and runs, one fresh daemon each:
 | `quit.cjs` | quitting: the question names who is mid-work, cancel changes nothing, keep leaves the agents in tmux, end leaves no session, window or daemon |
 | `plea.cjs` | needs you: an agent's question unfolds under its card with an answer box (enter on the card focuses it), a dialog shows its options as buttons, the toast says which it is; a queued prompt rewired after another agent is asked of that one |
 | `peek.cjs` | the live output on a card: a click opens the terminal large, at a readable size |
-| `dev.cjs` | dev only (`src/dev.rs`): the page follows edits to its files, styles in place, scripts by a reload that waits while you type and puts back what was open, errors named by file and line |
+| `dev.cjs` | dev only (`src/dev.rs`): the page follows edits to its files, styles in place, scripts by a reload that waits while you type (a tag says so; none otherwise) and puts back what was open, errors named by file and line |
 
 `TESTS="pad next" tests/ui/run.sh` runs a subset. The UI is copied into the sandbox when the run
 starts (each test gets its own copy), so you can keep editing while it runs; `WEFT_WEB_DIR` names

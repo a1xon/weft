@@ -11,7 +11,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   const st = id => p.locator('.nw[data-id="' + id + '"]').getAttribute('data-st');
   const waitSt = async (id, want, t = 30000) => { const t0 = Date.now(); while (Date.now() - t0 < t) { if (want.includes(await st(id))) return true; await sleep(250); } return false; };
   const emptySpot = async (want = 1) => p.evaluate(() => {
-    const rects = [...document.querySelectorAll('.nw, .menu, #fly, #omniw, #qpanel, #top, #zoom, #toasts')].map(e => e.getBoundingClientRect());
+    const rects = [...document.querySelectorAll('.nw, .menu, #fly, #omniw, #qpanel, #top, #zoom, #toasts, #gtree')].map(e => e.getBoundingClientRect());
     const out = [];
     for (let y = 130; y < 700; y += 60) for (let x = 120; x < 1650; x += 60) {
       if (!rects.every(r => x < r.left - 30 || x > r.right + 30 || y < r.top - 30 || y > r.bottom + 30)) continue;

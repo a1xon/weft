@@ -24,12 +24,23 @@ async fn project_info(dir: &Path) -> Value {
         let (_, last) = git_run(dir, &["log", "-1", "--format=%h %s"]).await.unwrap_or((false, String::new()));
         let last =
             if last.contains("does not have any commits") || last.starts_with("fatal") { String::new() } else { last.trim().to_string() };
-        Ok(json!({"repo": true, "branch": branch, "dirty": dirty, "last": last}))
+        // (a commit on any branch, a fetch, a new branch: the git tree in the corner looks again)
+        let (_, refs) = git_run(dir, &["for-each-ref", "--format=%(objectname)%(refname)", "refs/heads", "refs/remotes"]).await?;
+        let refs = fingerprint(&refs);
+        Ok(json!({"repo": true, "branch": branch, "dirty": dirty, "last": last, "refs": refs}))
     };
     match tokio::time::timeout(Duration::from_secs(4), probe).await {
         Ok(Ok(v)) => v,
         _ => json!({"repo": false, "unknown": true}),
     }
+}
+
+/// A short stand-in for a long text: equal texts, equal fingerprints.
+fn fingerprint(text: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut h);
+    format!("{:x}", h.finish())
 }
 
 /// Run an agent's model-listing command the way its terminal would (aliases apply).

@@ -15,7 +15,7 @@ const append = (f, text) => fs.appendFileSync(WEB + '/' + f, text);
 
   await p.goto(fs.readFileSync(W + '/url.txt', 'utf8').trim()); await p.waitForSelector('#pad:not([hidden]) textarea'); await sleep(400);
   await p.keyboard.press('Escape'); await sleep(200);
-  ok((await p.locator('#devtag').innerText()).includes('live ui'), 'a tag in the corner says the page follows its files');
+  ok(await p.locator('#devtag').count() === 0, 'no tag while the page is up to date (the corner is the git tree\'s)');
   await ev(() => send('node_add', { node: { name: 'probe', agent: 'claude', prompt: 'say hi', x: 200, y: 200 } }));
   await p.waitForSelector('.nw[data-id="n1"]');
   await ev(() => { window.__same = 1; });
@@ -25,7 +25,6 @@ const append = (f, text) => fs.appendFileSync(WEB + '/' + f, text);
   const t1 = await waitFor(() => ev(() => getComputedStyle(document.querySelector('#top')).outlineColor === 'rgb(1, 2, 3)'));
   ok(t1 !== false, `an edited style sheet shows without a reload (${t1} ms)`);
   ok(await ev(() => window.__same === 1), 'the page was not reloaded for it');
-  ok(await p.locator('#devtag.flash').count() === 1, 'the tag blinks');
 
   // --- a script: the page reloads and puts back what was open
   await ev(() => { select(['n1']); openFly('n1'); });
@@ -46,7 +45,7 @@ const append = (f, text) => fs.appendFileSync(WEB + '/' + f, text);
   append('js/99-boot.js', '\nwindow.__probe = 43;\n');
   await sleep(1500);
   ok(await ev(() => window.__probe === 42), 'a script edit does not reload the page under your fingers');
-  ok(await p.locator('#devtag.stale').count() === 1 && /reloads when you are done/.test(await p.locator('#devtag').innerText()), 'the tag says it is waiting');
+  ok(await p.locator('#devtag').count() === 1 && /reloads when you are done/.test(await p.locator('#devtag').innerText()), 'a tag says it is waiting');
   await p.keyboard.press('Control+a'); await p.keyboard.press('Backspace');
   const t3 = await waitFor(() => ev(() => window.__probe === 43), 5000);
   ok(t3 !== false, `once the text is gone it reloads (${t3} ms)`);
@@ -60,7 +59,6 @@ const append = (f, text) => fs.appendFileSync(WEB + '/' + f, text);
   ok(await waitFor(() => p.locator('#deverr').isVisible(), 8000) !== false, 'a script that does not parse shows the error bar');
   const bar = await p.locator('#deverr').innerText().catch(() => '');
   ok(bar.includes('js/50-links.js:' + at), `it names the file and the line: ${bar.replace(/\s+/g, ' ').slice(0, 120)} (want js/50-links.js:${at})`);
-  ok(await p.locator('#devtag').isVisible(), 'the follower still runs');
   fs.writeFileSync(WEB + '/js/50-links.js', original.links);
   ok(await waitFor(() => ev(() => typeof loaded !== 'undefined' && loaded && S.nodes.has('n1')), 8000) !== false, 'fixing it reloads a working page');
   ok(await p.locator('#deverr').count() === 0, 'without the bar');
