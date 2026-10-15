@@ -1,10 +1,80 @@
-/* ------------------------------------------------------------ prompt library */
+/* ------------------------------------------------------------ the library: networks, prompts and addenda */
 const modal = $('#modal');
-let libSel = null, libT = 0;
-function openLibrary() { modal.hidden = false; libSel = libSel || (S.lib[0] && S.lib[0].id); renderLibrary(); }
+let libSel = null, libT = 0, libTab = 'nets', netSel = null;
+function openLibrary(tab) {
+  if (typeof tab === 'string') libTab = tab;
+  modal.hidden = false; libSel = libSel || (S.lib[0] && S.lib[0].id); renderLibrary();
+}
 function saveLib() { clearTimeout(libT); libT = setTimeout(() => send('lib_set', { library: S.lib }), 350); }
 function onLibChanged() { if (!modal.hidden) renderLibrary(); if (S.fly && S.fly.tab === 'options' && !insideFly()) renderFly(); }
+function onNetsChanged() { renderNetChips(); if (!modal.hidden && libTab === 'nets' && !modal.contains(document.activeElement)) renderLibrary(); }
 function renderLibrary() {
+  const ta = modal.querySelector('.me textarea'), keep = document.activeElement === ta;
+  const tabs = h('div', { class: 'seg tabs', role: 'tablist' }, [['nets', 'networks'], ['text', 'prompts & addenda']].map(([k, label]) =>
+    h('button', { role: 'tab', 'aria-pressed': String(libTab === k), onclick: () => { libTab = k; renderLibrary(); } }, label)));
+  modal.replaceChildren(h('div', { class: 'win chamf' },
+    h('div', { class: 'mh' }, h('h2', {}, 'library'), tabs, h('span', { class: 'sp' }), h('button', { class: 'ib', 'aria-label': 'Close', html: ICON.x, onclick: () => { modal.hidden = true; } })),
+    libTab === 'nets' ? netsPane() : textPane()));
+  if (keep) { const t = modal.querySelector('.me textarea'); if (t) t.focus(); }
+  modal.onpointerdown = e => { if (e.target === modal) modal.hidden = true; };
+}
+/* networks: a list (drag one out onto the canvas) and what the chosen one does */
+function netsPane() {
+  const all = allNets(), top = new Set(topNets().map(n => n.id));
+  const cur = all.find(n => n.id === netSel) || all[0];
+  if (cur) netSel = cur.id;
+  const item = net => {
+    const b = h('button', { class: 'li net' + (net.id === netSel ? ' on' : ''), title: 'click: what it does · drag: onto the canvas' },
+      netGlyph(net, 38, 16),
+      h('span', { class: 'lt' }, h('b', {}, net.short), net.short !== net.title ? h('small', {}, net.title) : null),
+      top.has(net.id) ? h('span', { class: 'tb', title: 'in the top bar: one of the two you use most' }, 'top') : null,
+      netUses(net.id) ? h('span', { class: 'uses', title: 'how often you used it' }, netUses(net.id) + '×') : null);
+    b.addEventListener('pointerdown', e => dragNet(e, net, { lift: () => { modal.hidden = true; }, click: () => { netSel = net.id; renderLibrary(); } }));
+    return b;
+  };
+  const mine = all.filter(n => n.own), sel = [...S.sel];
+  const save = sel.length && Array.isArray(S.nets) ? h('button', { class: 'btn sm dim', title: 'the selected cards and their links, as a network',
+    onclick: ev => { const r = ev.currentTarget.getBoundingClientRect(); saveNetFrom(sel, r.left, r.bottom + 4); } }, `+ save the ${sel.length} selected`) : null;
+  const left = h('div', { class: 'ml' },
+    ...[...new Set(all.filter(n => !n.own).map(n => n.group || 'built in'))].flatMap(g =>
+      [h('div', { class: 'grp' }, g), ...all.filter(n => !n.own && (n.group || 'built in') === g).map(item)]),
+    h('div', { class: 'grp' }, 'yours', save),
+    ...(mine.length ? mine.map(item) : [h('p', { class: 'note pad' }, Array.isArray(S.nets)
+      ? 'Select cards on the canvas, right-click, "save as network". The first agent’s prompt becomes the task you type when you drop it.'
+      : 'Saving your own needs a newer weft (build and install it, run weft once).')]));
+  return h('div', { class: 'mb nets' }, left, h('div', { class: 'me nets' }, ...(cur ? netDetail(cur) : [])));
+}
+function netDetail(net) {
+  const roles = netRoles(net), entries = netEntries(net);
+  const order = [...net.nodes].sort((a, b) => a.x - b.x || a.y - b.y);
+  const head = net.own
+    ? [h('input', { class: 'fld title', value: net.title, 'aria-label': 'Name', oninput: e => editNet(net.id, { title: e.target.value }) }),
+      h('textarea', { class: 'fld about', rows: 2, spellcheck: 'false', 'aria-label': 'What it is for', placeholder: 'what it is for', oninput: e => editNet(net.id, { about: e.target.value }) }, net.about)]
+    : [h('h3', {}, net.title), h('p', { class: 'about' }, net.about)];
+  return [
+    ...head,
+    h('div', { class: 'dia' }, netDiagram(net, roles)),
+    h('ol', { class: 'steps' }, ...order.map(t => h('li', { class: netKind(t) }, h('b', {}, netLabel(t, roles)), h('span', {}, netDoes(t) + (entries.includes(t.key) ? ' · starts it' : ''))))),
+    h('p', { class: 'note' }, 'Agents are roles: the first is the agent you work with, a second opinion is the next one (you pick them when you drop it). Dropped on an agent on the canvas, the network carries on from that agent’s work instead.'),
+    h('div', { class: 'acts' },
+      h('button', { class: 'btn pri', onclick: () => { modal.hidden = true; dropNet(net, null); } }, 'place it'),
+      h('span', { class: 'note' }, 'or drag it from the list onto the canvas'),
+      h('span', { class: 'sp' }),
+      net.own ? h('button', { class: 'btn sm danger', onclick: () => {
+        setNets(S.nets.filter(n => n.id !== net.id)); netSel = null; renderLibrary();
+        toast('info', `removed "${net.title}"`);
+      } }, 'delete') : null),
+  ];
+}
+function editNet(id, patch) {
+  const i = (S.nets || []).findIndex(n => n.id === id); if (i < 0) return;
+  S.nets = S.nets.map((n, j) => (j === i ? { ...n, ...patch } : n));
+  clearTimeout(editNet.t);
+  editNet.t = setTimeout(() => { send('net_set', { networks: S.nets }); renderNetChips(); }, 400);
+  const li = modal.querySelector('.li.net.on .lt b'); if (li && patch.title != null) li.textContent = patch.title;
+}
+/* standard prompts (copied in) and addenda (referenced) */
+function textPane() {
   const cur = S.lib.find(s => s.id === libSel) || S.lib[0];
   if (cur) libSel = cur.id;
   const group = (kind, title) => [
@@ -25,14 +95,9 @@ function renderLibrary() {
       for (const n of S.nodes.values()) if ((n.addenda || []).includes(cur.id)) send('node_set', { id: n.id, patch: { addenda: n.addenda.filter(a => a !== cur.id) } });
       libSel = null; saveLib(); renderLibrary(); } }, 'delete')),
   ] : [h('p', { class: 'note' }, 'create a standard prompt or addendum with + new')];
-  const ta = modal.querySelector('textarea'), keep = document.activeElement === ta;
-  modal.replaceChildren(h('div', { class: 'win chamf' },
-    h('div', { class: 'mh' }, h('h2', {}, 'prompt library'), h('button', { class: 'ib', 'aria-label': 'Close', html: ICON.x, onclick: () => { modal.hidden = true; } })),
-    h('div', { class: 'mb' },
-      h('div', { class: 'ml' }, group('prompt', 'standard prompts'), group('addendum', 'addenda')),
-      h('div', { class: 'me' }, ...nn(editor)))));
-  if (keep) { const t = modal.querySelector('textarea'); if (t) t.focus(); }
-  modal.onpointerdown = e => { if (e.target === modal) modal.hidden = true; };
+  return h('div', { class: 'mb' },
+    h('div', { class: 'ml' }, group('prompt', 'standard prompts'), group('addendum', 'addenda')),
+    h('div', { class: 'me' }, ...nn(editor)));
 }
 
 /* ------------------------------------------------------------ starter flow */

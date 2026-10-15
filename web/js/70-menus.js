@@ -42,7 +42,7 @@ function canvasMenu(x, y) {
     { label: 'run flow', run: () => send('run') },
     { label: 'tidy up', hint: 't', run: tidy },
     { label: 'fit everything', hint: 'f', run: fit },
-    { label: 'prompt library', run: openLibrary },
+    { label: 'library', hint: 'networks, prompts', run: () => openLibrary() },
     { label: 'undo', hint: 'ctrl+z', run: undo },
   ], x, y);
 }
@@ -128,6 +128,7 @@ function multiMenu(x, y) {
     { cap: `${ids.length} selected` },
     { label: 'gather into one agent', hint: 'g', run: () => gather(ids) },
     { label: 'commit each, then push', hint: 'one commit per agent, one push', run: () => shipThese(ids) },
+    { label: 'save as network\u2026', hint: 'reuse these cards and links', run: () => saveNetFrom(ids, x, y) },
     { sep: true },
     { label: 'run all', run: () => ids.forEach(i => runNode(i)) },
     { label: 'stop all', run: () => ids.forEach(i => send('stop', { id: i })) },
@@ -149,6 +150,7 @@ function edgeMenu(id, x, y) {
     { label: 'insert a step here', hint: 'double-click', run: () => spliceInto(id, 'agent') },
     { cap: 'put a gate on this link' },
     { label: 'approve', hint: 'you confirm first', run: () => spliceInto(id, 'gate') },
+    { label: 'check', hint: 'a command must pass', run: () => spliceInto(id, 'check') },
     { label: 'screenshot', hint: 'agent shows its work', run: () => spliceInto(id, 'shot') },
     { label: 'tests', hint: 'written, run, fixed', run: () => spliceInto(id, 'tests') },
     { sep: true },
@@ -185,6 +187,7 @@ function setAgent(k) {
 /* every node made by gesture is a draft: nothing runs until you press enter */
 /* "git:commit", "git:push" and "git:pr" are the git node with an op */
 function splitKind(k) {
+  if (k === 'check') return ['tests', checkGate()];
   const m = /^git:(commit|push|pr)$/.exec(k || '');
   return m ? ['git', { git_op: m[1] }] : [k, {}];
 }
@@ -218,6 +221,7 @@ async function spawnAt(agent0, x, y, opts = {}) {
       : kindFields.git_op === 'pr' ? 'open PR: link the push before it, then press arm. An agent that did the work writes and opens it.'
         : 'push: link commits (or agents) into it, then press arm. It waits for all of them.', { ms: 7000 });
     else if (k === 'shot') toast('info', 'screenshot gate: it asks the agent upstream, shows the image here and waits for you.', { ms: 7000 });
+    else if (k === 'tests' && kindFields.write_tests === false) toast('info', kindFields.cmd ? `check: weft runs \`${kindFields.cmd}\`; red goes back to the agent. Change it in options.` : 'check: the agent runs the checks; red goes back to it. Set a command in options.', { ms: 8000 });
     else if (k === 'tests') toast('info', 'tests gate: the agent writes and runs tests. Set a command in options to run the suite yourself.', { ms: 8000 });
   }
   return r.id;
@@ -262,7 +266,7 @@ async function spliceInto(edgeId, agent) {
   const node = { agent: ag, x: p.x, y: p.y, ...kindFields };
   if (kindOf({ agent: ag }) === 'agent') node.draft = true;
   const r = await req('node_add', { node });
-  if (isGate(ag)) toast('info', `${(TYPES.find(t => t.k === ag) || {}).label || ag} gate spliced in: nothing past it starts until it is solved.`, { ms: 5000 });
+  if (isGate(ag)) toast('info', `${(TYPES.find(t => t.k === agent) || TYPES.find(t => t.k === ag) || {}).label || ag} gate spliced in: nothing past it starts until it is solved.`, { ms: 5000 });
   if (!r.id) return;
   send('edge_del', { id: edgeId });
   send('edge_add', { from: e.from, to: r.id });

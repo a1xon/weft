@@ -31,8 +31,9 @@ impl Engine {
             .join("\n\n");
         let mut targets: Vec<String> = Vec::new();
         for i in inputs {
-            // a queued prompt is answered by its agent: that is who the gate talks to
-            let t = self.resolve_host(&i.from);
+            // a queued prompt is answered by its agent, and a gate before this one holds that agent's
+            // work: that is who this gate talks to (a command is its own target)
+            let t = self.agent_behind(&i.from).unwrap_or_else(|| self.resolve_host(&i.from));
             if self.node(&t).is_some_and(|n| n.kind() == Kind::Agent) && !targets.contains(&t) {
                 targets.push(t);
             }

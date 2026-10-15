@@ -10,6 +10,7 @@ const TYPES = [
   { k: 'note', label: 'note', hint: 'context any agent can be pointed at' },
   { k: 'gate', label: 'approve', hint: 'holds the flow until you say go' },
   { k: 'shot', label: 'screenshot', hint: 'asks the agent for a screenshot; you confirm it' },
+  { k: 'check', label: 'check', hint: 'a command must pass (build, lint, tests); red goes back to the agent' },
   { k: 'tests', label: 'tests', hint: 'has tests written and run; red goes back to the agent' },
   { k: 'git:commit', label: 'commit', hint: 'one agent commits its own work' },
   { k: 'git:push', label: 'push', hint: 'pushes once every commit before it has resolved' },
@@ -300,7 +301,7 @@ function renderNode(id) {
   if (el.nm.textContent !== n.name && !el.renaming) { el.nm.textContent = n.name; el.nm.title = n.name + ' · double-click to rename'; }
   const isStep = n.agent === 'step';
   el.root.dataset.step = String(isStep);
-  el.ag.textContent = isStep ? '↻ same agent' : k === 'git' ? 'git · ' + gitOpLabel(n) : agentTag(n.agent) + tuneTag(n);
+  el.ag.textContent = isStep ? '↻ same agent' : k === 'git' ? 'git · ' + gitOpLabel(n) : k === 'tests' && n.write_tests === false ? 'gate · check' : agentTag(n.agent) + tuneTag(n);
   if (isStep) el.ag.title = `answered by ${hostOf(n).name} in its own session`;
   else el.ag.title = tuneTag(n) ? `${agentTag(n.agent)}${n.model ? ' · model ' + n.model : ''}${n.effort ? ' · reasoning ' + n.effort : ''}${manages(n.agent) && !yoloOf(n) ? ' · asks before it acts' : ''} (click to change)` : 'change what runs this';
   el.stx.textContent = statusText(n, r);
@@ -352,9 +353,10 @@ function renderNode(id) {
     const out = (r && r.gate_out) || '';
     key = 'tests:' + (n.cmd || '') + st + (r ? r.gate_phase + r.gate_round : '') + out;
     build = () => ({ cls: 'ans kv', kids: nn([
-      h('span', { class: 'kvl' }, n.cmd ? h('b', {}, '$ ' + n.cmd) : 'the agent writes and runs the suite'),
+      h('span', { class: 'kvl' }, n.cmd ? h('b', {}, '$ ' + n.cmd) : n.write_tests === false ? 'the agent runs the checks' : 'the agent writes and runs the suite'),
       out ? h('span', { class: 'commit', style: 'white-space:pre-wrap;color:' + (r && r.gate_green === false ? 'var(--rd)' : 'var(--i1)') }, out.split('\n').slice(-5).join('\n'))
-        : h('span', { class: 'src' }, st === 'done' ? 'passed.' : 'asks for tests to be written, runs them, and sends failures back to the agent. nothing downstream starts until they pass.'),
+        : h('span', { class: 'src' }, st === 'done' ? 'passed.' : n.write_tests === false ? 'runs it and sends failures back to the agent. nothing downstream starts until it passes.'
+          : 'asks for tests to be written, runs them, and sends failures back to the agent. nothing downstream starts until they pass.'),
     ]) });
   } else if (k === 'gate') {
     const held = r && r.gate;

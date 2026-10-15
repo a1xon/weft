@@ -1,6 +1,6 @@
 /* ------------------------------------------------------------ toolbar and keys */
 $('#bRun').addEventListener('click', () => send('run'));
-$('#bLib').addEventListener('click', openLibrary);
+$('#bLib').addEventListener('click', () => openLibrary());
 $('#bTidy').addEventListener('click', tidy);
 $('#bQuit').addEventListener('click', quitWeft);
 $('#bStarter').addEventListener('click', starterFlow);
@@ -46,6 +46,7 @@ addEventListener('keydown', e => {
   }
   if (e.key === 'Escape') {
     if (NX.id) return closeNext();
+    if (NBX.net) return closeNetBox();
     if (menuEl) return closeMenu();
     if (!modal.hidden) { modal.hidden = true; return; }
     if (!focusEl.hidden && t.id !== 'term') return closeFocus();
@@ -83,7 +84,7 @@ addEventListener('keydown', e => {
     if (best) { e.preventDefault(); select([best]); centerOn(best); }
   }
 });
-addEventListener('resize', () => { renderOmni(); placeFly(); placeNext(); });
+addEventListener('resize', () => { renderOmni(); placeFly(); placeNext(); placeNetBox(); });
 
 function toast(kind, text, opts = {}) {
   const o = typeof opts === 'number' ? { ms: opts } : opts;

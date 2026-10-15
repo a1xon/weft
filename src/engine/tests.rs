@@ -370,6 +370,21 @@ fn a_screenshot_gate_asks_the_agent_shows_the_image_and_is_a_barrier() {
 }
 
 #[test]
+fn a_gate_after_another_gate_still_asks_the_agent_behind_both() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "build ui");
+    add_kind(&mut e, "k", "check", "gate", "");
+    add_kind(&mut e, "s", "screenshot", "shot", "");
+    link(&mut e, "e1", "a", "k", On::Done);
+    link(&mut e, "e2", "k", "s", On::Ok);
+    e.settle("a", true, "built the checkout".into());
+    assert_eq!(e.cmd(None, Cmd::Approve { id: "k".into(), ok: true })["ok"], true);
+    assert_eq!(e.rt["s"].gate.targets, vec!["a".to_string()], "the screenshot is asked of the agent, not of the gate");
+    let req = e.rt["a"].queue.front().expect("a request was queued on the agent");
+    assert_eq!(req.src, Src::Reply("s".into()));
+}
+
+#[test]
 fn a_missing_screenshot_is_reported_not_silently_accepted() {
     let mut e = engine();
     alive_agent(&mut e, "a", "build ui");
@@ -502,6 +517,48 @@ fn chosen_model_is_kept_on_the_node_and_prefs_stay_small() {
     let big = "x".repeat(9000);
     assert_eq!(e.cmd(None, Cmd::PrefSet { prefs: json!({"a": big}) })["ok"], false);
     assert_eq!(e.cfg.prefs["agent"], "codex", "a rejected update changes nothing");
+}
+
+#[test]
+fn a_folders_check_command_is_guessed_from_its_build_files() {
+    let base = std::env::temp_dir().join(format!("weft-check-{}", std::process::id()));
+    let at = |name: &str, files: &[(&str, &str)]| {
+        let d = base.join(name);
+        std::fs::create_dir_all(d.join("tests")).unwrap();
+        for (f, body) in files {
+            std::fs::write(d.join(f), body).unwrap();
+        }
+        guess_check(&d)
+    };
+    assert_eq!(at("rust", &[("Cargo.toml", "")]), "cargo build && cargo test");
+    let pkg = r#"{"scripts": {"build": "tsc", "lint": "eslint .", "test": "vitest run", "dev": "vite"}}"#;
+    assert_eq!(at("pnpm", &[("package.json", pkg), ("pnpm-lock.yaml", "")]), "pnpm run build && pnpm run lint && pnpm test");
+    let npm_default = r#"{"scripts": {"test": "echo \"Error: no test specified\" && exit 1"}}"#;
+    assert_eq!(at("npm", &[("package.json", npm_default)]), "", "npm's placeholder test is no test");
+    assert_eq!(at("go", &[("go.mod", "module x")]), "go build ./... && go test ./...");
+    assert_eq!(at("pytest", &[("pyproject.toml", "[tool.pytest.ini_options]")]), "python3 -m pytest -q");
+    assert_eq!(at("unittest", &[("tests/test_x.py", "import unittest")]), "python3 -m unittest discover -s tests -q");
+    assert_eq!(at("make", &[("Makefile", "build:\n\tcc x.c\ntest:\n\t./run")]), "make test");
+    assert_eq!(at("nothing", &[]), "");
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn saved_networks_are_kept_as_given_and_sent_to_the_page() {
+    let mut e = engine();
+    let net = json!({"id": "my-1", "title": "build and look", "nodes": [
+        {"key": "k1", "agent": "@main", "prompt": "{{task}}", "x": 0, "y": 0, "checks": [{"kind": "eta"}]},
+        {"key": "k2", "agent": "shot", "x": 650, "y": 0}],
+        "links": [{"from": "k1", "to": "k2"}]});
+    let networks: Vec<Network> = serde_json::from_value(json!([net])).unwrap();
+    assert_eq!(e.cmd(None, Cmd::NetSet { networks })["ok"], true);
+    assert_eq!(e.cfg.networks[0].links[0].on, On::Done, "a link fires always unless it says otherwise");
+    let st = e.full_state();
+    assert_eq!(st["networks"][0]["nodes"][0]["checks"][0]["kind"], "eta", "the cards go back to the page as they came");
+    assert_eq!(st["networks"][0]["title"], "build and look");
+    let huge = vec![Network { id: "x".into(), title: "x".repeat(600 * 1024), ..Network::default() }];
+    assert_eq!(e.cmd(None, Cmd::NetSet { networks: huge })["ok"], false);
+    assert_eq!(e.cfg.networks.len(), 1, "a rejected list changes nothing");
 }
 
 #[tokio::test]

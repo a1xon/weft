@@ -242,6 +242,7 @@ impl Engine {
                     "archive_s": self.cfg.archive_s, "archive_flow_s": self.cfg.archive_flow_s},
             "models": self.models.iter().map(|(a, l)| (a.clone(), l.iter().map(|(id, label)| json!({"id": id, "label": label})).collect::<Vec<_>>())).collect::<HashMap<_, _>>(),
             "library": self.cfg.library,
+            "networks": self.cfg.networks,
             "flow": {"nodes": self.flow.nodes, "edges": self.flow.edges},
             "rt": rts,
             "archive": self.archive_json(),

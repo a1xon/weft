@@ -40,7 +40,8 @@ function onMsg(m) {
     case 'rt': queueRt(m); break;
     case 'scr': onScreen(m); break;
     case 'lib': S.lib = m.library; onLibChanged(); break;
-    case 'prefs': if (!prefDirty) { S.prefs = m.prefs || {}; if (pad.open) renderPad(); omni._key = null; renderOmni(); } break;
+    case 'nets': S.nets = m.networks; onNetsChanged(); break;
+    case 'prefs': if (!prefDirty) { S.prefs = m.prefs || {}; if (pad.open) renderPad(); omni._key = null; renderOmni(); renderNetChips(); } break;
     case 'proj': S.project.git = m.git; renderWhere(); if (pad.open) renderPad(); break;
     case 'models': {
       S.models[m.agent] = m.models || []; S.modelErr[m.agent] = m.err || null;
@@ -49,7 +50,7 @@ function onMsg(m) {
       omni._key = null; renderOmni();
       break;
     }
-    case 'toast': toast(m.k, m.m); break;
+    case 'toast': if (!(netBuilding && m.k === 'info' && / is now asked of /.test(m.m))) toast(m.k, m.m); break;
     case 'bye': farewell(m); break;
     case 'archive': onArchive(m); break;
     case 'hand': bead(m.edge, m.ok); break;
@@ -62,6 +63,7 @@ function loadState(m) {
   const mine = meta ? meta.content : '';
   if (m.build && mine && mine !== '__BUILD__' && mine !== m.build) { location.reload(); return; }
   S.project = m.project; S.cfg = m.cfg; S.lib = m.library;
+  S.nets = m.networks;   // (undefined from a daemon that keeps none: the built-in networks still work)
   S.prefs = m.cfg.prefs && typeof m.cfg.prefs === 'object' ? m.cfg.prefs : {};
   S.models = m.models || {};
   const dir = m.project.dir || '';
@@ -84,7 +86,7 @@ function loadState(m) {
   for (const id of S.nodes.keys()) renderRt(id);
   onArchive({ groups: m.archive });
   applyView();
-  renderTicker(); renderOmni(); renderWhere();
+  renderTicker(); renderOmni(); renderWhere(); renderNetChips();
   if (S.focus) send('watch', { id: S.focus });
   // the first thing you see: where you are, and a prompt waiting for you
   if (!padShown) { padShown = true; openPad(); }

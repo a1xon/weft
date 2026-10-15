@@ -37,7 +37,8 @@
     <div class="acts">
       <span class="live-dot" id="liveDot">live</span>
       <button class="btn" id="bNew" title="Start a task (N)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 3v10M3 8h10"/></svg>new task</button>
-      <button class="btn dim" id="bLib" title="Standard prompts and addenda">library</button>
+      <div id="nets" aria-label="Networks you use most"></div>
+      <button class="btn dim" id="bLib" title="Networks, standard prompts and addenda">library</button>
       <button class="btn dim" id="bTidy" title="Line the cards up: flows left to right, linked cards level, no crossed links (T)">tidy</button>
       <button class="btn dim" id="bMore" aria-label="More">&middot;&middot;&middot;</button>
       <button class="btn pri" id="bRun" title="Reset progress and send the prompt of every starting agent"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M4.5 3v10l8-5z"/></svg>run flow</button>
@@ -55,6 +56,7 @@
     <span class="ln"><b>N</b>press N for a new task: agent, model, prompt, go</span>
     <span class="ln"><b>&gt;_</b>or type below and press ctrl+enter to start an agent</span>
     <span class="ln"><b>2&times;</b>double-click the canvas to place one right there</span>
+    <span class="ln"><b>&#8605;</b>drag a network from the top bar: build &rarr; screenshot &rarr; ship, review &amp; fix, &hellip;</span>
     <span class="ln"><b>&#9671;</b>click or drag a node's diamond to hand its result on</span>
     <span class="ln"><b>&#8942;</b>right-click anything for what it can do</span>
     <div class="row"><button class="btn pri" id="bStarter">load a starter flow</button></div>
@@ -64,6 +66,7 @@
   <div id="dock"><div id="qpanel" hidden></div><div id="where"></div><div id="omniw"><div id="omni" class="chamf"></div></div></div>
   <div id="fly" class="chamf" hidden></div>
   <div id="nextbar" class="chamf" hidden></div>
+  <div id="netbox" class="chamf" hidden role="dialog" aria-label="Start a network"></div>
   <div id="shotbox" hidden></div>
   <div id="focus" hidden></div>
   <div id="modal" hidden></div>

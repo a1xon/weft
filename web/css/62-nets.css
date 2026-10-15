@@ -1,0 +1,89 @@
+/* ------------------------------------------------------------------ networks */
+/* the small picture: blue agents work, violet checks are where you come in, green ships */
+.nglyph{flex:none;overflow:visible}
+.nglyph .gl,.ndia .gl{fill:none;stroke:var(--l3);stroke-width:1}
+.nglyph .gn{fill:var(--cy);stroke:none}
+.nglyph .gn.step{fill:var(--void);stroke:var(--cy);stroke-width:1.2}
+.nglyph .gn.check{fill:var(--vi)}
+.nglyph .gn.git{fill:var(--gr)}
+.nglyph .gn.note{fill:var(--nt)}
+
+/* the top bar: the two you use most, dragged onto the canvas */
+#nets{display:flex;gap:6px;align-items:center;padding-right:6px;margin-right:2px;border-right:1px solid var(--l1)}
+.netchip{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 10px 0 8px;border:1px solid var(--l1);background:rgba(92,200,255,.03);
+  color:var(--i1);font:600 calc(11.5px*var(--fs)) var(--display);letter-spacing:.04em;white-space:nowrap;cursor:grab;touch-action:none}
+.netchip:hover{border-color:var(--cy2);color:var(--i0);box-shadow:0 0 14px rgba(92,200,255,.14)}
+.netchip:active{cursor:grabbing}
+@media (max-width:1180px){.netchip span{display:none}.netchip{padding:0 7px}}
+
+/* the outline on the canvas while it is dragged, and while the box asks what it is for (the empty
+   canvas's hints step aside for it) */
+#app.netting #empty{display:none}
+#netghost{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none;z-index:4}
+#netghost .nglinks{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible}
+#netghost .nglinks path{fill:none;stroke:var(--cy);stroke-width:1.8;stroke-dasharray:3 5;opacity:.75}
+#netghost .ngc{position:absolute;display:flex;flex-direction:column;gap:6px;padding:12px 14px;border:1px dashed var(--cy);background:rgba(92,200,255,.045);
+  color:var(--cy);animation:ngin .16s ease-out}
+#netghost .ngc.check{border-color:var(--vi);color:var(--vi);background:rgba(183,140,255,.05)}
+#netghost .ngc.git{border-color:var(--gr);color:var(--gr);background:rgba(61,220,151,.045)}
+#netghost .ngc.step{border-style:dotted}
+#netghost .ngc b{display:flex;align-items:center;gap:9px;font:600 calc(15px*var(--fs)) var(--display);letter-spacing:.02em}
+#netghost .ngc b i{display:grid;width:17px;height:17px}
+#netghost .ngc b i svg{width:17px;height:17px}
+#netghost .ngc span{color:var(--i2);font:calc(12.5px*var(--fs))/1.45 var(--mono)}
+@keyframes ngin{from{opacity:0}}
+
+/* what is it for? under the outline */
+#netbox{position:fixed;z-index:46;width:520px;max-width:calc(100vw - 24px);--bd:var(--cy2);--fill:#080c12;--c:12px;padding:11px 13px;animation:rise .12s ease-out}
+#netbox .nh{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+#netbox .nt{flex:1;min-width:0;font:600 calc(13px*var(--fs)) var(--display);letter-spacing:.04em;color:var(--i0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#netbox .nx{margin:0 0 9px;color:var(--i2);font:calc(11.5px*var(--fs))/1.5 var(--mono)}
+#netbox .nbr{display:flex;align-items:center;gap:10px;margin:0 0 7px}
+#netbox .nbr .dl{width:118px;flex:none;font:500 calc(11.5px*var(--fs)) var(--mono);color:var(--i3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#netbox .nbr .seg button{flex:none;padding:3px 10px;font:500 calc(11.5px*var(--fs)) var(--mono)}
+#netbox textarea{display:block;width:100%;min-height:70px;max-height:220px;resize:none;border:1px solid var(--l1);background:var(--void);padding:8px 10px;color:var(--i0);
+  font:calc(13px*var(--fs))/1.55 var(--mono);outline:0;margin-top:2px}
+#netbox textarea:focus{border-color:var(--cy2)}
+#netbox textarea.nope{animation:nope .22s;border-color:var(--rd)}
+#netbox .nf{display:flex;align-items:center;gap:8px;margin-top:9px;flex-wrap:wrap}
+#netbox .nf .sp{flex:1}
+#netbox .nf .kh{color:var(--i3);font-size:calc(11px*var(--fs));white-space:nowrap}
+#netbox label.chk{display:flex;gap:7px;align-items:center;color:var(--i2);font-size:calc(11.5px*var(--fs));cursor:pointer}
+
+/* the library: tabs, the list with pictures, what one does */
+#modal .mh .tabs{margin-left:8px}
+#modal .mh .tabs button{flex:none;padding:4px 12px;font:600 calc(11.5px*var(--fs)) var(--display);letter-spacing:.04em}
+#modal .mh .sp{flex:1}
+#modal .mh h2{flex:none}
+#modal .li.net{display:flex;align-items:center;gap:9px;padding:7px 10px;cursor:grab;touch-action:none}
+#modal .mb.nets{grid-template-columns:310px 1fr}
+#modal .li.net .lt{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.35}
+#modal .li.net .lt b,#modal .li.net .lt small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#modal .li.net .lt b{font:600 calc(12.5px*var(--fs)) var(--display);letter-spacing:.03em;color:var(--i0)}
+#modal .li.net .lt small{font:calc(10.5px*var(--fs)) var(--mono);color:var(--i3)}
+#modal .li.net .tb{flex:none;font:500 calc(10px*var(--fs)) var(--mono);color:var(--cy);border:1px solid var(--cy2);padding:0 4px}
+#modal .li.net .uses{flex:none;font:500 calc(10.5px*var(--fs)) var(--mono);color:var(--i3)}
+#modal .note.pad{padding:4px 10px;margin:0}
+#modal .me.nets h3{margin:0;font:700 calc(16px*var(--fs)) var(--display);letter-spacing:.03em;color:var(--i0)}
+#modal .me.nets .about{margin:0;color:var(--i2);line-height:1.55}
+#modal .me.nets .fld.title{font:600 calc(14px*var(--fs)) var(--display)}
+#modal .me.nets textarea.about{min-height:0;flex:none;resize:vertical}
+#modal .dia{overflow-x:auto;padding:12px 2px 4px;flex:none}
+.ndia{display:block;max-width:100%;height:auto}
+.ndia .gl{stroke-width:1.4}
+.ndia .gl.ok{stroke:var(--gr);opacity:.7}
+.ndia .gl.fail{stroke:var(--rd);opacity:.7}
+.ndia .gb rect{fill:rgba(92,200,255,.06);stroke:var(--cy2);stroke-width:1}
+.ndia .gb.step rect{stroke-dasharray:3 3}
+.ndia .gb.check rect{fill:rgba(183,140,255,.07);stroke:var(--vi)}
+.ndia .gb.git rect{fill:rgba(61,220,151,.06);stroke:var(--gr)}
+.ndia .gb text{fill:var(--i0);font:500 11px var(--mono)}
+#modal .steps{margin:0;padding:0 0 0 22px;display:flex;flex-direction:column;gap:5px;color:var(--i3)}
+#modal .steps li{font:calc(12px*var(--fs))/1.45 var(--mono)}
+#modal .steps li b{font-weight:600;color:var(--cy);margin-right:9px}
+#modal .steps li.check b{color:var(--vi)}
+#modal .steps li.git b{color:var(--gr)}
+#modal .steps li span{color:var(--i2)}
+#modal .me.nets .acts{display:flex;align-items:center;gap:12px;margin-top:4px}
+#modal .me.nets .acts .note{margin:0}
+#modal .me.nets .acts .sp{flex:1}

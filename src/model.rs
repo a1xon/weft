@@ -335,6 +335,32 @@ pub struct Snippet {
     pub default_on: bool,
 }
 
+/// A network the user saved: cards and their links, placed on the canvas in one go. The page builds
+/// it with the ordinary node and link commands (the built-in networks live in the page), so the
+/// engine only keeps the list.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct Network {
+    pub id: String,
+    pub title: String,
+    /// One line: what it is for.
+    #[serde(default)]
+    pub about: String,
+    /// Cards as `node_add` takes them, each with a `key` the links name; x/y are relative.
+    #[serde(default)]
+    pub nodes: Vec<serde_json::Value>,
+    /// In the order they are drawn: a queued prompt is asked of the agent its last link comes from.
+    #[serde(default)]
+    pub links: Vec<NetLink>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct NetLink {
+    pub from: String,
+    pub to: String,
+    #[serde(default)]
+    pub on: On,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct AgentCfg {
     pub cmd: String,
@@ -396,6 +422,8 @@ pub struct Config {
     /// Screen lines containing any of these are terminal chrome, not content.
     pub chrome: Vec<String>,
     pub library: Vec<Snippet>,
+    /// The networks the user saved (the built-in ones are part of the page).
+    pub networks: Vec<Network>,
     /// What the user chose last (agent, model, reasoning, addenda). Owned by the UI.
     pub prefs: serde_json::Value,
     /// Agents run without permission prompts unless a card (or the launch pad) switches it off.
@@ -428,6 +456,7 @@ impl Default for Config {
             signal_grace_s: 12.0,
             chrome: default_chrome(),
             library: default_library(),
+            networks: Vec::new(),
             prefs: serde_json::json!({}),
             yolo: true,
             background_s: 600.0,

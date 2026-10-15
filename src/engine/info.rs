@@ -5,8 +5,80 @@ use super::*;
 /// how often the folder is looked at again while a browser is open (on top of the moments it surely changed)
 const PROJ_EVERY: Duration = Duration::from_secs(5);
 
-/// Branch and uncommitted files of the project folder: the "am I in the right place" line.
+/// Branch and uncommitted files of the project folder: the "am I in the right place" line. Also the command
+/// that checks the work done in it (`check`), when one can be guessed.
 async fn project_info(dir: &Path) -> Value {
+    let mut v = git_info(dir).await;
+    let check = guess_check(dir);
+    if let (Some(o), false) = (v.as_object_mut(), check.is_empty()) {
+        o.insert("check".into(), json!(check));
+    }
+    v
+}
+
+/// The command a network's check gate runs in a folder unless the person typed another: build and
+/// tests, guessed from the build files there. Empty: none found (the agent then runs the checks).
+pub(super) fn guess_check(dir: &Path) -> String {
+    let has = |f: &str| dir.join(f).exists();
+    if has("Cargo.toml") {
+        return "cargo build && cargo test".into();
+    }
+    if has("package.json") {
+        let scripts = std::fs::read_to_string(dir.join("package.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+            .and_then(|p| p.get("scripts").cloned())
+            .unwrap_or(Value::Null);
+        let pm = if has("pnpm-lock.yaml") {
+            "pnpm"
+        } else if has("yarn.lock") {
+            "yarn"
+        } else if has("bun.lockb") || has("bun.lock") {
+            "bun"
+        } else {
+            "npm"
+        };
+        // (npm's placeholder test script fails on purpose: it is no test)
+        let real = |k: &str| scripts.get(k).and_then(|x| x.as_str()).is_some_and(|x| !x.contains("no test specified"));
+        return ["build", "lint", "test"]
+            .iter()
+            .filter(|k| real(k))
+            .map(|k| if *k == "test" && pm != "bun" { format!("{pm} test") } else { format!("{pm} run {k}") })
+            .collect::<Vec<_>>()
+            .join(" && ");
+    }
+    if has("go.mod") {
+        return "go build ./... && go test ./...".into();
+    }
+    let py_tests = || {
+        std::fs::read_dir(dir.join("tests"))
+            .map(|d| d.flatten().any(|e| e.file_name().to_string_lossy().ends_with(".py")))
+            .unwrap_or(false)
+    };
+    // pytest where the project uses it, else the standard library's runner (pytest may not be installed)
+    let says = |f: &str| std::fs::read_to_string(dir.join(f)).is_ok_and(|t| t.contains("pytest"));
+    if has("pytest.ini") || has("conftest.py") || ["pyproject.toml", "setup.cfg", "tox.ini"].iter().any(|f| says(f)) {
+        return "python3 -m pytest -q".into();
+    }
+    if py_tests() {
+        return "python3 -m unittest discover -s tests -q".into();
+    }
+    if has("gradlew") {
+        return "./gradlew build".into();
+    }
+    if has("pom.xml") {
+        return "mvn -q verify".into();
+    }
+    if has("mix.exs") {
+        return "mix test".into();
+    }
+    match std::fs::read_to_string(dir.join("Makefile")) {
+        Ok(m) if m.lines().any(|l| l.starts_with("test:")) => "make test".into(),
+        _ => String::new(),
+    }
+}
+
+async fn git_info(dir: &Path) -> Value {
     let probe = async {
         let (inside, _) = git_run(dir, &["rev-parse", "--is-inside-work-tree"]).await?;
         if !inside {
@@ -196,6 +268,18 @@ impl Engine {
         self.cfg.library = library;
         self.persist_config("library", serde_json::to_value(&self.cfg.library).unwrap_or_default());
         let m = json!({"t": "lib", "library": self.cfg.library});
+        self.bcast(&m);
+        json!({"ok": true})
+    }
+
+    pub(super) fn cmd_net_set(&mut self, networks: Vec<Network>) -> Value {
+        let value = serde_json::to_value(&networks).unwrap_or_default();
+        if value.to_string().len() > 512 * 1024 {
+            return json!({"ok": false, "error": "that is too much to keep: remove a network first"});
+        }
+        self.cfg.networks = networks;
+        self.persist_config("networks", value);
+        let m = json!({"t": "nets", "networks": self.cfg.networks});
         self.bcast(&m);
         json!({"ok": true})
     }

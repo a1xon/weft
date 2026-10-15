@@ -58,6 +58,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 | drag a ◇ into empty space and let go | the line's end is where the next card goes; the **dial** opens there: queue a prompt the same agent answers · hand off to a fresh agent · git (`Alt` chooses any type) |
 | click a link's chip | cycles *always* / *only if ok* / *only if it fails* |
 | double-click a link | splice a step into it |
+| drag a **network** from the top bar onto the canvas / an agent | several cards and links in one go, told what to do / carrying on from that agent (below) |
 | drag a **check** from the tray onto a link / an agent | a gate / a watch (below) |
 | `Alt`-drag a card | clone it |
 | drag a card's bottom-right corner | resize it: a taller card shows more rows of its terminal; double-click the corner for the default size |
@@ -129,6 +130,12 @@ One chip, two placements. Drop a check from the tray (bottom left):
     reject. Paste or drop an image if no agent can take one.
   * *tests*: asks for tests to be written, runs the suite (your command or the agent's), sends
     failures back to the agent a few times, then asks you.
+  * *check*: a command must pass (build, lint, tests, a benchmark budget: anything that exits 0
+    when it is right). Red goes back to the agent a few times, then you decide. It runs the
+    folder's check command: weft guesses it from the build files (`Cargo.toml`, `package.json`
+    scripts, `go.mod`, pytest or unittest, Gradle, Maven, mix, a `make test` target), and whatever
+    you type in a network's box is remembered for that folder. A check is a tests gate that only
+    runs (its options say *just run*), so a gate after it still asks the agent behind both.
 * **on an agent: a watch.** Nothing is blocked. While the agent works, evidence collects in a
   grid under its card: newest first, small, each with its own **steer field** and ✓.
   * *Enter* in a field steers the agent right now ("the header is cut off"); ✓ approves.
@@ -235,12 +242,63 @@ moment. Files nobody committed yet sit on top as *N uncommitted*.
 * **Out of the way.** `–` folds it to a box with the branch and its last commit (remembered); the
   launch pad hides it; when the window is too narrow for it beside the bar it sits above it.
 
+## Networks
+
+A network is a whole flow in one gesture: cards, their links, gates, git steps and watches. The two
+you use most sit in the **top bar**; all of them are in the **library** (also `/` → *network: …*).
+
+* **Drag one onto the canvas.** Its outline follows the pointer. Let go and a box under it asks what
+  it is for; `Enter` places it and starts it, *place only* puts the cards down without starting
+  anything, `Esc` drops it. A click on a chip puts it in the middle of the view.
+* **Drag one onto an agent** and it carries on from that agent's work instead: the agent is its first
+  card, the rest is linked after it at once (and starts as soon as the agent is done). Its task is
+  that agent's prompt. This is how you add *review & fix* or *ship it* to work that is already going.
+* **Agents are roles.** The first is the agent you work with (the bar's), a second opinion goes to the
+  next agent you have (claude → agy → codex); the box lets you pick each, and remembers.
+* Push and PR wait to be armed as always; tick *push without asking* in the box to arm them with it.
+
+`[check]` below is a check gate (the folder's check command must pass, red goes back to the agent).
+
+| Built in | Cards | Needs you |
+| --- | --- | --- |
+| *build and ship* | | |
+| **screenshot & ship** | build → [check] → screenshot (confirm, or ask for changes) → commit → push | once |
+| **review & fix** | build → a *second* agent reviews the uncommitted change → the builder fixes what it agrees with → [check] → commit → push | – |
+| **tests & ship** | build → tests gate (written, run, red goes back twice) → commit → push | – |
+| **plan first** | plan without touching files → you approve → the same agent builds it → [check] → commit → push | once |
+| **build & ship** | build → [check] → commit → push | – |
+| *bigger jobs* | | |
+| **issue → PR** | read the issue (asks you if it is unclear) and plan → you approve → build → second agent reviews → fix → [check] → commit on `issue-<n>` → push → open PR | once |
+| **tests first** | A writes failing tests only → you look at them → B (another model) implements without touching them → [check] → A audits the code for tricks that only satisfy the tests → B fixes → each commits its own files → push | once |
+| **team of three** | split in three parts with file ownership and the interfaces written down → you approve → three builders in their own worktrees → a commit each (merged; a conflict goes back to its agent) → the planner integrates → [check] → commit → push | once |
+| **best of three** | three attempts (a model each) in worktrees → [check] each → a judge compares and recommends → you approve one per attempt → only the approved one is committed | once |
+| **fix a bug** | reproduce it (failing test) and find the cause → the same agent fixes the cause → [check] → commit → push | – |
+| **three plans** | three agents plan on their own → the first compares, takes the best and builds it → [check] → commit → push | – |
+| *pull requests* | | |
+| **PR + review** | build → [check] → commit on a branch of its own → push → open PR → a second agent reviews the pull request and comments on it | – |
+| **answer my review** | check out your PR, sort every comment: do / answer / push back → you approve → do it → [check] → commit → push → reply on every thread, ask for review again | once |
+| **review their PR** | correctness ‖ design and security (another model) ‖ a test run in a separate worktree → one merged review → you approve → posted as one review | once |
+| *drop on an agent* | | |
+| **harden it** | its change → security review ‖ missing tests ‖ docs → the author fixes what they found → [check] → everyone commits their own files → push | – |
+
+Fixes, builds after a plan, integration and the bug fix are *queued prompts* on the agent that did
+the work, so it keeps everything it read; reviewers, auditors and judges start fresh, ideally on
+another model. Push and PR still wait to be armed unless you tick *push without asking*. A network
+with a pull request commits on a branch named after what you type (`issue-42`, else
+`weft/<first words>`); the box shows it and you can change it.
+
+**Your own.** Select cards on the canvas, right-click, *save as network*. Links keep their order, the
+first agent becomes the role *you work with*, and its prompt becomes `{{task}}`: what you type when
+you drop it (a network you placed from another one gets its template back). They are kept in
+`config.json` (`networks`), so every project has them; rename, describe or delete them in the library.
+The top bar shows the two networks you used most.
+
 ## Prompt library
 
 *Standard prompts* are copied in when you insert them (`/`). *Addenda* are referenced, so editing
-one changes every agent that uses it. Everything is editable under *library* or in place. The
-built-in **Report with weft commands** addendum (off by default, see below) teaches an agent to
-finish with `weft done`, `weft issue` or `weft fail`.
+one changes every agent that uses it. Everything is editable under *library* (*prompts & addenda*) or
+in place. The built-in **Report with weft commands** addendum (off by default, see below) teaches an
+agent to finish with `weft done`, `weft issue` or `weft fail`.
 
 ## The prompt bar
 
@@ -358,7 +416,7 @@ Everything goes through one small local HTTP API, so scripts can drive a flow to
 | `<project>/.weft/flow.json` | the graph; plain JSON, safe to commit and hand-edit |
 | `<project>/.weft/state.json`, `run/`, `shots/` | run state, prompt files, images; git-ignored |
 | `<project>/.weft/archive.json` | filed work: cards, links, results; git-ignored |
-| `~/.config/weft/config.json` | **your overrides only**, merged onto the defaults |
+| `~/.config/weft/config.json` | **your overrides only**, merged onto the defaults; also your saved networks |
 
 ```json
 {

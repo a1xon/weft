@@ -7,7 +7,7 @@ function applyView() {
   $('#pat').setAttribute('patternTransform', `translate(${v.x} ${v.y}) scale(${v.k})`);
   $('#app').classList.toggle('lod', v.k < 0.5);
   $('#zPct').textContent = Math.round(v.k * 100) + '%';
-  placeEdgeBar(); placeFly();
+  placeEdgeBar(); placeFly(); placeNetBox();
   clearTimeout(saveT);
   saveT = setTimeout(() => { try { localStorage.setItem('weft-view:' + S.project.dir, JSON.stringify(S.v)); } catch {} }, 400);
 }

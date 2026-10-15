@@ -70,6 +70,10 @@ pub enum Cmd {
     LibSet {
         library: Vec<Snippet>,
     },
+    /// The networks the user saved (all of them: the list replaces the one there is).
+    NetSet {
+        networks: Vec<Network>,
+    },
     /// The user's last choices (agent, model, reasoning, addenda), kept across projects.
     PrefSet {
         prefs: Value,
@@ -328,6 +332,7 @@ impl Engine {
                 json!({"ok": false, "error": "the log answers by itself"})
             }
             Cmd::LibSet { library } => self.cmd_lib_set(library),
+            Cmd::NetSet { networks } => self.cmd_net_set(networks),
             Cmd::Start { id } => self.cmd_start(id),
             Cmd::Stop { id } => self.cmd_stop(id),
             Cmd::Restart { id } => self.cmd_restart(id),
