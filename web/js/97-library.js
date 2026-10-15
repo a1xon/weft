@@ -109,10 +109,11 @@ async function starterFlow() {
   const mk = (agent, x, y, node) => req('node_add', { node: { agent, x, y, ...node } }).then(r => r.id);
   const brief = await mk('note', 0, 330, { prompt: 'House rules: keep the public API stable, prefer small functions, no new dependencies.', name: 'house rules' });
   const plan = await mk(A, 0, 40, { prompt: P('plan') + '<describe your task here>', name: 'plan' });
-  const impl = await mk(B, 500, 0, { prompt: P('implement') + '{{inputs}}', name: 'implement' });
-  const docs = await mk(C, 500, 290, { prompt: 'Write or update the documentation for the change described below.\n\n{{inputs}}', name: 'document' });
-  const gate = await mk('gate', 1000, 140, { name: 'approve' });
-  const ship = await mk('git', 1500, 140, { name: 'commit & push' });
+  // columns follow the card width (NW 600): the same spacing as the 500 px cards had
+  const impl = await mk(B, 600, 0, { prompt: P('implement') + '{{inputs}}', name: 'implement' });
+  const docs = await mk(C, 600, 290, { prompt: 'Write or update the documentation for the change described below.\n\n{{inputs}}', name: 'document' });
+  const gate = await mk('gate', 1200, 140, { name: 'approve' });
+  const ship = await mk('git', 1800, 140, { name: 'commit & push' });
   for (const [f, t] of [[plan, impl], [plan, docs], [brief, impl], [impl, gate], [docs, gate], [gate, ship]]) send('edge_add', { from: f, to: t, on: t === ship ? 'ok' : 'done' });
   setTimeout(() => { select([plan]); fit(); }, 160);
   toast('ok', 'starter flow loaded. Describe your task in "plan", then run flow. The push stays disarmed until you arm it.', { ms: 10000 });

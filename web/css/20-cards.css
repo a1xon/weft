@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------ cards */
-.nw{position:absolute;left:0;top:0;width:var(--nw,500px);height:var(--nh,260px);--edge:var(--l1);--stc:var(--st);--kc:var(--st)}
+.nw{position:absolute;left:0;top:0;width:var(--nw,600px);height:var(--nh,260px);--edge:var(--l1);--stc:var(--st);--kc:var(--st)}
 .nw[data-kind=note]{--kc:var(--nt)}
 .nw[data-kind=gate]{--kc:var(--vi)}
 .nw[data-kind=shot]{--kc:var(--cy)}
