@@ -559,6 +559,8 @@ impl Engine {
 
     pub(super) fn on_git(&mut self, id: String, gen: u64, job: GitJobKind, res: Result<String, String>, facts: Option<Facts>) {
         let push = job == GitJobKind::Push;
+        // the folder changed under the "uncommitted" line (even when the node was reset meanwhile)
+        self.refresh_project();
         let Some(rt) = self.rt.get_mut(&id) else { return };
         if rt.git.gen != gen {
             return; // a reset happened while the job ran

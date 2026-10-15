@@ -279,6 +279,8 @@ impl Engine {
 
     /// The agent has nothing left to do: its result is final for this run.
     pub(super) fn settle(&mut self, id: &str, ok: bool, out: String) {
+        // a turn that ended has likely changed files
+        self.refresh_project();
         let reply = self.rt.get_mut(id).and_then(|r| {
             r.issue = None;
             r.waiting = None;

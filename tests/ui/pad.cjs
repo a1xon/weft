@@ -22,6 +22,13 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(name === 'proj' && full.endsWith('/proj'), 'the folder is the headline: "' + name + '" (' + full + ')');
   ok(await p.locator('#pad .pgit .br').innerText().then(t => t.trim() === 'main'), 'the branch is shown');
   ok((await p.locator('#pad .pgit').innerText()).includes('clean'), 'a clean tree says so');
+  // the line follows the folder while the page is open (an agent edits, a commit lands), no reload
+  const where = () => p.locator('#where').evaluate(e => e.textContent);
+  const until = async (f, ms = 9000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await f()) return true; await sleep(250); } return false; };
+  fs.writeFileSync(W + '/proj/scratch.txt', 'x\n');
+  ok(await until(async () => (await where()).includes('1 uncommitted')), 'a file changed meanwhile shows up by itself: ' + await where());
+  cp.execSync('git add -A && git commit -qm scratch', { cwd: W + '/proj' });
+  ok(await until(async () => !(await where()).includes('uncommitted')), 'and a commit clears it again: ' + await where());
   const ta = p.locator('#pad textarea');
   ok(await ta.evaluate(e => document.activeElement === e), 'the prompt is focused without a click');
   const box = await ta.boundingBox();

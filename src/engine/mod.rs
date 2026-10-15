@@ -205,6 +205,10 @@ pub struct Engine {
     spawn_seq: u64,
     /// branch / dirty files of the project folder, refreshed on demand
     proj: Value,
+    /// when that was last looked at, whether a look is running and whether another one is due after it
+    proj_at: Instant,
+    proj_busy: bool,
+    proj_due: bool,
     /// a reconnect loop for tmux is running
     tmux_retrying: bool,
     /// the second the watches were last looked at
@@ -263,6 +267,9 @@ impl Engine {
             spawns: 0,
             spawn_seq: 0,
             proj: Value::Null,
+            proj_at: Instant::now(),
+            proj_busy: false,
+            proj_due: false,
             tmux_retrying: false,
             last_check_sec: 0,
             models: HashMap::new(),
@@ -475,10 +482,7 @@ impl Engine {
             Ev::Git { id, gen, job, res, facts } => self.on_git(id, gen, job, res, facts),
             Ev::Gate { id, gen, tests, ok, out } => self.on_gate(id, gen, tests, ok, out),
             Ev::Snapshot { id, snap } => self.on_snapshot(id, snap),
-            Ev::Proj(v) => {
-                self.proj = v.clone();
-                self.bcast(&json!({"t": "proj", "git": v}));
-            }
+            Ev::Proj(v) => self.on_project(v),
             Ev::Hand { to, from, brief, facts } => self.on_hand(&to, &from, brief, facts),
             Ev::Check { node, check, kind, ok, out, img } => self.on_check(&node, &check, kind, ok, &out, &img),
             Ev::Models { agent, res } => {
@@ -607,6 +611,7 @@ impl Engine {
     fn tick(&mut self) {
         self.tick_checks();
         self.tick_archive();
+        self.tick_project();
         let now = Instant::now();
         let alive: Vec<String> = self.rt.iter().filter(|(_, r)| r.alive).map(|(i, _)| i.clone()).collect();
         for id in alive {

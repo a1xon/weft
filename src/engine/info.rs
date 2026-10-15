@@ -2,6 +2,9 @@
 
 use super::*;
 
+/// how often the folder is looked at again while a browser is open (on top of the moments it surely changed)
+const PROJ_EVERY: Duration = Duration::from_secs(5);
+
 /// Branch and uncommitted files of the project folder: the "am I in the right place" line.
 async fn project_info(dir: &Path) -> Value {
     let probe = async {
@@ -116,11 +119,37 @@ impl Engine {
     }
 
     /// Look at the project folder again: its branch and uncommitted files reach the browsers as `Ev::Proj`.
-    pub(super) fn refresh_project(&self) {
+    /// One look at a time; asking during one queues exactly one more.
+    pub(super) fn refresh_project(&mut self) {
+        if self.proj_busy {
+            self.proj_due = true;
+            return;
+        }
+        let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
+        self.proj_busy = true;
+        self.proj_at = Instant::now();
         let (dir, tx) = (self.boot.dir.clone(), self.tx.clone());
-        tokio::spawn(async move {
+        handle.spawn(async move {
             let _ = tx.send(Ev::Proj(project_info(&dir).await));
         });
+    }
+
+    pub(super) fn on_project(&mut self, v: Value) {
+        self.proj_busy = false;
+        if v != self.proj {
+            self.proj = v.clone();
+            self.bcast(&json!({"t": "proj", "git": v}));
+        }
+        if std::mem::take(&mut self.proj_due) {
+            self.refresh_project();
+        }
+    }
+
+    /// Agents edit files without telling anyone: while a browser shows the line, look now and then.
+    pub(super) fn tick_project(&mut self) {
+        if !self.clients.is_empty() && self.proj_at.elapsed() >= PROJ_EVERY {
+            self.refresh_project();
+        }
     }
 
     pub(super) fn cmd_proj(&mut self) -> Value {

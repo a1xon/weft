@@ -47,6 +47,8 @@ function renderWhere() {
     p.atHome ? h('span', { class: 'dirty' }, 'home folder') : null,
   ]));
 }
+// coming back from an editor or a terminal: the folder has likely changed
+addEventListener('focus', () => send('proj'));
 function openPad() {
   closeFly(); closeMenu();
   pad.open = true; padEl.hidden = false; document.body.classList.add('padopen');
