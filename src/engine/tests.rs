@@ -51,7 +51,8 @@ fn engine() -> Engine {
         url: "http://127.0.0.1:1".into(),
         token: "t".into(),
     };
-    let mut e = Engine::new(boot, Config::default(), tx, None);
+    // no unit test asks a real CLI to name a card
+    let mut e = Engine::new(boot, Config { titles: false, ..Config::default() }, tx, None);
     // unit tests write only into a scratch folder
     e.flow_path = scratch.join("flow.json");
     e
@@ -664,7 +665,7 @@ async fn a_watch_with_a_command_runs_it_itself_while_the_agent_works() {
         url: "http://127.0.0.1:1".into(),
         token: "t".into(),
     };
-    let mut e = Engine::new(boot, Config::default(), tx, None);
+    let mut e = Engine::new(boot, Config { titles: false, ..Config::default() }, tx, None);
     e.flow_path = scratch.join("flow.json");
     alive_agent(&mut e, "a", "build ui");
     e.cmd(
@@ -776,6 +777,7 @@ fn agents_run_in_yolo_mode_unless_switched_off() {
         working: vec![],
         busy: vec![],
         effort_models: vec![],
+        title_cmd: String::new(),
     };
     assert_eq!(agent_command(&aider, &n, true), "aider --yes");
     // environment assignments in front keep working: no `command` prefix, the flag still goes on
@@ -2338,4 +2340,93 @@ fn what_tmux_shows_wins_over_a_copy_that_kept_a_stale_marker() {
     };
     e.on_snapshot("a".into(), Some(same));
     assert_eq!(e.rt["a"].hash, before);
+}
+
+#[test]
+fn a_model_answer_becomes_a_short_card_name() {
+    use super::titles::clean_title;
+    assert_eq!(clean_title("Fix slugify umlauts\n").as_deref(), Some("Fix slugify umlauts"));
+    assert_eq!(clean_title("\"Fix German Umlaut Slugification.\"").as_deref(), Some("Fix German Umlaut Slugification"));
+    assert_eq!(clean_title("Sure!\n\nTitle: **Wrap text tests**").as_deref(), Some("Wrap text tests"));
+    // whole words only when it runs long
+    assert_eq!(clean_title("Rework the archive countdown chip and footer").as_deref(), Some("Rework the archive countdown chip and"));
+    assert_eq!(clean_title("   \n"), None);
+    assert_eq!(clean_title(&"word ".repeat(30)), None);
+}
+
+#[test]
+fn git_steps_are_named_after_the_work_they_carry() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "Fix slugify");
+    alive_agent(&mut e, "b", "Wrap text");
+    alive_agent(&mut e, "d", "Docs pass");
+    let mk = |e: &mut Engine, op: &str| match e.cmd_node_add(json!({"agent": "git", "git_op": op}), None, false)["id"].as_str() {
+        Some(id) => id.to_string(),
+        None => panic!("no node"),
+    };
+    let c1 = mk(&mut e, "commit");
+    let c2 = mk(&mut e, "commit");
+    let name = |e: &Engine, id: &str| e.node(id).unwrap().name.clone();
+    // nothing linked yet: the plain verb, and no "commit 2"
+    assert_eq!(name(&e, &c1), "commit");
+    e.add_edge("a", &c1, On::Done).unwrap();
+    e.add_edge("b", &c2, On::Done).unwrap();
+    assert_eq!(name(&e, &c1), "commit: Fix slugify");
+    assert_eq!(name(&e, &c2), "commit: Wrap text");
+    // a push names what the commits before it carry, a PR what the push carries
+    let p = mk(&mut e, "push");
+    e.add_edge(&c1, &p, On::Done).unwrap();
+    e.add_edge(&c2, &p, On::Done).unwrap();
+    assert_eq!(name(&e, &p), "push: Fix slugify + Wrap text");
+    let pr = mk(&mut e, "pr");
+    e.add_edge(&p, &pr, On::Done).unwrap();
+    assert_eq!(name(&e, &pr), "PR: Fix slugify + Wrap text");
+    let c3 = mk(&mut e, "commit");
+    e.add_edge("d", &c3, On::Done).unwrap();
+    e.add_edge(&c3, &p, On::Done).unwrap();
+    assert_eq!(name(&e, &p), "push: Fix slugify + 2 more");
+    // the agent's name changes: so does its commit's
+    e.cmd_node_set("a".into(), json!({"name": "Slug umlauts"}));
+    assert_eq!(name(&e, &c1), "commit: Slug umlauts");
+    // a name given by hand stays
+    e.cmd_node_set(c2.clone(), json!({"name": "ship wrap"}));
+    e.cmd_node_set("b".into(), json!({"name": "Wrap words"}));
+    assert_eq!(name(&e, &c2), "ship wrap");
+    // a queued prompt or a gate between agent and commit: the agent behind it
+    alive_agent(&mut e, "x", "Lint");
+    mk_step(&mut e, "s", "then test", "x");
+    link(&mut e, "ex", "x", "s", On::Done);
+    let c4 = mk(&mut e, "commit");
+    e.add_edge("s", &c4, On::Done).unwrap();
+    assert_eq!(name(&e, &c4), "commit: Lint");
+}
+
+#[test]
+fn git_steps_from_older_builds_get_named_by_their_work() {
+    use super::titles::is_plain_git_name;
+    assert!(is_plain_git_name("commit", GitOp::Commit));
+    assert!(is_plain_git_name("commit 2", GitOp::Commit));
+    assert!(is_plain_git_name("open PR 3", GitOp::Pr));
+    assert!(!is_plain_git_name("commit slug", GitOp::Commit));
+    assert!(!is_plain_git_name("push", GitOp::Commit));
+}
+
+#[test]
+fn a_late_name_does_not_replace_a_newer_prompt_or_your_own() {
+    let mut e = engine();
+    let id = e.cmd_node_add(json!({"agent": "claude", "prompt": "Fix the slugify function in textkit/slug.py"}), None, false)["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(e.node(&id).unwrap().name, "Fix the slugify function");
+    e.on_title(&id, "Fix the slugify function in textkit/slug.py", Some("Fix slugify".into()));
+    assert_eq!(e.node(&id).unwrap().name, "Fix slugify");
+    // the prompt changed after the request went out: that answer is stale
+    e.cmd_node_set(id.clone(), json!({"prompt": "Wrap long lines in textkit/wrap.py"}));
+    e.on_title(&id, "Fix the slugify function in textkit/slug.py", Some("Old name".into()));
+    assert_eq!(e.node(&id).unwrap().name, "Wrap long lines");
+    // renamed by hand: no model renames it again
+    e.cmd_node_set(id.clone(), json!({"name": "mine"}));
+    e.on_title(&id, "Wrap long lines in textkit/wrap.py", Some("Wrap lines".into()));
+    assert_eq!(e.node(&id).unwrap().name, "mine");
 }

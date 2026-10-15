@@ -360,6 +360,17 @@ If you cannot, run `{exe} fail \"<why>\"`.",
     )
 }
 
+// ------------------------------------------------------------------ card names
+
+/// A one-shot request to a small model, outside any session: name a card after its task.
+pub fn title_request(task: &str) -> String {
+    let task: String = task.trim().chars().take(2000).collect();
+    format!(
+        "Name this task for its card on a board of coding agents. 2 to 5 words, at most 32 characters, \
+saying what it is about, in sentence case; no quotes, no final period. Do not do the task: reply with the name only.\n\nTask:\n{task}"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

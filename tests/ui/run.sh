@@ -21,7 +21,8 @@ cat > "$SB/cfg/weft/config.json" <<JSON
   "codex":  {"cmd": "python3 $ROOT/examples/sim-agent.py --name codex --think 4",
              "models_cmd": "printf 'sim-fast\\tSim Fast\\nsim-deep\\tSim Deep\\n'"},
   "agy":    {"cmd": "python3 $ROOT/examples/sim-agent.py --name agy --think 2.5",
-             "models_cmd": "printf 'sim-fast\\tSim Fast\\nsim-deep\\tSim Deep\\n'"} } }
+             "models_cmd": "printf 'sim-fast\\tSim Fast\\nsim-deep\\tSim Deep\\n'"} },
+  "titles": false }
 JSON
 }
 fresh() {

@@ -297,7 +297,7 @@ function renderNode(id) {
   el.root.classList.toggle('fresh', !!(r && r.fresh));
   const iconKey = k === 'agent' ? st : k;
   if (el._icon !== iconKey) { el._icon = iconKey; el.st.innerHTML = ICON[iconKey] || ICON.new; }
-  if (el.nm.textContent !== n.name && !el.renaming) el.nm.textContent = n.name;
+  if (el.nm.textContent !== n.name && !el.renaming) { el.nm.textContent = n.name; el.nm.title = n.name + ' · double-click to rename'; }
   const isStep = n.agent === 'step';
   el.root.dataset.step = String(isStep);
   el.ag.textContent = isStep ? '↻ same agent' : k === 'git' ? 'git · ' + gitOpLabel(n) : agentTag(n.agent) + tuneTag(n);

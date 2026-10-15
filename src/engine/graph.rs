@@ -176,7 +176,7 @@ impl Engine {
         }
     }
 
-    fn rename_refs(&mut self, old: &str, new: &str) {
+    pub(super) fn rename_refs(&mut self, old: &str, new: &str) {
         let (a, b) = (format!("{{{{from:{old}}}}}"), format!("{{{{from:{new}}}}}"));
         for n in &mut self.flow.nodes {
             if n.prompt.contains(&a) {
@@ -191,6 +191,8 @@ impl Engine {
 
     pub(super) fn flow_changed(&mut self) {
         self.reconcile_hosts();
+        // links and names upstream decide what a git step is called
+        self.retitle_git();
         save_json(&self.flow_path, &self.flow);
         let m = json!({"t": "flow", "nodes": self.flow.nodes, "edges": self.flow.edges});
         self.bcast(&m);
@@ -245,7 +247,7 @@ impl Engine {
             let as_cmd = kind == Kind::Agent && n.finish == Finish::Exit && !n.cmd.trim().is_empty();
             let t = if as_cmd { title_cmd(&src, &fallback) } else { title_from(&src, &fallback) };
             n.name = self.unique_name(&t, None);
-            n.auto_name = kind == Kind::Agent || kind == Kind::Note;
+            n.auto_name = matches!(kind, Kind::Agent | Kind::Note | Kind::Step | Kind::Git);
         } else {
             n.name = self.unique_name(n.name.trim(), None);
         }
@@ -257,6 +259,7 @@ impl Engine {
         if is_note {
             self.refresh_note(&nid);
         }
+        self.ask_title(&nid);
         self.flow_changed();
         if let Some(f) = from {
             if let Err(e) = self.add_edge(&f, &nid, On::Done) {
@@ -296,8 +299,13 @@ impl Engine {
                 {
                     return json!({"ok": false, "error": "a commit takes the work of one agent: this one has several links in"});
                 }
-                if n.auto_name && (patch.get("prompt").is_some() || patch.get("cmd").is_some()) && !renamed_by_user {
-                    let fallback = if n.agent.is_empty() { "Agent".to_string() } else { n.agent.clone() };
+                let reworded = n.auto_name && (patch.get("prompt").is_some() || patch.get("cmd").is_some()) && !renamed_by_user;
+                if reworded && n.kind() != Kind::Git {
+                    let fallback = match n.kind() {
+                        Kind::Step => "prompt".to_string(),
+                        _ if n.agent.is_empty() => "Agent".to_string(),
+                        _ => n.agent.clone(),
+                    };
                     let src = if n.finish == Finish::Exit && !n.cmd.trim().is_empty() { n.cmd.clone() } else { n.prompt.clone() };
                     let as_cmd = n.finish == Finish::Exit && !n.cmd.trim().is_empty();
                     let t = if as_cmd { title_cmd(&src, &fallback) } else { title_from(&src, &fallback) };
@@ -314,7 +322,11 @@ impl Engine {
                 if note_edit {
                     self.refresh_note(&id);
                 }
+                if reworded {
+                    self.ask_title(&id);
+                }
                 self.flow_changed();
+                let new_name = self.node(&id).map(|n| n.name.clone()).unwrap_or(new_name);
                 json!({"ok": true, "name": new_name})
             }
             Err(e) => json!({"ok": false, "error": e.to_string()}),

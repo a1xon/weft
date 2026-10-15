@@ -21,7 +21,8 @@ json.dump({"agents": {"claude": {"cmd": "python3 %s --name claude --think 1" % S
                       # programs that mishandle the first Enter / lose the first paste, as real TUIs do when starting or loaded
                       "eater": {"cmd": "python3 %s --name eater --think 1 --eat-enter 1" % SIM},
                       "loser": {"cmd": "python3 %s --name loser --think 1 --drop-paste 1" % SIM}},
-           "recheck_s": 4},
+           # the real CLIs would name the cards: names here are the prompts' first words
+           "recheck_s": 4, "titles": False},
           open(TMP + "/cfg/weft/config.json", "w"))
 
 

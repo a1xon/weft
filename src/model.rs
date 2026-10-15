@@ -374,6 +374,11 @@ pub struct AgentCfg {
     /// model). Empty = every model.
     #[serde(default)]
     pub effort_models: Vec<String>,
+    /// A one-shot command that names a card from its prompt, run with `sh -c`: the request is in
+    /// `$WEFT_TITLE_REQ`, the name is the last line it prints. The CLI's smallest model at its
+    /// lowest reasoning. Empty = the card keeps the first words of its prompt.
+    #[serde(default)]
+    pub title_cmd: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -406,6 +411,8 @@ pub struct Config {
     pub archive_s: f64,
     /// A flow of several cards goes to the archive this long after its last step finished (0 = never).
     pub archive_flow_s: f64,
+    /// Cards are named by their agent's `title_cmd` (until you rename one yourself).
+    pub titles: bool,
 }
 
 impl Default for Config {
@@ -428,6 +435,7 @@ impl Default for Config {
             recheck_s: 60.0,
             archive_s: 1800.0,
             archive_flow_s: 3600.0,
+            titles: true,
         }
     }
 }
@@ -486,6 +494,8 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             // "✻ Brewed for 3s · done 7:07 · 1 shell still running": it will wake up when it ends
             working: strings(&["shell still running", "shells still running"]),
             busy: strings(&["esc to interrupt"]),
+            // no tools: the request must not turn into work
+            title_cmd: r#"claude -p "$WEFT_TITLE_REQ" --model haiku --effort low --no-session-persistence --tools """#.into(),
             ..AgentCfg::default()
         },
     );
@@ -508,6 +518,8 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             yolo_arg: "--dangerously-bypass-approvals-and-sandbox".into(),
             working: strings(&["background terminal"]),
             busy: strings(&["esc to interrupt"]),
+            title_cmd: r#"codex exec -m gpt-6-luna -c model_reasoning_effort=low -s read-only --ephemeral --skip-git-repo-check "$WEFT_TITLE_REQ""#
+                .into(),
             ..AgentCfg::default()
         },
     );
@@ -526,6 +538,8 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             efforts: strings(&["low", "medium", "high"]),
             effort_models: vec![String::new()],
             yolo_arg: "--dangerously-skip-permissions".into(),
+            // the reasoning level is in the model's name (an --effort beside it drops the model)
+            title_cmd: r#"agy -p "$WEFT_TITLE_REQ" --model gemini-3.8-flash-low"#.into(),
             ..AgentCfg::default()
         },
     );

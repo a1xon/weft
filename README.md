@@ -367,6 +367,14 @@ leaves the agent alone). Model and reasoning are plain flags appended to the com
 lists what the CLI offers (`id<TAB>label` lines or a JSON catalog). `attention` lists screen
 substrings that mean "a human is needed".
 
+**Card names.** A card is named by its own agent's CLI with the smallest model at the lowest
+reasoning: `title_cmd` (claude `-p --model haiku --effort low`, codex `exec -m gpt-6-luna -c
+model_reasoning_effort=low`, agy `-p --model gemini-3.8-flash-low`), run with `sh -c` outside the
+project, the request in `$WEFT_TITLE_REQ`, the last printed line taken. Until it answers (and
+for an agent without one) the prompt's first words stand in. Git steps are named after the work
+they carry: `commit: <agent>`, `push: <agent> + <agent>`, `PR: <agent> + 2 more`, and follow the
+links and names upstream. A name you give yourself stays. `"titles": false` turns the calls off.
+
 ## How it works
 
 * `tmux -C` (control mode) streams every pane's output as events. The daemon feeds each pane

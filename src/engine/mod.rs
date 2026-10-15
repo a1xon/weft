@@ -45,6 +45,7 @@ mod run;
 mod state;
 #[cfg(test)]
 mod tests;
+mod titles;
 mod ui;
 mod util;
 
@@ -130,6 +131,17 @@ pub enum Ev {
         client: Option<u64>,
         cmd: Cmd,
         reply: Option<oneshot::Sender<Value>>,
+    },
+    /// A card's prompt has rested long enough to be named after it (`text` is what it was then).
+    TitleDue {
+        id: String,
+        text: String,
+    },
+    /// The small model named a card after `text` (None: it gave nothing usable).
+    Title {
+        id: String,
+        text: String,
+        title: Option<String>,
     },
 }
 /// A pane as tmux shows it: the rows (with history when asked for), the cursor, whether the
@@ -295,9 +307,15 @@ impl Engine {
         for id in notes {
             e.refresh_note(&id);
         }
+        // git steps from before they were named after their work ("commit 2") are named again
+        for n in &mut e.flow.nodes {
+            if n.kind() == Kind::Git && !n.auto_name && titles::is_plain_git_name(&n.name, n.git_op) {
+                n.auto_name = true;
+            }
+        }
         // a queued prompt whose agent no longer matches the link it hangs on is put right before
         // anything runs (the stored agent is a copy: see `reconcile_hosts`)
-        if e.reconcile_hosts() > 0 {
+        if e.reconcile_hosts() > 0 || e.retitle_git() > 0 {
             e.flow_changed();
         }
         e
@@ -495,6 +513,8 @@ impl Engine {
                 let items: Vec<Value> = list.iter().map(|(id, label)| json!({"id": id, "label": label})).collect();
                 self.bcast(&json!({"t": "models", "agent": agent, "models": items, "err": err}));
             }
+            Ev::TitleDue { id, text } => self.title_due(&id, text),
+            Ev::Title { id, text, title } => self.on_title(&id, &text, title),
             Ev::Conn { id, tx } => {
                 self.clients.insert(id, Client { tx, watch: None });
                 let st = self.full_state();
