@@ -47,7 +47,8 @@ function mkNode(n) {
   el.grip = h('div', { class: 'grip', title: 'drag to resize: more of the terminal and the result. Double-click: the default size' });
   el.root = h('div', { class: 'nw', 'data-id': n.id },
     h('div', { class: 'node chamf' },
-      h('div', { class: 'hd' }, el.st, el.nm, el.ag, el.gear), el.ask, el.body,
+      // floats first: the name's text flows around them (right floats: first one is the rightmost)
+      h('div', { class: 'hd' }, el.st, el.gear, el.ag, el.nm), el.ask, el.body,
       h('div', { class: 'ft' }, el.stx, el.q, el.bGo, el.bChg, el.bNo, el.bArm, el.bShip, el.bRun, el.bStop, el.bOpen)),
     el.pin, el.pout, el.grip);
   nodeEls.set(n.id, el);
