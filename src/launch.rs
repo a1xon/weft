@@ -149,6 +149,19 @@ pub fn remember(dir: &Path) {
     list.retain(|d| d != dir);
     list.insert(0, dir.to_path_buf());
     list.truncate(8);
+    keep_recent(&list);
+}
+
+/// `dir` leaves the list (a board left off the board list).
+pub fn forget(dir: &Path) {
+    let mut list = recent();
+    if list.iter().any(|d| d == dir) {
+        list.retain(|d| d != dir);
+        keep_recent(&list);
+    }
+}
+
+fn keep_recent(list: &[PathBuf]) {
     let text: String = list.iter().map(|d| format!("{}\n", d.display())).collect();
     let _ = std::fs::create_dir_all(state_dir());
     let _ = std::fs::write(recent_file(), text);

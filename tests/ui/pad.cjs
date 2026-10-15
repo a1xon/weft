@@ -97,7 +97,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   // --- addenda: click to switch, curate in place
   const chip = t => p.locator('#pad .pchips .chip', { hasText: t }).first();
   const on = async t => (await chip(t).getAttribute('aria-pressed')) === 'true';
-  ok(!(await on('Report with weft commands')), 'the report-with-commands addendum is off by default: the closing question does the job');
+  ok(await on('Report with weft commands'), 'the report-with-commands addendum is on by default');
   ok(!(await on('Be concise')), 'others are off');
   await chip('Be concise').click();
   ok(await on('Be concise'), 'one click switches an addendum on');
@@ -146,7 +146,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   const flow = JSON.parse(fs.readFileSync(W + '/proj/.weft/flow.json', 'utf8'));
   const n1 = flow.nodes.find(n => n.id === 'n1');
   ok(n1.model === 'sim-deep' && n1.effort === 'high', 'the node stores model and reasoning (' + n1.model + ', ' + n1.effort + ')');
-  ok(n1.addenda.includes('concise') && n1.addenda.length === 1, 'and exactly the addenda that were switched on (' + n1.addenda.join(', ') + ')');
+  ok(n1.addenda.includes('concise') && n1.addenda.includes('report-done') && n1.addenda.length === 2, 'and exactly the addenda that were switched on (' + n1.addenda.join(', ') + ')');
   await p.screenshot({ path: W + '/pad-3-started.png' });
 
   // --- the path stays above the omnibar

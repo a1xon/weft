@@ -32,6 +32,7 @@ use tokio::sync::{mpsc, oneshot};
 
 mod agent;
 mod archive;
+mod boards;
 mod checks;
 mod commands;
 mod flow;
@@ -46,6 +47,7 @@ mod run;
 mod state;
 #[cfg(test)]
 mod tests;
+mod talk;
 mod titles;
 mod ui;
 mod util;
@@ -57,8 +59,10 @@ pub use util::now_ms;
 
 use agent::*;
 use archive::*;
+use boards::Boards;
 use repo::*;
 use state::*;
+use talk::*;
 use util::*;
 
 pub struct Spawned {
@@ -92,8 +96,8 @@ pub enum Ev {
         ok: bool,
         out: String,
     },
-    /// Branch and uncommitted changes of the project folder.
-    Proj(Value),
+    /// Branch and uncommitted changes of the folders agents work in (the project's first).
+    Proj(Vec<(PathBuf, Value)>),
     /// A watch's own command finished (capture or test run).
     Check {
         node: String,
@@ -144,6 +148,8 @@ pub enum Ev {
         text: String,
         title: Option<String>,
     },
+    /// What every board is doing, as the pages list them (see boards.rs).
+    Boards(Vec<Value>),
 }
 /// A pane as tmux shows it: the rows (with history when asked for), the cursor, whether the
 /// program is on the alternate screen, the mouse modes it set, and the pane's size.
@@ -222,8 +228,11 @@ pub struct Engine {
     spawns: usize,
     /// the last number handed to a start (see `Ev::Spawned`)
     spawn_seq: u64,
-    /// branch / dirty files of the project folder, refreshed on demand
-    proj: Value,
+    /// branch / dirty files of the project folder and of every other folder agents work in (or a
+    /// browser is about to start one in), refreshed on demand
+    proj: HashMap<PathBuf, Value>,
+    /// folders the browsers asked about that no agent works in yet (the launch pad's choice), newest last
+    proj_ask: Vec<PathBuf>,
     /// when that was last looked at, whether a look is running and whether another one is due after it
     proj_at: Instant,
     proj_busy: bool,
@@ -245,6 +254,14 @@ pub struct Engine {
     archive: Archive,
     archive_path: PathBuf,
     archive_look: u64,
+    /// when someone worked on the canvas: the archive clock runs only then
+    active: Active,
+    /// the browsers were told the canvas is idle since then (None: someone is at it)
+    idle_shown: Option<u64>,
+    /// the talks changed: the agents in them are told once this moment has passed (see talk.rs)
+    talk_due: Option<Instant>,
+    /// the other boards, and what this one told them last (see boards.rs)
+    boards: Boards,
 }
 
 /// How the daemon was asked to leave: the agents carry on in tmux (the next `weft` adopts them),
@@ -267,6 +284,7 @@ impl Engine {
         let state_path = boot.dir.join(".weft").join("state.json");
         let archive_path = boot.dir.join(".weft").join("archive.json");
         let flow: Flow = load_json(&flow_path).unwrap_or_default();
+        let boards = Boards::new(boot.config_file.as_deref());
         let mut e = Engine {
             boot,
             flow,
@@ -285,7 +303,8 @@ impl Engine {
             exit: None,
             spawns: 0,
             spawn_seq: 0,
-            proj: Value::Null,
+            proj: HashMap::new(),
+            proj_ask: Vec::new(),
             proj_at: Instant::now(),
             proj_busy: false,
             proj_due: false,
@@ -298,6 +317,10 @@ impl Engine {
             archive: load_json(&archive_path).unwrap_or_default(),
             archive_path,
             archive_look: 0,
+            active: Active::new(now_ms()),
+            idle_shown: None,
+            talk_due: None,
+            boards,
         };
         let mut saved: HashMap<String, Saved> = load_json(&e.state_path).unwrap_or_default();
         let mut max_q = 0;
@@ -524,6 +547,9 @@ impl Engine {
             Ev::Title { id, text, title } => self.on_title(&id, &text, title),
             Ev::Conn { id, tx } => {
                 self.clients.insert(id, Client { tx, watch: None });
+                self.worked();
+                self.sync_user_config();
+                self.look_at_boards();
                 let st = self.full_state();
                 self.send_to(id, &st);
             }
@@ -531,8 +557,14 @@ impl Engine {
                 self.clients.remove(&id);
             }
             // (git takes a moment: the log answers by itself, the engine does not wait for it)
-            Ev::Cmd { cmd: Cmd::Log { dir, branch, n, show }, reply, .. } => self.cmd_log(dir, branch, n, show, reply),
+            Ev::Cmd { cmd: Cmd::Log { dir, branch, n, show, remote }, reply, .. } => self.cmd_log(dir, branch, n, show, remote, reply),
+            // (a sleeping board's daemon takes a moment to come up)
+            Ev::Cmd { cmd: Cmd::BoardOpen { dir, window }, reply, .. } => self.cmd_board_open(dir, window, reply),
+            Ev::Boards(list) => self.on_boards(list),
             Ev::Cmd { client, cmd, reply } => {
+                if client.is_some() && cmd.is_work() {
+                    self.worked();
+                }
                 let r = self.cmd(client, cmd);
                 if let Some(rp) = reply {
                     let _ = rp.send(r);
@@ -639,8 +671,11 @@ impl Engine {
 
     fn tick(&mut self) {
         self.tick_checks();
+        self.tick_idle();
         self.tick_archive();
         self.tick_project();
+        self.tick_talk();
+        self.tick_boards();
         let now = Instant::now();
         let alive: Vec<String> = self.rt.iter().filter(|(_, r)| r.alive).map(|(i, _)| i.clone()).collect();
         for id in alive {

@@ -185,6 +185,10 @@ function renderOptionsTab(n) {
   const agents = agentEntries(), inc = incoming(id), acfg = S.cfg.agents[n.agent] || {};
   const cmd = h('input', { class: 'fld', value: n.cmd || '', placeholder: (S.cfg.agents[n.agent] || {}).cmd || 'command to run', 'aria-label': 'Command', oninput: e => patchNode(id, { cmd: e.target.value }) });
   const cwd = h('input', { class: 'fld', value: n.cwd || '', placeholder: 'project folder', title: S.project.dir, 'aria-label': 'Folder', oninput: e => patchNode(id, { cwd: e.target.value }) });
+  const cwdPick = h('button', { class: 'btn sm', title: 'pick the folder it works in (a sibling repository, say)', onclick: ev => {
+    const r = ev.currentTarget.getBoundingClientRect();
+    folderPicker(r.left, r.bottom + 4, { title: `move ${n.name} to`, cur: workDir(S.nodes.get(id)), refocus: false, onPick: d => { moveToDir([id], d); cwd.value = cwdField(d); } });
+  } }, 'pick…');
   const wt = h('button', { class: 'chip', 'aria-pressed': String(!!n.worktree), title: 'own git worktree: parallel agents never collide, and commit & push merges each one', onclick: ev => {
     const v = !S.nodes.get(id).worktree; ev.currentTarget.setAttribute('aria-pressed', String(v)); patchNode(id, { worktree: v }, 0); } }, 'own git worktree');
   const adds = S.lib.filter(s => s.kind === 'addendum');
@@ -201,7 +205,7 @@ function renderOptionsTab(n) {
     h('div', { class: 'sec' }, h('h3', {}, 'name'), name),
     h('div', { class: 'sec' }, h('h3', {}, 'runs on'),
       seg(agents.map(([kk, a]) => [kk, a.label || kk]), n.agent, v => { convertTo(id, v); }),
-      h('div', { style: 'height:8px' }), cmd, h('div', { style: 'height:8px' }), cwd, h('div', { class: 'row2' }, wt)),
+      h('div', { style: 'height:8px' }), cmd, h('div', { style: 'height:8px' }), h('div', { class: 'fdrow' }, cwd, cwdPick), h('div', { class: 'row2' }, wt)),
     h('div', { class: 'sec' }, h('h3', {}, 'watch it work'),
       ...(n.checks || []).map(c => checkRow(id, c)),
       h('div', { class: 'row2', style: 'flex-wrap:wrap' },

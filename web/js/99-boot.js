@@ -1,6 +1,7 @@
 /* ------------------------------------------------------------ boot */
 (function boot() {
-  const q = new URLSearchParams(location.hash.slice(1)).get('t');
+  const hp = new URLSearchParams(location.hash.slice(1)), q = hp.get('t');
+  bootAt = hp.get('at') || '';
   if (q) { sessionStorage.setItem('weft-token', q); history.replaceState(null, '', location.pathname); }
   token = q || sessionStorage.getItem('weft-token');
   if (!token) {

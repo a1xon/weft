@@ -205,15 +205,15 @@ function toggleCheck(id, kind) {
 }
 /* the zoom */
 const shotbox = $('#shotbox');
-const SB = { id: null, item: null, draft: '' };
-function closeShotbox() { SB.id = null; shotbox.hidden = true; shotbox.replaceChildren(); }
-function openShotbox(id, item) { SB.id = id; SB.item = item; SB.draft = ''; renderShotbox(); }
+const SB = { id: null, item: null, draft: '', sig: '', ageEl: null };
+function closeShotbox() { SB.id = null; SB.sig = ''; SB.ageEl = null; shotbox.hidden = true; shotbox.replaceChildren(); }
+function openShotbox(id, item) { SB.id = id; SB.item = item; SB.draft = ''; SB.sig = ''; renderShotbox(); }
 function stepShotbox(d) {
   const r = S.rt.get(SB.id); if (!r) return;
   const list = r.feed || [];
   const i = list.findIndex(f => f.id === SB.item);
   const j = Math.max(0, Math.min(list.length - 1, i + d));
-  if (list[j] && list[j].id !== SB.item) { SB.item = list[j].id; SB.draft = ''; renderShotbox(); }
+  if (list[j] && list[j].id !== SB.item) { SB.item = list[j].id; SB.draft = ''; SB.sig = ''; renderShotbox(); }
 }
 function renderShotbox() {
   const r = S.rt.get(SB.id), n = S.nodes.get(SB.id);
@@ -222,6 +222,12 @@ function renderShotbox() {
   let i = list.findIndex(f => f.id === SB.item); if (i < 0) i = list.length - 1;
   const it = list[i]; SB.item = it.id;
   const kindOfItem = checkKindOf(n, it.check);
+  const title = `${n.name}  \u00b7  ${kindOfItem === 'changes' ? 'what it changed' : it.note || (it.img ? 'screenshot' : 'test run')}  \u00b7  `;
+  // a busy agent sends runtime updates many times a second: rebuilding on each one made the
+  // buttons flicker and swallowed clicks (pressed on one button, released on its replacement)
+  const sig = JSON.stringify([title, it.id, it.img, it.ok, it.state, i, list.length]);
+  if (sig === SB.sig && !shotbox.hidden) { if (SB.ageEl) SB.ageEl.textContent = title + age(it.at) + ' ago'; return; }
+  SB.sig = sig;
   const typed = shotbox.querySelector('input');
   if (typed) SB.draft = typed.value;
   const input = h('input', { placeholder: it.img ? `steer ${n.name}: what should change in this?` : `tell ${n.name} what to fix`, spellcheck: 'false', 'aria-label': 'Steer the agent' });
@@ -237,7 +243,7 @@ function renderShotbox() {
   else main = h('div', { class: 'sbtxt' }, (it.ok === false ? '\u2715 failed\n\n' : '\u2713 passed\n\n') + (it.note || ''));
   shotbox.replaceChildren(
     h('div', { class: 'sbh' },
-      h('span', { class: 't' }, `${n.name}  \u00b7  ${kindOfItem === 'changes' ? 'what it changed' : it.note || (it.img ? 'screenshot' : 'test run')}  \u00b7  ${age(it.at)} ago`),
+      SB.ageEl = h('span', { class: 't' }, title + age(it.at) + ' ago'),
       h('span', {}, `${i + 1} / ${list.length}`),
       h('button', { class: 'btn sm', onclick: closeShotbox }, 'close')),
     h('div', { class: 'sbm' },

@@ -1,6 +1,9 @@
 // The git tree: bottom right, beside the bar, the commits of the branch where you are. Live: a
 // commit made outside weft shows up by itself; merges draw a second lane; another branch is picked
-// from its name without checking anything out; a click on a commit unfolds its files.
+// from its name without checking anything out; a click on a commit unfolds its files. What happens
+// (a commit, a push, commits pushed to the remote from elsewhere, a pull) is said under the head and
+// played: a folded tree unfolds for it and folds again. Commits not pushed yet are marked, so are the
+// remote's commits that are not here yet; the remote is asked by itself (and on a click).
 const { chromium } = require(process.env.PLAYWRIGHT);
 const fs = require('fs'); const cp = require('child_process');
 const W = process.env.SANDBOX, PJ = W + '/proj';
@@ -29,6 +32,19 @@ const git = args => cp.execSync('git ' + args, { cwd: PJ, encoding: 'utf8' }).tr
   ok(box.x >= bar.x + bar.width && box.x + box.width <= 1500 && box.y + box.height <= 900 - 10, `bottom right, beside the bar (${Math.round(box.x)}..${Math.round(box.x + box.width)} vs bar ..${Math.round(bar.x + bar.width)})`);
   ok(await p.locator('#gtree .rf.cur').innerText() === 'main⇅', 'the checked-out branch wears a badge that says origin is there too');
   ok(await p.locator('#devtag').count() === 0, 'no "live ui" badge in the corner');
+  ok(/pushed/.test(await p.locator('#gtree .gev').innerText()) && /origin\/main/.test(await p.locator('#gtree .gev').innerText()),
+    'the line under the head says what happened last: ' + (await p.locator('#gtree .gev').innerText()).replace(/\s+/g, ' '));
+  ok(await until(() => p.locator('#gtree .gh .gab.sync.f-live').count()), 'the remote is asked by itself: the dot lights up');
+  // (count what moves: arrows between a commit and the remote, ripples on dots; again after a reload)
+  const watchMoves = () => p.evaluate(() => {
+    window.__moved = { fly: [], rip: [] };
+    new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => {
+      if (n.classList && n.classList.contains('gfly')) window.__moved.fly.push(n.className.baseVal ?? n.className);
+      if (n.classList && n.classList.contains('rip')) window.__moved.rip.push(n.getAttribute('class'));
+    }))).observe(document.querySelector('#gtree'), { childList: true, subtree: true });
+  });
+  await watchMoves();
+  const moved = () => p.evaluate(() => window.__moved);
 
   // --- live: a commit made outside weft lands by itself, lit up, and the head counts it
   fs.writeFileSync(PJ + '/NOTES.md', 'one\n');
@@ -36,7 +52,28 @@ const git = args => cp.execSync('git ' + args, { cwd: PJ, encoding: 'utf8' }).tr
   git('add NOTES.md'); git('commit -qm "write notes"');
   ok(await until(async () => (await subjects())[0] === 'write notes'), 'a new commit shows up without a click');
   ok(await p.locator('#gtree .gr.work').count() === 0, 'and the uncommitted line is gone');
-  ok(/↑1/.test(await head()), 'the head says one commit is not pushed');
+  ok(/↑1\s*to push/.test(await head()), 'the head says one commit is not pushed: ' + (await head()).replace(/\s+/g, ' '));
+  ok(await p.locator('#gtree .gr.out').count() === 1 && await p.locator('#gtree svg.glanes circle.o').count() === 1
+    && (await p.locator('#gtree .gr.out .gs').innerText()) === 'write notes', 'that commit is marked as not pushed (hollow dot, bar)');
+  ok(/committed/.test(await p.locator('#gtree .gev').innerText()) && /write notes/.test(await p.locator('#gtree .gev').innerText()), 'the line says it was committed');
+  ok((await moved()).rip.some(c => /r-commit/.test(c)), 'and the new commit lands with a ripple');
+
+  // --- a push while the tree is folded: it unfolds by itself, the commit goes up to the remote, it folds again
+  await p.locator('#gtree .gh .ib').click();
+  await p.mouse.move(20, 20);
+  ok(await p.locator('#gtree .gpanel').isHidden(), '(folded)');
+  git('push -q');
+  ok(await until(() => p.locator('#gtree .gpanel').isVisible()), 'a push unfolds the folded tree');
+  ok(await until(async () => /pushed 1 commit/.test(await p.locator('#gtree .gev').innerText())), 'the line says what was pushed: ' + (await p.locator('#gtree .gev').innerText()).replace(/\s+/g, ' '));
+  ok(/to origin\/main/.test(await p.locator('#gtree .gev').innerText()), 'and where to');
+  ok(await until(async () => (await moved()).fly.some(c => /up/.test(c))), 'an arrow flies from the commit up to the remote');
+  ok((await moved()).rip.some(c => /r-push/.test(c)), 'the pushed commit ripples');
+  ok(await p.locator('#gtree .gr.out').count() === 0 && /pushed/.test(await head()), 'nothing is marked as not pushed any more');
+  await p.screenshot({ path: W + '/tree-0-push.png' });
+  ok(await until(() => p.locator('#gtree .gpanel').isHidden(), 14000), 'and it folds again by itself');
+  ok(/pushed 1 commit/.test(await p.locator('#gtree .gbox').innerText()), 'folded, the box says what happened last');
+  await p.locator('#gtree .gbox').click();
+  ok(await p.locator('#gtree .gpanel').isVisible(), '(unfolded again)');
 
   // --- a branch merged back: two lanes, a merge dot
   git('switch -q -c side'); fs.writeFileSync(PJ + '/SIDE.md', 'a\nb\nc\n'); git('add SIDE.md'); git('commit -qm "work on the side"');
@@ -46,9 +83,9 @@ const git = args => cp.execSync('git ' + args, { cwd: PJ, encoding: 'utf8' }).tr
   ok(subs.length === 5 && subs[0] === 'merge side' && subs.slice(3).join('|') === 'write notes|textkit with two bugs'
     && subs.includes('meanwhile on main') && subs.includes('work on the side'), 'children before their parents: ' + subs.join(' | '));
   const lanes = await p.locator('#gtree svg.glanes').evaluate(s => ({ colours: new Set([...s.querySelectorAll('path')].map(e => e.getAttribute('class'))).size,
-    merge: s.querySelectorAll('circle.m').length, headRing: s.querySelectorAll('circle.hd').length, dots: s.querySelectorAll('circle:not(.hd)').length }));
+    merge: s.querySelectorAll('circle.m').length, headRing: s.querySelectorAll('circle.hd').length, dots: s.querySelectorAll('circle:not(.hd):not(.rip)').length }));
   ok(lanes.colours >= 2 && lanes.merge === 1 && lanes.headRing === 1 && lanes.dots === 5, 'two lanes, one merge, a ring on what is checked out: ' + JSON.stringify(lanes));
-  const xs = await p.locator('#gtree svg.glanes circle:not(.hd)').evaluateAll(cs => cs.map(c => +c.getAttribute('cx')));
+  const xs = await p.locator('#gtree svg.glanes circle:not(.hd):not(.rip)').evaluateAll(cs => cs.map(c => +c.getAttribute('cx')));
   const side = subs.indexOf('work on the side');
   ok(xs.every((x, i) => i === side ? x > xs[0] : x === xs[0]), 'main reads straight down, the side commit in a lane of its own: ' + xs.join(','));
   await p.screenshot({ path: W + '/tree-1-merge.png' });
@@ -85,7 +122,7 @@ const git = args => cp.execSync('git ' + args, { cwd: PJ, encoding: 'utf8' }).tr
   await p.locator('#gtree .gbr').click();
   await p.locator('.menu .mi', { hasText: /^every branch/ }).click();
   ok(await until(async () => (await subjects()).includes('an idea not merged yet') && (await subjects()).includes('merge side')), 'every branch: ' + (await subjects()).join(' | '));
-  const tips = await p.locator('#gtree svg.glanes circle:not(.hd)').evaluateAll(cs => cs.slice(0, 2).map(c => +c.getAttribute('cx')));
+  const tips = await p.locator('#gtree svg.glanes circle:not(.hd):not(.rip)').evaluateAll(cs => cs.slice(0, 2).map(c => +c.getAttribute('cx')));
   ok(tips[0] !== tips[1], 'the two tips stand side by side: ' + tips.join(','));
   ok((await p.locator('#gtree .rf').allInnerTexts()).includes('next'), 'with the name of the branch at its tip');
   await p.screenshot({ path: W + '/tree-4-every.png' });
@@ -93,9 +130,26 @@ const git = args => cp.execSync('git ' + args, { cwd: PJ, encoding: 'utf8' }).tr
   await p.locator('.menu .mi', { hasText: /^main/ }).click();
   ok(await until(async () => !(await subjects()).includes('an idea not merged yet')), 'and back to what is checked out');
 
+  // --- someone else pushes: the remote is asked (a click on it asks now), the commit drops in
+  //     beside the branch, marked as not here yet; a pull brings it
+  await watchMoves();
+  git('push -q');
+  const other = W + '/other';
+  cp.execSync(`git clone -q -b main ${W}/remote.git ${other} && git -C ${other} commit -q --allow-empty -m "pushed from elsewhere" && git -C ${other} push -q`);
+  ok(await until(async () => { await p.locator('#gtree .gh .gab').click(); await sleep(1500); return /↓1\s*to pull/.test(await head()); }, 30000),
+    'asked again, the remote has a commit that is not here: ' + (await head()).replace(/\s+/g, ' '));
+  ok(await until(async () => (await subjects())[0] === 'pushed from elsewhere'), 'it stands at the top');
+  ok(await p.locator('#gtree .gr.in').count() === 1 && await p.locator('#gtree svg.glanes circle.i').count() === 1, 'marked as only on the remote (dashed)');
+  ok(/origin\/main has 1 new commit/.test(await p.locator('#gtree .gev').innerText()), 'the line says the remote got it: ' + (await p.locator('#gtree .gev').innerText()).replace(/\s+/g, ' '));
+  ok(await until(async () => (await moved()).fly.some(c => /down/.test(c))), 'an arrow comes down from the remote');
+  await p.screenshot({ path: W + '/tree-6-incoming.png' });
+  git('pull -q --ff-only');
+  ok(await until(async () => /pulled 1 commit/.test(await p.locator('#gtree .gev').innerText())), 'pulled: the line says so');
+  ok(await until(async () => /pushed/.test(await head()) && await p.locator('#gtree .gr.in').count() === 0), 'and nothing is left to pull');
+
   // --- folded away: a box with the branch and its last commit, kept across a reload
   await p.locator('#gtree .gh .ib').click();
-  ok(await p.locator('#gtree .gpanel').isHidden() && /main/.test(await p.locator('#gtree .gbox').innerText()) && /merge side/.test(await p.locator('#gtree .gbox').innerText()), 'folded: a box says the branch and its last commit');
+  ok(await p.locator('#gtree .gpanel').isHidden() && /main/.test(await p.locator('#gtree .gbox').innerText()) && /pulled 1 commit/.test(await p.locator('#gtree .gbox').innerText()), 'folded: a box says the branch and what happened last');
   await p.reload(); await p.waitForSelector('#pad:not([hidden]) textarea'); await p.keyboard.press('Escape');
   ok(await until(() => p.locator('#gtree .gbox').isVisible()) && await p.locator('#gtree .gpanel').isHidden(), 'and stays folded after a reload');
   await p.locator('#gtree .gbox').click();

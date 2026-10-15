@@ -242,7 +242,7 @@ impl Engine {
         match key {
             "weft" => Some(self.boot.exe.clone()),
             "node" => Some(node.name.clone()),
-            "cwd" => Some(if node.cwd.is_empty() { self.boot.dir.to_string_lossy().into_owned() } else { node.cwd.clone() }),
+            "cwd" => Some(self.node_dir(node).to_string_lossy().into_owned()),
             _ => None,
         }
     }

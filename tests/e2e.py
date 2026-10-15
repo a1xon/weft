@@ -34,7 +34,7 @@ def check(cond, msg):
 
 
 def info():
-    f = [x for x in glob.glob(TMP + "/state/weft/*.json")]
+    f = [x for x in glob.glob(TMP + "/state/weft/*.json") if not x.endswith(".live.json")]
     return json.load(open(f[0]))
 
 
@@ -468,16 +468,38 @@ try:
             except OSError:
                 pass
 
+    # the report addendum is on by default: a new agent is taught the weft commands, not the status line
     clear()
-    solo = add(name="solo", agent="claude", prompt="Explain what textkit/slug.py does in one sentence.")
+    rd = add(name="reporter", agent="claude", prompt="Explain what textkit/slug.py does in one sentence.")
+    forget(rd)
+    call("run")
+    check(wait(lambda: status(rd)[0] == "done", "reporter done", 60), "an agent with the default addenda finishes (%s)" % (status(rd),))
+    got_rd = received(rd).split("=== prompt ===\n", 1)[-1]
+    check("done <<'EOF'" in got_rd and "Finish your final message" not in got_rd, "it is taught the weft commands, and no status line")
+
+    # the status line is what these sections test: their agents switch the report addendum off
+    clear()
+    solo = add(name="solo", agent="claude", prompt="Explain what textkit/slug.py does in one sentence.", addenda=[])
     forget(solo)
     call("run")
-    check(wait(lambda: status(solo)[0] == "done", "solo done", 60), "a lone agent finishes by silence, as before (%s)" % (status(solo),))
-    check("[weft]" not in received(solo), "and is told nothing about weft: it is a plain CLI")
+    check(wait(lambda: status(solo)[0] == "done", "solo done", 60), "a lone agent finishes (%s)" % (status(solo),))
+    got = received(solo).split("=== prompt ===\n", 1)[-1]
+    check(not got.startswith("[weft]"), "it is not told it is a step of a chain: %r" % got[:70])
+    check(got.rstrip().split("\n")[-1].startswith("[weft] Finish your final message with one last line: STATUS: <WORD>"), "but is asked to end with the status line")
+    check("STATUS" not in call("result", id=solo).get("text", ""), "which is not part of its result")
+
+    # a lone agent that ends with a question needs you: it is not done
+    clear()
+    la = add(name="lone-asker", agent="claude", prompt="ASK_QUESTION about the slug of a title with unicode.")
+    forget(la)
+    call("run")
+    check(wait(lambda: status(la)[0] == "attention", "lone issue", 90), "a lone agent's question shows as 'needs you', not done (%s)" % (status(la),))
+    call("send", id=la, text="Transliterate to plain ascii.", mode="auto")
+    check(wait(lambda: status(la)[0] == "done", "lone answered", 90), "after the answer it finishes (%s)" % (status(la),))
 
     clear()
-    hi = add(name="intro", agent="claude", prompt="Explain what textkit/slug.py does in one sentence.")
-    nx0 = add(name="reader", agent="claude", prompt="Say OK to: {{inputs}}")
+    hi = add(name="intro", agent="claude", prompt="Explain what textkit/slug.py does in one sentence.", addenda=[])
+    nx0 = add(name="reader", agent="claude", prompt="Say OK to: {{inputs}}", addenda=[])
     call("edge_add", **{"from": hi, "to": nx0})
     forget(hi, nx0)
     call("run")
@@ -493,8 +515,8 @@ try:
 
     # an agent that says it is waiting is woken, not finished
     clear()
-    df = add(name="defer", agent="claude", prompt="DEFER run the long build and tell me the result.")
-    nx = add(name="after", agent="claude", prompt="Summarise: {{inputs}}")
+    df = add(name="defer", agent="claude", prompt="DEFER run the long build and tell me the result.", addenda=[])
+    nx = add(name="after", agent="claude", prompt="Summarise: {{inputs}}", addenda=[])
     call("edge_add", **{"from": df, "to": nx})
     forget(df, nx)
     call("run")
@@ -509,8 +531,8 @@ try:
 
     # an agent that ignores the rule is asked once for the line
     clear()
-    ns = add(name="silent", agent="claude", prompt="DEFER NO_STATUS run the long build and tell me the result.")
-    nt = add(name="after-silent", agent="claude", prompt="Summarise: {{inputs}}")
+    ns = add(name="silent", agent="claude", prompt="DEFER NO_STATUS run the long build and tell me the result.", addenda=[])
+    nt = add(name="after-silent", agent="claude", prompt="Summarise: {{inputs}}", addenda=[])
     call("edge_add", **{"from": ns, "to": nt})
     forget(ns, nt)
     call("run")

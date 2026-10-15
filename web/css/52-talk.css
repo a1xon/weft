@@ -1,0 +1,52 @@
+/* ------------------------------------------------------------------ talks: agents that coordinate
+   teal, apart from the links (state colours) and the selection (cyan) */
+:root{--tk:#4fd8d0;--tk2:#24877f}
+/* the port on top of an agent: round, where the diamonds are the flow */
+.port.talk{top:0;left:50%;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;transform:none;border-color:var(--tk)}
+.port.talk::after{inset:-7px;transform:none}
+.port.talk:hover,.talking .port.talk{background:var(--tk);box-shadow:0 0 10px var(--tk)}
+.connecting .port.talk{background:var(--void);box-shadow:none}
+.nw.talkdrop{filter:drop-shadow(0 0 1px var(--tk)) drop-shadow(0 0 18px rgba(79,216,208,.35))}
+.nw.nodrop{opacity:.55}
+
+/* the line: an arch between the two tops */
+.tk .tv{fill:none;stroke:var(--tk);stroke-width:1.6;opacity:.5}
+.tk .th{fill:none;stroke:transparent;stroke-width:16;pointer-events:stroke;cursor:text}
+.tk.hov .tv{opacity:.95}
+.tk.live .tv{opacity:1;stroke-width:2.2;filter:drop-shadow(0 0 4px var(--tk))}
+.trub{fill:none;stroke:var(--tk);stroke-width:1.8;stroke-dasharray:3 5;display:none}
+.tbead{fill:#fff;filter:drop-shadow(0 0 5px var(--tk)) drop-shadow(0 0 10px var(--tk))}
+
+/* on the line: what they said (count, log) and what they should coordinate on */
+#talkpills{position:absolute;left:0;top:0;width:0;height:0}
+.tkpill{position:absolute;transform:translate(-50%,-50%);z-index:3}
+.tkpill.open{z-index:5}
+.tk-row{display:flex;align-items:center;gap:1px;height:26px;padding:0 2px;background:rgba(4,6,10,.95);border:1px solid var(--tk2);white-space:nowrap}
+.tkpill:hover .tk-row,.tkpill.on .tk-row{border-color:var(--tk);box-shadow:0 0 12px rgba(79,216,208,.16)}
+.tk-ic{display:flex;align-items:center;gap:4px;height:22px;padding:0 5px;color:var(--tk)}
+.tk-ic:hover{background:rgba(79,216,208,.12)}
+.tk-ic svg{width:15px;height:15px}
+.tk-ic b{font:600 calc(10.5px*var(--fs)) var(--mono)}
+.tk-ic b:empty{display:none}
+.tk-topic{background:none;border:0;outline:none;padding:0 5px;color:var(--i0);font:calc(11.5px*var(--fs)) var(--mono)}
+.tk-topic::placeholder{color:var(--i4)}
+.tkpill.has .tk-topic{color:var(--tk)}
+.tk-x{width:20px;height:20px;display:grid;place-items:center;color:var(--i4);opacity:0}
+.tkpill:hover .tk-x,.tkpill.on .tk-x{opacity:1}
+.tk-x:hover{color:var(--rd)}
+.tk-x svg{width:10px;height:10px}
+.tk-log{position:absolute;left:50%;top:calc(100% + 6px);transform:translateX(-50%);width:440px;max-height:280px;overflow:auto;
+  padding:4px 10px;background:rgba(4,6,10,.97);border:1px solid var(--tk2);font:calc(11.5px*var(--fs))/1.45 var(--mono);color:var(--i1);cursor:auto;user-select:text}
+.tm{padding:5px 0;border-bottom:1px solid var(--l0)}
+.tm:last-child{border-bottom:0}
+.tm-w{color:var(--tk);font-weight:600}
+.tm-a{float:right;color:var(--i4);margin-left:10px}
+.tm-t{display:block;white-space:pre-wrap;word-break:break-word}
+.tm-none{padding:5px 0;color:var(--i3)}
+/* what was just said, over the one who said it */
+.tsay{position:absolute;transform:translate(-50%,calc(-100% - 14px));width:max-content;max-width:400px;padding:5px 10px;z-index:2;pointer-events:none;
+  background:rgba(4,6,10,.96);border:1px solid var(--tk);color:var(--i0);font:calc(11.5px*var(--fs))/1.4 var(--mono);animation:tsay 7s ease forwards}
+.tsay b{color:var(--tk);font-weight:600}
+@keyframes tsay{0%{opacity:0;margin-top:6px}5%{opacity:1;margin-top:0}85%{opacity:1}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.tsay{animation:none}}
+.lod .tk-topic,.lod .tk-x{display:none}

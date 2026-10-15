@@ -26,8 +26,8 @@ function tuneTag(n) {
   const m = n.model ? (n.model.length > 16 ? n.model.slice(0, 15) + '…' : n.model) : '';
   return [m, n.effort, manages(n.agent) && !yoloOf(n) ? 'asks first' : ''].filter(Boolean).map(x => ' · ' + x).join('');
 }
-function pathParts() {
-  const dir = (S.project && S.project.dir) || '', home = (S.project && S.project.home) || '';
+function pathParts(dir = (S.project && S.project.dir) || '') {
+  const home = (S.project && S.project.home) || '';
   const inHome = home && (dir === home || dir.startsWith(home + '/'));
   const short = inHome ? '~' + dir.slice(home.length) : dir;
   const i = short.lastIndexOf('/');
@@ -37,15 +37,38 @@ function pathParts() {
   if (segs.length > 4) parent = '…/' + segs.slice(-3).join('/') + '/';
   return { dir, short, parent, name, atHome: !!home && dir === home, atRoot: dir === '/' };
 }
-/* the line above every prompt input: which folder will an agent work in? */
+/* the line above every prompt input: which folder will an agent work in? The selected agents' (a
+   click moves them), else the one new agents start in (a click picks another) */
 function renderWhere() {
-  const p = pathParts(), g = (S.project && S.project.git) || {};
+  const w = $('#where');
+  if (!w) return;
+  const ids = folderTargets();
+  let d, several = 0, can = true;
+  if (ids.length) {
+    const ds = [...new Set(ids.map(i => workDir(S.nodes.get(i))))];
+    d = ds[0]; several = ds.length > 1 ? ds.length : 0;
+  } else if (S.sel.size) { d = workDir(hostOf(S.nodes.get([...S.sel][0]))); can = false; }
+  else d = newDir();
+  const p = pathParts(d), g = gitOf(d), away = d !== projDir();
   treeFollow(p.dir, g);   // (the git tree in the corner shows this folder too)
-  $('#where').replaceChildren(...nn([
-    h('span', { title: p.dir }, p.parent), h('b', { title: p.dir }, p.name),
-    g.repo ? h('span', { class: 'br' }, g.branch) : null,
-    g.repo && g.dirty ? h('span', { class: 'dirty' }, `${g.dirty} uncommitted`) : null,
-    p.atHome ? h('span', { class: 'dirty' }, 'home folder') : null,
+  const key = JSON.stringify([d, several, can, ids.length, g, p.short]);
+  if (w._key === key) return;
+  w._key = key;
+  const tip = !can ? `${p.dir}: it works where the agent before it does`
+    : ids.length ? `${several ? several + ' folders' : p.dir}\nclick or ctrl+o: move ${ids.length > 1 ? 'these agents' : 'this agent'} to another folder`
+    : `${p.dir}\nclick or ctrl+o: start new agents in another folder`;
+  const name = can
+    ? h('button', { class: 'wname' + (away ? ' away' : ''), title: tip, 'aria-label': 'Folder: ' + p.dir, onclick: ev => {
+        const r = ev.currentTarget.getBoundingClientRect(); pickFolderAt(r.left - 8, r.top - 2, true); } },
+        several ? `${several} folders` : p.name)
+    : h('b', { title: tip }, p.name);
+  if (away && !several) name.style.setProperty('--fh', folderHue(d));
+  w.replaceChildren(...nn([
+    several ? null : h('span', { title: p.dir }, p.parent), name,
+    !several && g.repo ? h('span', { class: 'br' }, g.branch) : null,
+    !several && g.repo && g.dirty ? h('span', { class: 'dirty' }, `${g.dirty} uncommitted`) : null,
+    !several && g.missing ? h('span', { class: 'dirty' }, 'folder not found') : null,
+    !several && p.atHome ? h('span', { class: 'dirty' }, 'home folder') : null,
   ]));
 }
 // coming back from an editor or a terminal: the folder has likely changed
@@ -254,7 +277,8 @@ function renderPad() {
   }
   const had = document.activeElement === padTa;
   const sel = had ? [padTa.selectionStart, padTa.selectionEnd] : null;
-  const P = pathParts(), g = (S.project && S.project.git) || {};
+  // the folder new agents start in: the project's unless another was picked here
+  const D = newDir(), P = pathParts(D), g = gitOf(D), away = D !== projDir();
   const agents = agentList();
   if (agents.length && !agents.some(([k]) => k === S.lastAgent)) S.lastAgent = (S.prefs.agent && S.cfg.agents[S.prefs.agent] && S.prefs.agent !== 'sh') ? S.prefs.agent : agents[0][0];
   const a = S.lastAgent, cfg = S.cfg.agents[a] || {};
@@ -269,10 +293,15 @@ function renderPad() {
   const warns = [];
   if (P.atHome) warns.push(h('div', { class: 'pwarn' }, 'This is your home folder. An agent started here can see everything in it. Quit and start weft inside a project folder if that is not what you want.'));
   else if (P.atRoot) warns.push(h('div', { class: 'pwarn' }, 'This is the filesystem root. Start weft inside a project folder.'));
-  else if (g.repo === false && !g.unknown) warns.push(h('div', { class: 'pwarn', style: 'border-color:var(--l3);background:none;color:var(--i2)' }, 'Not a git repository: own worktrees and commit & push nodes need one.'));
+  else if (g.repo === false && !g.unknown && !g.missing) warns.push(h('div', { class: 'pwarn', style: 'border-color:var(--l3);background:none;color:var(--i2)' }, 'Not a git repository: own worktrees and commit & push nodes need one.'));
+  if (away) {
+    const pp = pathParts(projDir());
+    warns.push(h('div', { class: 'pother' }, 'not the canvas folder ',
+      h('span', { title: pp.dir }, pp.name), h('button', { class: 'btn sm dim', title: 'start new agents in the project folder again', onclick: () => setNewDir(projDir()) }, '↩ back to it')));
+  }
 
   const where = h('div', { class: 'pwhere' },
-    h('div', { class: 'pwl' }, h('div', { class: 'ppath', title: P.dir }, P.parent || ' '), h('div', { class: 'pname', title: P.dir }, P.name),
+    h('div', { class: 'pwl' }, h('div', { class: 'ppath', title: P.dir }, P.parent || ' '), padFolder(D, P, away),
       h('div', { class: 'pgit' }, ...git), ...warns),
     count ? h('button', { class: 'btn dim pcanvas', title: 'Esc', onclick: closePad }, `canvas · ${count} agent${count > 1 ? 's' : ''}`) : null);
 
@@ -285,14 +314,14 @@ function renderPad() {
     onYolo: v => { S.prefs.yolo = v; savePrefs(); renderPad(); },
   });
   const box = promptBox({ id: 'pbox', ta: padTa, label: 'start', go: padStart,
-    hint: keyHints([['ctrl+enter', 'start'], ['enter', 'new line'], ['tab', 'next agent'], ['/', 'prompts']]) });
+    hint: keyHints([['ctrl+enter', 'start'], ['enter', 'new line'], ['tab', 'next agent'], ['/', 'prompts'], ['ctrl+o', 'folder']]) });
   padTa.placeholder = `Tell ${a} what to do in ${P.name}…`;
 
   const edFocus = editorFocus();
   const chipsRow = addendaRow();
 
   const top = padEl.scrollTop;
-  padEl.replaceChildren(h('div', { class: 'pw' }, where, h('div', { class: 'pctl' }, ...ctl), box, chipsRow));
+  padEl.replaceChildren(h('div', { class: 'pw' }, padBoards(), where, h('div', { class: 'pctl' }, ...ctl), box, chipsRow));
   padEl.scrollTop = top;
   if (padTa._grow) padTa._grow();
   settleKeys(padTa, had, sel, edFocus, true);
@@ -347,6 +376,16 @@ function addendumEditor(ed) {
     h('div', { class: 'row2' }, h('button', { class: 'btn sm pri', onclick: save }, ed.id ? 'save' : 'add'),
       h('button', { class: 'btn sm', onclick: () => { pad.ed = null; redrawPrompts(); } }, 'cancel'),
       h('span', { class: 'note', style: 'margin:0 0 0 auto' }, 'ctrl+enter saves')));
+}
+/* the folder's name, the pad's headline: a click (or ctrl+o) picks the folder new agents start in */
+function padFolder(D, P, away) {
+  const b = h('button', { class: 'pname' + (away ? ' away' : ''), title: `${P.dir}\nclick or ctrl+o: start new agents in another folder (a sibling repository, say)`,
+    'aria-label': 'Folder: ' + P.dir, onclick: ev => {
+      const r = ev.currentTarget.getBoundingClientRect();
+      folderPicker(r.left, r.bottom + 6, { title: 'start new agents in', cur: D, onPick: setNewDir });
+    } }, P.name);
+  if (away) b.style.setProperty('--fh', folderHue(D));
+  return b;
 }
 async function padStart() {
   const text = padTa.value.trim();

@@ -101,8 +101,11 @@ pub(super) struct Step {
     pub(super) before: Vec<String>,
     /// the agent was asked to report with `weft done|issue|fail`
     pub(super) expect_signal: bool,
-    /// the step is a link of a chain and was asked to end with a `STATUS:` line
+    /// the step was asked to end with a `STATUS:` line
     pub(super) rule: bool,
+    /// no flow takes its answer (a lone card, the last of a chain): a missing status line is not
+    /// asked for, silence is the end
+    pub(super) lone: bool,
     /// weft has already asked this step once more (a reminder, or the missing status line)
     pub(super) asked: bool,
     /// its output ends with its last word (DONE, FAILED, ISSUE): nothing it left running holds it
@@ -127,6 +130,7 @@ impl Step {
             before,
             expect_signal: false,
             rule: false,
+            lone: false,
             asked: false,
             closed: false,
             extra: String::new(),
@@ -322,6 +326,8 @@ pub(super) struct Rt {
     pub(super) typing: Option<Typing>,
     /// this session was told what weft is (the first line of its first message)
     pub(super) briefed: bool,
+    /// this session was given the status line rule in full (later prompts get a one-line reminder)
+    pub(super) ruled: bool,
     /// the node's own git worktree, if it runs in one
     pub(super) worktree: Option<String>,
     /// a "still working in the background" marker is on screen; since when; and whether it holds
@@ -380,6 +386,8 @@ pub(super) struct Rt {
     pub(super) step_wait: Option<String>,
     pub(super) checks: Checks,
     pub(super) git: GitRound,
+    /// the agents it talks with: what it was told, what waits for it, what it said
+    pub(super) talk: TalkRt,
 }
 
 /// A gate's round: the results it holds and where the round stands.
@@ -455,6 +463,9 @@ pub(super) struct GitRound {
     /// what this round passes on to the steps after it: who did the work, and what the repo looks like now
     pub(super) carry: Vec<Carry>,
     pub(super) facts: Facts,
+    /// the repositories still to push (or to open a pull request in) this round, and the one at hand
+    pub(super) repos: VecDeque<PathBuf>,
+    pub(super) at: Option<PathBuf>,
 }
 
 impl GitRound {
@@ -581,6 +592,9 @@ pub struct Facts {
     pub(super) pr: String,
     #[serde(default)]
     pub(super) pr_title: String,
+    /// every pull request, when the work is in several repositories (one each)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) prs: Vec<String>,
 }
 
 /// Which job of a git step has finished.
@@ -617,6 +631,11 @@ impl Facts {
             self.pr = f.pr;
             self.pr_title = f.pr_title;
         }
+        for p in f.prs {
+            if !self.prs.contains(&p) {
+                self.prs.push(p);
+            }
+        }
         let new: Vec<String> = f.commits.into_iter().filter(|c| !self.commits.contains(c)).collect();
         self.commits.splice(0..0, new);
         self.files.extend(f.files);
@@ -652,6 +671,7 @@ impl Rt {
             waiting: None,
             typing: None,
             briefed: false,
+            ruled: false,
             worktree: None,
             work: false,
             work_since: None,
@@ -688,6 +708,7 @@ impl Rt {
             step_wait: None,
             checks: Checks::default(),
             git: GitRound::default(),
+            talk: TalkRt::default(),
         }
     }
 
@@ -701,6 +722,7 @@ impl Rt {
             armed: self.armed,
             issue: self.issue.clone(),
             briefed: self.briefed,
+            ruled: self.ruled,
             finished: self.finished,
             ok: self.ok,
             output: self.output.clone(),
@@ -728,6 +750,9 @@ impl Rt {
             cur: self.cur.clone(),
             reply_to: self.reply_to.clone(),
             step_wait: self.step_wait.clone(),
+            talk_told: self.talk.told.clone(),
+            talk_inbox: self.talk.inbox.clone(),
+            talk_said: self.talk.said.clone(),
         }
     }
 
@@ -742,6 +767,8 @@ impl Rt {
         self.armed = s.armed;
         self.issue = s.issue;
         self.briefed = s.briefed;
+        // (an older build gave the rule in full only together with the brief)
+        self.ruled = s.ruled || s.briefed;
         self.finished = s.finished;
         self.ok = s.ok;
         self.output = s.output;
@@ -772,6 +799,9 @@ impl Rt {
         self.reply_to = s.reply_to;
         self.step_wait = s.step_wait;
         self.revived = s.revived;
+        self.talk.told = s.talk_told;
+        self.talk.inbox = s.talk_inbox;
+        self.talk.said = s.talk_said;
         if self.finished {
             self.status = if self.ok == Some(false) { Status::Failed } else { Status::Done };
             // "done 2h ago" stays true across a restart (and so does its archive clock)
@@ -979,6 +1009,8 @@ pub(super) struct Saved {
     #[serde(default)]
     pub(super) briefed: bool,
     #[serde(default)]
+    pub(super) ruled: bool,
+    #[serde(default)]
     pub(super) finished: bool,
     #[serde(default)]
     pub(super) ok: Option<bool>,
@@ -1035,6 +1067,13 @@ pub(super) struct Saved {
     /// a step: the agent that answers it
     #[serde(default)]
     pub(super) step_wait: Option<String>,
+    /// talks: what the session was told about the others, what waits for it, what it said
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub(super) talk_told: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) talk_inbox: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) talk_said: Vec<TalkMsg>,
 }
 
 pub(super) struct Watch {

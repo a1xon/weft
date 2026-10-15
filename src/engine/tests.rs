@@ -1642,7 +1642,7 @@ fn a_chained_step_without_the_status_line_is_asked_once_and_the_answer_counts() 
 #[test]
 fn nothing_is_asked_when_nothing_takes_the_result() {
     let t0 = Instant::now();
-    // a person chatting with an agent: no rule was given, so none is read
+    // a step that was given no rule (weft's own request, a slash command): none is read
     let mut e = engine();
     deferring_agent(&mut e, Step::new("go".into(), vec![]));
     add(&mut e, "b", "next", "{{inputs}}");
@@ -1651,6 +1651,73 @@ fn nothing_is_asked_when_nothing_takes_the_result() {
     e.eval("a", t0);
     e.eval("a", t0 + Duration::from_secs(5));
     assert!(e.rt["a"].finished, "user-driven: silence ends it as before");
+}
+
+/// A lone card: asked to end with a status line, and nothing takes its answer.
+fn lone_agent(e: &mut Engine, said: &str) {
+    deferring_agent(e, Step { rule: true, lone: true, ..Step::new("go".into(), vec![]) });
+    let said = said.replace('\n', "\r\n");
+    e.rt.get_mut("a").unwrap().parser.process(format!("\x1b[2J\x1b[H{said}\r\n").as_bytes());
+}
+
+#[test]
+fn a_lone_card_that_ends_with_a_question_needs_you_and_is_not_done() {
+    // the user's n32: it reasoned, then asked for two decisions before building
+    let mut e = engine();
+    lone_agent(&mut e, "Two decisions before I build:\n1. B or A?\n2. When to choose the folder?\nSTATUS: ISSUE B or A, and when to choose the folder?");
+    let t0 = Instant::now();
+    e.eval("a", t0);
+    e.eval("a", t0 + Duration::from_secs(5));
+    assert!(!e.rt["a"].finished, "a question is not a result");
+    assert_eq!(e.rt["a"].issue.as_deref(), Some("B or A, and when to choose the folder?"));
+    assert_eq!(e.rt["a"].status, Status::Attention);
+    e.eval("a", t0 + Duration::from_secs(3600));
+    assert_eq!(e.rt["a"].status, Status::Attention, "it waits for the person, however long");
+    // DONE is done, and its result has no label
+    let mut e = engine();
+    lone_agent(&mut e, "slug.py turns a title into a URL slug.\nSTATUS: DONE");
+    e.eval("a", t0);
+    e.eval("a", t0 + Duration::from_secs(5));
+    assert!(e.rt["a"].finished && e.rt["a"].ok == Some(true));
+    assert_eq!(e.rt["a"].output.as_deref(), Some("slug.py turns a title into a URL slug."));
+}
+
+#[test]
+fn a_lone_card_without_the_status_line_is_done_and_not_asked_for_it() {
+    let mut e = engine();
+    lone_agent(&mut e, "slug.py turns a title into a URL slug.");
+    let t0 = Instant::now();
+    e.eval("a", t0);
+    e.eval("a", t0 + Duration::from_secs(5));
+    // a chain step would be asked for the line now (and not be finished); nothing waits for this one
+    assert!(e.rt["a"].finished && e.rt["a"].ok == Some(true), "no extra turn for a card nobody waits on");
+    assert_eq!(e.rt["a"].output.as_deref(), Some("slug.py turns a title into a URL slug."));
+}
+
+#[test]
+fn every_prompt_to_an_agent_asks_for_the_status_line_and_only_a_chain_step_is_told_what_weft_is() {
+    let mut e = engine();
+    add(&mut e, "a", "lone", "explain slug.py");
+    let told = |e: &Engine, text: &str, src: Src| e.told("a", text, &src);
+    // (chain, rule)
+    assert_eq!(told(&e, "explain slug.py", Src::Flow), (false, true), "a lone card: the status line, no brief");
+    assert_eq!(told(&e, "and now wrap.py", Src::You), (false, true), "a person's next prompt too");
+    assert_eq!(told(&e, "/compact", Src::You), (false, false), "a slash command goes through as typed");
+    assert_eq!(told(&e, "!ls", Src::You), (false, false), "and so does a shell escape");
+    assert_eq!(told(&e, "explain it, then run `/bin/weft done`", Src::Flow), (false, false), "told to report with commands");
+    // a queued prompt is the person's; weft's own requests are verified by weft itself
+    add_kind(&mut e, "q", "then", "step", "and now wrap.py");
+    e.flow.nodes.last_mut().unwrap().host = "a".into();
+    link(&mut e, "e0", "a", "q", On::Done);
+    assert_eq!(told(&e, "and now wrap.py", Src::Reply("q".into())), (false, true));
+    add_kind(&mut e, "g", "commit", "git", "");
+    assert_eq!(told(&e, "Commit the work you just did.", Src::Reply("g".into())), (false, false));
+    // with a next step: briefed as well
+    add(&mut e, "b", "next", "{{inputs}}");
+    link(&mut e, "e1", "a", "b", On::Done);
+    assert_eq!(told(&e, "explain slug.py", Src::Flow), (true, true));
+    e.cfg.chain_status = false;
+    assert_eq!(told(&e, "explain slug.py", Src::Flow), (true, false), "chain_status off: no status line anywhere");
 }
 
 #[test]
@@ -1967,6 +2034,12 @@ fn finished(e: &mut Engine, id: &str, ok: bool, ago_min: u64) {
     rt.since = now_ms() - ago_min * 60_000;
 }
 
+/// Someone has been at the canvas for the last three hours and still is: the archive clock runs.
+fn at_work(e: &mut Engine) {
+    let now = now_ms();
+    e.active.spans = vec![(now - 3 * 3_600_000, now + IDLE_MS)];
+}
+
 fn due(e: &Engine) -> Vec<Vec<String>> {
     let plan = e.filing_plan(&e.blocked_map());
     let mut due: Vec<Vec<String>> = plan
@@ -1982,19 +2055,20 @@ fn due(e: &Engine) -> Vec<Vec<String>> {
 }
 
 #[test]
-fn a_lone_finished_card_files_itself_after_half_an_hour_and_comes_back_as_it_was() {
+fn a_lone_finished_card_files_itself_after_ten_minutes_and_comes_back_as_it_was() {
     let mut e = engine();
+    at_work(&mut e);
     add(&mut e, "n1", "fix login", "fix the login");
     add(&mut e, "n2", "still busy", "go");
-    finished(&mut e, "n1", true, 10);
-    // done ten minutes ago: it goes in twenty, and the card can say so
+    finished(&mut e, "n1", true, 4);
+    // done four minutes ago: it goes in six, and the card can say so
     let at = e.filing_map(&e.blocked_map())["n1"];
-    assert!(at.abs_diff(e.rt["n1"].since + 1_800_000) < 1000);
+    assert!(at.abs_diff(e.rt["n1"].since + 600_000) < 1000);
     assert!(!e.filing_map(&e.blocked_map()).contains_key("n2"), "a card that never ran is not finished");
     e.tick_archive();
     assert!(e.node("n1").is_some(), "not before its time");
-    // half an hour on: filed, process and all, with what it knew
-    finished(&mut e, "n1", true, 31);
+    // ten minutes on: filed, process and all, with what it knew
+    finished(&mut e, "n1", true, 11);
     e.archive_look = 0;
     e.tick_archive();
     assert!(e.node("n1").is_none() && !e.rt.contains_key("n1"));
@@ -2007,7 +2081,7 @@ fn a_lone_finished_card_files_itself_after_half_an_hour_and_comes_back_as_it_was
     // filed work keeps its id: a new card does not take it
     let r = e.cmd_node_add(json!({"agent": "claude", "prompt": "next"}), None, false);
     assert_eq!(r["id"], "n3");
-    // back on the canvas where it was asked to go, with its result, and a new half hour
+    // back on the canvas where it was asked to go, with its result, and a new ten minutes
     let r = e.cmd_revive(gid, 40.0, 0.0);
     assert_eq!(r["ids"], json!(["n1"]));
     assert!(e.archive.groups.is_empty());
@@ -2015,8 +2089,8 @@ fn a_lone_finished_card_files_itself_after_half_an_hour_and_comes_back_as_it_was
     assert_eq!(e.rt["n1"].output.as_deref(), Some("result of n1"));
     assert_eq!(e.eff_status("n1", &HashMap::new()), Status::Done);
     assert!(!e.rt["n1"].alive);
-    assert!(e.filing_map(&e.blocked_map())["n1"] >= now_ms() + 1_799_000, "its clock starts again");
-    // a restart keeps "done 31 min ago" (and the clock with it)
+    assert!(e.filing_map(&e.blocked_map())["n1"] >= now_ms() + 599_000, "its clock starts again");
+    // a restart keeps "done 11 min ago" (and the clock with it)
     let mut back = Rt::new(80, 24);
     back.restore(e.rt["n1"].to_saved());
     assert_eq!(back.since, e.rt["n1"].since);
@@ -2024,8 +2098,9 @@ fn a_lone_finished_card_files_itself_after_half_an_hour_and_comes_back_as_it_was
 }
 
 #[test]
-fn a_flow_is_filed_as_one_an_hour_after_its_last_step_unless_something_holds_it() {
+fn a_flow_is_filed_as_one_a_quarter_hour_after_its_last_step_unless_something_holds_it() {
     let mut e = engine();
+    at_work(&mut e);
     add(&mut e, "n1", "plan", "plan it");
     add(&mut e, "n2", "build", "build it");
     add(&mut e, "n3", "review", "review it");
@@ -2049,9 +2124,9 @@ fn a_flow_is_filed_as_one_an_hour_after_its_last_step_unless_something_holds_it(
     finished(&mut e, "n1", true, 150);
     finished(&mut e, "n2", true, 120);
     assert_eq!(due(&e), Vec::<Vec<String>>::new(), "the review has not run yet: the flow is not finished");
-    finished(&mut e, "n3", true, 30);
-    assert_eq!(due(&e), Vec::<Vec<String>>::new(), "an hour after the LAST step, not the first");
-    finished(&mut e, "n3", true, 61);
+    finished(&mut e, "n3", true, 12);
+    assert_eq!(due(&e), Vec::<Vec<String>>::new(), "a quarter hour after the LAST step, not the first");
+    finished(&mut e, "n3", true, 16);
     assert_eq!(due(&e), vec![vec!["n1", "n2", "n3", "n4", "n7"]]);
     // a kept card keeps its flow, a failure holds it for a person, a card at work holds it
     e.flow.nodes.iter_mut().find(|n| n.id == "n2").unwrap().keep = true;
@@ -2078,6 +2153,41 @@ fn a_flow_is_filed_as_one_an_hour_after_its_last_step_unless_something_holds_it(
     assert_eq!(eids, vec!["e1", "e2", "e3", "e4", "e5", "e6"]);
     assert!(e.rt.values().all(|r| r.queue.is_empty()));
     assert_eq!(e.rt["n4"].output.as_deref(), Some("the spec"));
+}
+
+#[test]
+fn the_archive_clock_only_runs_while_someone_works_on_the_canvas() {
+    let mut e = engine();
+    add(&mut e, "n1", "fix login", "fix the login");
+    finished(&mut e, "n1", true, 60);
+    let now = now_ms();
+    // done an hour ago, but nobody was here since: it waits, all ten minutes still to go
+    e.active.spans = vec![(now - 90 * 60_000, now - 58 * 60_000)];
+    let stand = e.active.stand(now);
+    assert_eq!(stand, now - 58 * 60_000, "the clock stopped two minutes after the last sign of someone");
+    assert_eq!(e.filing_map(&e.blocked_map())["n1"], stand + 600_000 - 2 * 60_000);
+    e.tick_archive();
+    assert!(e.node("n1").is_some(), "not while nobody is at the canvas");
+    e.tick_idle();
+    assert_eq!(e.idle_shown, Some(stand), "the browsers are told the clock stands");
+    // back at it: the eight minutes left run from now
+    e.worked();
+    e.tick_idle();
+    assert_eq!(e.idle_shown, None);
+    let at = e.filing_map(&e.blocked_map())["n1"];
+    assert!(at.abs_diff(now_ms() + 8 * 60_000) < 1000);
+    // eight more minutes of work and it goes
+    e.active.spans.last_mut().unwrap().0 = now_ms() - 8 * 60_000;
+    e.archive_look = 0;
+    e.tick_archive();
+    assert!(e.node("n1").is_none());
+    // only as much of the past is kept as the longest wait needs
+    let mut a = Active::new(0);
+    for i in 0..100 {
+        a.touch(i * 1_000_000, 900_000);
+    }
+    assert_eq!(a.spans.len(), 8);
+    assert_eq!(a.ran(0, 99_000_000 + IDLE_MS), 8 * IDLE_MS);
 }
 
 #[test]
@@ -2488,4 +2598,300 @@ fn a_late_name_does_not_replace_a_newer_prompt_or_your_own() {
     e.cmd_node_set(id.clone(), json!({"name": "mine"}));
     e.on_title(&id, "Wrap long lines in textkit/wrap.py", Some("Wrap lines".into()));
     assert_eq!(e.node(&id).unwrap().name, "mine");
+}
+
+// ------------------------------------------------------------------ other folders
+
+fn in_dir(e: &mut Engine, id: &str, agent: &str, cwd: &str) {
+    add(e, id, id, "work");
+    let n = e.flow.nodes.iter_mut().find(|n| n.id == id).unwrap();
+    n.agent = agent.into();
+    n.cwd = cwd.into();
+}
+
+#[test]
+fn steps_gates_and_git_work_where_their_agent_does() {
+    let mut e = engine();
+    in_dir(&mut e, "a", "claude", "/x/crawler");
+    in_dir(&mut e, "b", "claude", "");
+    in_dir(&mut e, "s", "step", "");
+    e.flow.nodes.iter_mut().find(|n| n.id == "s").unwrap().host = "a".into();
+    in_dir(&mut e, "g", "gate", "");
+    in_dir(&mut e, "c", "git", "");
+    in_dir(&mut e, "p", "git", "");
+    in_dir(&mut e, "n", "note", "");
+    in_dir(&mut e, "own", "git", "/y/elsewhere");
+    in_dir(&mut e, "c2", "git", "");
+    // a note feeds the commit too: notes do no work, they say nothing about where it was done
+    link(&mut e, "e0", "n", "c", On::Done);
+    link(&mut e, "e1", "a", "s", On::Done);
+    link(&mut e, "e2", "s", "g", On::Done);
+    link(&mut e, "e3", "g", "c", On::Done);
+    link(&mut e, "e4", "c", "p", On::Done);
+    link(&mut e, "e5", "b", "c2", On::Done);
+    link(&mut e, "e6", "a", "own", On::Done);
+    let dir = |e: &Engine, id: &str| e.node_dir(e.node(id).unwrap());
+    let crawler = PathBuf::from("/x/crawler");
+    for id in ["a", "s", "g", "c", "p"] {
+        assert_eq!(dir(&e, id), crawler, "{id} works where agent a does");
+    }
+    assert_eq!(dir(&e, "b"), e.boot.dir, "an agent without a folder works in the project's");
+    assert_eq!(dir(&e, "c2"), e.boot.dir, "and so does a commit after it");
+    assert_eq!(dir(&e, "n"), e.boot.dir);
+    assert_eq!(dir(&e, "own"), PathBuf::from("/y/elsewhere"), "a folder of its own wins");
+    // an agent that took over in a worktree weft made: its commit merges into the project, as before
+    let wt = state_dir().join("worktrees").join("p1").join("n3-1");
+    e.flow.nodes.iter_mut().find(|n| n.id == "b").unwrap().cwd = wt.to_string_lossy().into_owned();
+    assert_eq!(dir(&e, "b"), wt);
+    assert_eq!(dir(&e, "c2"), e.boot.dir);
+}
+
+#[test]
+fn folders_as_people_write_them() {
+    let e = engine();
+    assert_eq!(e.abs_dir("~/w/crawler"), home().join("w/crawler"));
+    assert_eq!(e.abs_dir("~"), home());
+    assert_eq!(e.abs_dir("/a/b"), PathBuf::from("/a/b"));
+    assert_eq!(e.abs_dir("sub"), e.boot.dir.join("sub"));
+    // (a folder whose name begins with ~ is not the home folder)
+    assert_eq!(e.abs_dir("~x"), e.boot.dir.join("~x"));
+    assert_eq!(e.abs_dir("../crawler/"), e.boot.dir.parent().unwrap().join("crawler"), "one spelling: no .., no trailing /");
+    assert_eq!(e.abs_dir("/a/./b/../c"), PathBuf::from("/a/c"));
+}
+
+#[test]
+fn a_card_linked_after_an_agent_works_in_its_folder() {
+    let mut e = engine();
+    in_dir(&mut e, "a", "claude", "/x/crawler");
+    in_dir(&mut e, "b", "claude", "");
+    let made = |e: &mut Engine, node: Value, from: &str| {
+        let r = e.cmd_node_add(node, Some(from.into()), false);
+        let id = r["id"].as_str().unwrap().to_string();
+        e.node(&id).unwrap().cwd.clone()
+    };
+    assert_eq!(made(&mut e, json!({"agent": "claude"}), "a"), "/x/crawler");
+    assert_eq!(made(&mut e, json!({"agent": "claude", "cwd": ""}), "a"), "", "unless the card says where");
+    assert_eq!(made(&mut e, json!({"agent": "claude"}), "b"), "", "the project folder is stored as nothing");
+    assert_eq!(made(&mut e, json!({"agent": "git", "git_op": "commit"}), "a"), "", "a git step follows its agent instead");
+}
+
+#[test]
+fn folders_beside_the_project_named_like_it_come_first() {
+    let root = PathBuf::from(format!("/tmp/weft-unit-dirs-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    for d in ["rubber-website", "rubber-crawler/.git", "rubber-crawler/src", "aaa", "zzz/.git", ".hidden"] {
+        std::fs::create_dir_all(root.join(d)).unwrap();
+    }
+    std::fs::write(root.join("notes.txt"), "x").unwrap();
+    let mut e = engine();
+    e.boot.dir = root.join("rubber-website");
+    let paths = |v: Value| -> Vec<String> {
+        v["dirs"].as_array().unwrap().iter().map(|d| d["path"].as_str().unwrap().rsplit('/').next().unwrap().to_string()).collect()
+    };
+    // named like the project, then git repositories; no files, no hidden folders, not the project itself
+    assert_eq!(paths(e.cmd_dirs("", "")), ["rubber-crawler", "zzz", "aaa"]);
+    assert_eq!(paths(e.cmd_dirs("", "CRAWL")), ["rubber-crawler"], "a word anywhere in the name, any case");
+    assert_eq!(paths(e.cmd_dirs("", "z")), ["zzz"]);
+    assert_eq!(paths(e.cmd_dirs("../rub", "")), ["rubber-crawler", "rubber-website"], "a typed path is completed");
+    assert_eq!(paths(e.cmd_dirs("../.h", "")), [".hidden"], "hidden folders when asked for");
+    assert_eq!(paths(e.cmd_dirs("../rubber-crawler/", "")), ["src"], "a trailing slash lists what is inside (not .git)");
+    assert!(e.cmd_dirs("/no/such/place/", "")["dirs"].as_array().unwrap().is_empty());
+    let r = e.cmd_dirs("", "");
+    assert_eq!(r["dirs"][0]["repo"], json!(true));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+// ---------------------------------------------------------------- talks
+
+fn tell(e: &mut Engine, from: &str, to: &str, text: &str) -> Value {
+    e.cmd(None, Cmd::Tell { from: from.into(), to: to.into(), text: text.into() })
+}
+
+#[test]
+fn agents_that_talk_hear_each_other_and_nobody_else() {
+    let mut e = engine();
+    add(&mut e, "n1", "cache", "make the cache faster");
+    add(&mut e, "n2", "ui", "redo the settings page");
+    add(&mut e, "n3", "docs", "write the docs");
+    let r = e.cmd(None, Cmd::TalkAdd { a: "n1".into(), b: "n2".into(), topic: "  GPU\n use ".into(), typing: false });
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(e.flow.talks[0].topic, "GPU use", "one line");
+    assert_eq!(e.cmd(None, Cmd::TalkAdd { a: "n2".into(), b: "n1".into(), topic: String::new(), typing: false })["id"], r["id"], "one talk per pair");
+    assert_eq!(e.talk_peers("n1"), ["n2"]);
+    assert!(e.talk_peers("n3").is_empty());
+
+    // nobody else hears it, and an agent without a talk has nobody to tell
+    assert_eq!(tell(&mut e, "n1", "n3", "hi")["ok"], false);
+    assert_eq!(tell(&mut e, "n3", "all", "hi")["ok"], false);
+    // n2 has not started: what n1 says waits for its task
+    let r = tell(&mut e, "n1", "all", "I am in src/cache.rs");
+    assert_eq!(r["ok"], true, "{r}");
+    assert!(r["said"].as_str().unwrap().contains("n2 has not started yet"), "{r}");
+    assert_eq!(e.rt["n2"].talk.inbox.len(), 1);
+    assert!(e.rt["n3"].talk.inbox.is_empty());
+    assert_eq!(e.rt["n1"].talk.said[0].to, ["n2"]);
+    // its first prompt carries who the others are, the topic and what they said: once the talk has
+    // settled (a prompt that goes out while the person still draws or writes the topic goes alone)
+    assert_eq!(e.talk_with_prompt("n2"), "");
+    assert_eq!(e.rt["n2"].talk.inbox.len(), 1, "kept for later");
+    e.talk_due = Some(Instant::now());
+    e.tick_talk();
+    assert!(e.talk_due.is_none() && e.rt["n2"].talk.due, "settled: due, and told as soon as it can take it");
+    let first = e.talk_with_prompt("n2");
+    assert!(first.starts_with("[weft] You are not working alone"), "{first}");
+    assert!(first.contains("- n1 \"cache\": make the cache faster") && first.contains("Coordinate mainly on: GPU use."), "{first}");
+    assert!(first.contains("/bin/weft tell n1 \"<message>\""), "{first}");
+    assert!(first.contains("[weft] n1 \"cache\" says: I am in src/cache.rs"), "{first}");
+    assert!(e.rt["n2"].talk.inbox.is_empty());
+    assert_eq!(e.talk_with_prompt("n2"), "", "told once per session");
+
+    // a third agent joins through n2: everyone hears everyone, the old ones only hear who is new
+    e.talk_with_prompt("n1");
+    assert!(!e.rt["n1"].talk.told.is_empty());
+    e.cmd(None, Cmd::TalkAdd { a: "n3".into(), b: "n2".into(), topic: String::new(), typing: false });
+    assert_eq!(e.talk_peers("n1"), ["n2", "n3"]);
+    let news = e.talk_news("n1").expect("n1 hears about n3");
+    assert!(news.contains("More agents") && news.contains("- n3 \"docs\"") && news.contains("/bin/weft tell n3 \"<message>\""), "{news}");
+    let brief = e.talk_news("n3").expect("n3 hears it all");
+    assert!(brief.contains("/bin/weft tell n1,n2 \"<message>\""), "{brief}");
+    assert_eq!(tell(&mut e, "n3", "cache", "which files?")["ok"], true, "a name works as well as an id");
+    assert!(e.talk_news("n2").is_some_and(|t| t.contains("tell n3")));
+    // a new topic is news to all of them
+    let t2 = e.flow.talks[1].id.clone();
+    e.cmd(None, Cmd::TalkSet { id: t2.clone(), topic: Some("the docs folder".into()), typing: false });
+    let news = e.talk_news("n2").unwrap();
+    assert!(news.contains("GPU use; the docs folder") && !news.contains(" tell "), "{news}");
+
+    // n3 leaves: nobody to introduce, only its topic goes with it; and n3 is out of reach
+    e.talk_news("n1");
+    e.talk_news("n2");
+    e.cmd(None, Cmd::TalkDel { id: t2 });
+    let news = e.talk_news("n1").unwrap();
+    assert!(news.contains("Coordinate mainly on: GPU use.") && !news.contains("n3") && !news.contains(" tell "), "{news}");
+    e.cmd(None, Cmd::TalkSet { id: e.flow.talks[0].id.clone(), topic: Some(String::new()), typing: false });
+    e.talk_news("n1");
+    e.cmd(None, Cmd::TalkAdd { a: "n3".into(), b: "n2".into(), topic: String::new(), typing: false });
+    e.talk_news("n1");
+    e.cmd(None, Cmd::TalkDel { id: e.flow.talks[1].id.clone() });
+    assert_eq!(e.talk_news("n1"), None, "fewer of them and the same topic: nothing to say");
+    assert_eq!(tell(&mut e, "n1", "n3", "still there?")["ok"], false);
+    // a deleted agent takes its talks with it, and what waited for the one left alone is dropped
+    e.rt.get_mut("n1").unwrap().talk.inbox.push("from n2".into());
+    e.cmd(None, Cmd::NodeDel { id: "n2".into() });
+    assert!(e.flow.talks.is_empty());
+    e.talk_due = Some(Instant::now());
+    e.tick_talk();
+    assert!(e.rt["n1"].talk.inbox.is_empty());
+}
+
+#[test]
+fn only_agents_talk_and_a_talk_follows_what_its_cards_are() {
+    let mut e = engine();
+    add(&mut e, "n1", "a", "x");
+    add(&mut e, "n2", "b", "y");
+    add_kind(&mut e, "g", "gate", "gate", "");
+    add_kind(&mut e, "s", "shell", "sh", "ls");
+    e.flow.nodes[3].finish = Finish::Exit;
+    for other in ["g", "s", "n1"] {
+        assert_eq!(e.cmd(None, Cmd::TalkAdd { a: "n1".into(), b: other.into(), topic: String::new(), typing: false })["ok"], false, "{other}");
+    }
+    e.cmd(None, Cmd::TalkAdd { a: "n1".into(), b: "n2".into(), topic: String::new(), typing: false });
+    // the agent becomes a shell command: it cannot read what it is told
+    e.cmd(None, Cmd::NodeSet { id: "n2".into(), patch: json!({"agent": "sh", "finish": "exit", "cmd": "make"}) });
+    assert!(e.flow.talks.is_empty());
+}
+
+#[test]
+fn what_an_agent_cannot_take_now_waits_and_nobody_is_flooded() {
+    let mut e = engine();
+    alive_agent(&mut e, "n1", "a");
+    alive_agent(&mut e, "n2", "b");
+    for id in ["n1", "n2"] {
+        let r = e.rt.get_mut(id).unwrap();
+        r.armed = true;
+        r.pane = Some(format!("%{id}"));
+    }
+    e.cmd(None, Cmd::TalkAdd { a: "n1".into(), b: "n2".into(), topic: String::new(), typing: false });
+    // the settled talk makes both due; working agents are told at once
+    e.talk_due = Some(Instant::now());
+    e.rt.get_mut("n2").unwrap().attn = true; // a dialog: nothing is typed into it
+    e.tick_talk();
+    assert!(!e.rt["n1"].talk.due && !e.rt["n1"].talk.told.is_empty(), "told");
+    assert!(e.rt["n2"].talk.due && e.rt["n2"].talk.told.is_empty(), "held");
+    let r = tell(&mut e, "n1", "n2", "careful with main.rs");
+    assert!(r["said"].as_str().unwrap().contains("cannot take it this moment"), "{r}");
+    assert_eq!(e.rt["n2"].talk.inbox.len(), 1);
+    // an open question for the person, or a request of weft's own, holds it too
+    e.rt.get_mut("n2").unwrap().attn = false;
+    e.rt.get_mut("n2").unwrap().issue = Some("which DB?".into());
+    e.tick_talk();
+    assert_eq!(e.rt["n2"].talk.inbox.len(), 1);
+    e.rt.get_mut("n2").unwrap().issue = None;
+    e.tick_talk();
+    assert!(e.rt["n2"].talk.inbox.is_empty() && !e.rt["n2"].talk.due, "typed once it could take it");
+    // two agents that answer each other forever are stopped
+    for i in 0..9 {
+        assert_eq!(tell(&mut e, "n1", "all", &format!("note {i}"))["ok"], true);
+    }
+    let r = tell(&mut e, "n1", "all", "one more");
+    assert_eq!(r["ok"], false);
+    assert!(r["error"].as_str().unwrap().contains("Go on with your task"), "{r}");
+    // what was said survives a restart, and the canvas gets it in order
+    let mut back = Rt::new(80, 24);
+    back.restore(serde_json::from_value(serde_json::to_value(e.rt["n1"].to_saved()).unwrap()).unwrap());
+    assert_eq!(back.talk.said.len(), 10);
+    assert_eq!(back.talk.told, e.rt["n1"].talk.told);
+    let log = e.talk_log();
+    assert_eq!(log.len(), 10);
+    assert_eq!(log[0]["text"], "careful with main.rs");
+    // and agents that talk are filed together
+    assert!(e.flows().iter().any(|f| f.contains(&"n1".to_string()) && f.contains(&"n2".to_string())));
+}
+
+#[test]
+fn work_in_two_repositories_is_committed_and_pushed_in_each() {
+    let mut e = engine();
+    in_dir(&mut e, "a", "claude", "/x/crawler");
+    in_dir(&mut e, "b", "claude", "");
+    in_dir(&mut e, "ca", "git", "");
+    in_dir(&mut e, "cb", "git", "");
+    in_dir(&mut e, "p", "git", "");
+    link(&mut e, "e1", "a", "ca", On::Done);
+    link(&mut e, "e2", "b", "cb", On::Done);
+    link(&mut e, "e3", "ca", "p", On::Done);
+    link(&mut e, "e4", "cb", "p", On::Done);
+    let crawler = PathBuf::from("/x/crawler");
+    // a commit is read where its agent works
+    assert_eq!(e.git_dir_for("ca", "a"), crawler);
+    assert_eq!(e.git_dir_for("cb", "b"), e.boot.dir);
+    // a push takes the repositories of the work that reached it, in the order it arrived
+    let carry = |node: &str| Carry { name: node.into(), node: node.into(), ..Carry::default() };
+    e.rt.get_mut("p").unwrap().git.carry = vec![carry("a"), carry("b"), carry("a")];
+    assert_eq!(e.git_repos("p"), vec![crawler.clone(), e.boot.dir.clone()]);
+    // nothing arrived yet: where the step itself works
+    assert_eq!(e.git_repos("ca"), vec![crawler.clone()]);
+    // a step with a folder of its own pushes only there
+    e.flow.nodes.iter_mut().find(|n| n.id == "p").unwrap().cwd = "/y/only".into();
+    assert_eq!(e.git_repos("p"), vec![PathBuf::from("/y/only")]);
+    assert_eq!(e.git_dir_for("p", "a"), PathBuf::from("/y/only"));
+}
+
+#[test]
+fn the_agents_wait_while_the_person_writes_the_topic() {
+    let mut e = engine();
+    add(&mut e, "n1", "a", "x");
+    add(&mut e, "n2", "b", "y");
+    let r = e.cmd(None, Cmd::TalkAdd { a: "n1".into(), b: "n2".into(), topic: String::new(), typing: true });
+    let id = r["id"].as_str().unwrap().to_string();
+    let wait = |e: &Engine| e.talk_due.map(|t| t.saturating_duration_since(Instant::now()).as_secs_f64()).unwrap_or(-1.0);
+    assert!(wait(&e) > 20.0, "drawn, and its field has the keyboard: the agents wait for the topic ({})", wait(&e));
+    e.cmd(None, Cmd::TalkSet { id: id.clone(), topic: Some("ports".into()), typing: false });
+    assert!(wait(&e) > 0.0 && wait(&e) < 2.0, "written: they hear it in a moment ({})", wait(&e));
+    // looking into the field and leaving it as it was: whatever waited goes, nothing else
+    e.talk_due = None;
+    e.cmd(None, Cmd::TalkSet { id: id.clone(), topic: None, typing: true });
+    assert!(wait(&e) > 20.0);
+    e.cmd(None, Cmd::TalkSet { id, topic: Some("ports".into()), typing: false });
+    assert!(wait(&e) < 2.0);
+    assert_eq!(e.flow.talks[0].topic, "ports");
 }

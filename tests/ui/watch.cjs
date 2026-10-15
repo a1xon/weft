@@ -86,6 +86,10 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await p.locator('#shotbox .sbnav').first().click();
   ok((await p.locator('#shotbox .sbh span').nth(1).innerText()).startsWith(String(Number(cn) - 1)), 'the arrows step to the previous one');
   await p.screenshot({ path: W + '/watch-3-zoom.png' });
+  // a busy agent floods runtime updates: the zoom must not rebuild its buttons under the pointer
+  await p.evaluate(() => { window.__fl = setInterval(() => queueRt({ ...S.rt.get('n1') }), 16); document.querySelector('#shotbox .btn.pri').__tag = 1; });
+  await sleep(1000);
+  ok(await p.evaluate(() => { clearInterval(window.__fl); return document.querySelector('#shotbox .btn.pri').__tag === 1; }), 'the zoom keeps its buttons while the agent sends updates');
   await p.keyboard.press('Escape');
   ok(await p.locator('#shotbox').isHidden(), 'escape closes the zoom');
 

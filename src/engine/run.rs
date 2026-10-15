@@ -71,12 +71,13 @@ impl Engine {
 
     /// The screen has been quiet as long as this step needs. Silence alone is not an answer: an agent
     /// can have stopped because it waits for something it announced ("I will get back to you"), or
-    /// because it has a question. A step of a chain was asked to end with a `STATUS:` line, and that
-    /// line is read from its output:
+    /// because it has a question. A prompt to an agent was asked to end with a `STATUS:` line, and
+    /// that line is read from its output:
     /// * DONE: the result goes on; FAILED: the failure links fire;
     /// * ISSUE: the card asks the person and nothing moves on;
     /// * WAITING: weft checks on the agent now and then, and wakes it;
-    /// * no line: the agent is asked once for it, and after that silence is the end.
+    /// * no line: a step of a chain is asked once for it, and after that silence is the end; a lone
+    ///   card (nothing waits for its answer) is done right away, as it always was.
     ///
     /// An agent that was told to report with a command is reminded once. Anything else (a person
     /// chatting with an agent, a request that weft verifies itself) is over when the screen says so.
@@ -129,7 +130,8 @@ impl Engine {
                                 Act::Hold
                             }
                         },
-                        None if !c.asked => {
+                        // only a step whose answer a flow takes is asked again: a lone card is just quiet
+                        None if !c.asked && !c.lone => {
                             c.asked = true;
                             let text = words::missing_status();
                             c.extra.push('\n');
@@ -377,16 +379,11 @@ impl Engine {
             }
             return;
         }
-        // A step whose result a flow takes without a person in between is told what weft is, in the
-        // first line of its first message, and to end with a status line. A person chatting with an
-        // agent, and weft's own requests (which weft verifies), get nothing: a plain CLI. Slash
-        // commands and shell escapes go through as typed.
-        // (a shell command is not a model: nothing is explained to it)
         let agent = self.node(id).is_some_and(|n| n.kind() == Kind::Agent && n.finish == Finish::Idle && n.agent != "sh");
         let plain = !item.text.trim_start().starts_with(['/', '!']);
         let expect_signal = item.text.contains(&format!("{exe} done"));
-        let consumed = agent && plain && self.step_is_consumed(id, &item.src);
-        let first = self.rt.get(id).is_some_and(|r| !r.briefed);
+        let (consumed, rule) = self.told(id, &item.text, &item.src);
+        let (first, ruled) = self.rt.get(id).map_or((false, true), |r| (!r.briefed, r.ruled));
         if consumed && first {
             item.text = format!("{}\n\n{}", words::intro(), item.text);
         }
@@ -398,10 +395,18 @@ impl Engine {
                 item.text.push_str(&orders);
             }
         }
-        let rule = consumed && !expect_signal && self.cfg.chain_status;
+        // the agents it talks with: who they are the first time, and what they said before it could take it
+        let weft_asks = matches!(&item.src, Src::Reply(t) if self.node(t).is_none_or(|n| n.kind() != Kind::Step));
+        if agent && plain && !weft_asks {
+            let talk = self.talk_with_prompt(id);
+            if !talk.is_empty() {
+                item.text.push_str("\n\n");
+                item.text.push_str(&talk);
+            }
+        }
         if rule {
             item.text.push_str("\n\n");
-            item.text.push_str(&words::status_rule(first));
+            item.text.push_str(&words::status_rule(!ruled));
         }
         let Some(rt) = self.rt.get_mut(id) else { return };
         let Some(pane) = rt.pane.clone() else {
@@ -432,12 +437,13 @@ impl Engine {
         tm.send_bytes(&pane, &term::paste_payload(rt.parser.screen(), &item.text));
         rt.typing = Some(Typing { turn: rt.turn, ..Typing::new(&item.text, true, rt.parser.screen(), Instant::now()) });
         let before = term::lines(&mut rt.parser);
-        rt.cur = Some(Step { expect_signal, rule, ..Step::new(item.text.clone(), before) });
+        rt.cur = Some(Step { expect_signal, rule, lone: !consumed, ..Step::new(item.text.clone(), before) });
         rt.issue = None;
         rt.waiting = None;
         if consumed {
             rt.briefed = true;
         }
+        rt.ruled |= rule;
         rt.asked = item.shown.clone();
         rt.armed = true;
         rt.finished = false;
@@ -446,6 +452,20 @@ impl Engine {
         rt.ui = true;
         self.set_status(id, Status::Busy);
         self.state_dirty = true;
+    }
+
+    /// What a prompt for `id` is told besides its task: `(chain, rule)`. A step whose result a flow
+    /// takes without a person in between (`chain`) is told what weft is, in the first line of its
+    /// first message. Every prompt to an agent is asked to end with a status line (`rule`), so a card
+    /// that goes quiet with a question for the person is not taken for done; weft's own requests
+    /// (which weft verifies itself), an agent told to report with commands, slash commands and shell
+    /// escapes get nothing. (A shell command is not a model: nothing is explained to it.)
+    pub(super) fn told(&self, id: &str, text: &str, src: &Src) -> (bool, bool) {
+        let agent = self.node(id).is_some_and(|n| n.kind() == Kind::Agent && n.finish == Finish::Idle && n.agent != "sh");
+        let plain = agent && !text.trim_start().starts_with(['/', '!']);
+        let weft_asks = matches!(src, Src::Reply(t) if self.node(t).is_none_or(|n| n.kind() != Kind::Step));
+        let commands = text.contains(&format!("{} done", self.boot.exe));
+        (plain && self.step_is_consumed(id, src), plain && !weft_asks && !commands && self.cfg.chain_status)
     }
 
     /// Does a flow take the result of this step without a person in between? A step of a running

@@ -1,7 +1,8 @@
 //! The archive: finished work leaves the canvas for `.weft/archive.json`. A person drops cards on it,
 //! or a flow goes there by itself once nothing in it is left to happen: a lone card `archive_s` after
-//! it was done, a flow of several cards `archive_flow_s` after its last step. A kept card stays, and so
-//! does its flow. Filed work can come back with its results and links; its process ended when it was
+//! it was done, a flow of several cards `archive_flow_s` after its last step. That clock runs only
+//! while someone works on the canvas: two minutes without a sign of them and it stops until they are
+//! back. A kept card stays, and so does its flow. Filed work can come back with its results and links; its process ended when it was
 //! filed (the next prompt starts a new one), its worktree is kept.
 
 use super::*;
@@ -37,6 +38,52 @@ const KEEP_FILED: usize = 100;
 const FILED_STEP: usize = 4_000;
 /// How often the canvas is looked over for work that is due.
 const LOOK_EVERY_MS: u64 = 10_000;
+
+/// The archive clock stops this long after the last sign of someone at the canvas.
+pub(super) const IDLE_MS: u64 = 120_000;
+
+/// When someone worked on the canvas: the spans the archive clock ran (ms since the epoch, oldest
+/// first). Each sign of them keeps it running `IDLE_MS` on.
+pub(super) struct Active {
+    pub(super) spans: Vec<(u64, u64)>,
+    /// when weft started: the clock stands there until someone comes
+    born: u64,
+}
+
+impl Active {
+    pub(super) fn new(now: u64) -> Self {
+        Active { spans: Vec::new(), born: now }
+    }
+
+    /// Someone is at the canvas at `t`. Spans beyond the last `keep` ms of work are dropped: a card
+    /// done before them is due anyway.
+    pub(super) fn touch(&mut self, t: u64, keep: u64) {
+        match self.spans.last_mut() {
+            Some(last) if last.1 >= t => last.1 = last.1.max(t + IDLE_MS),
+            _ => self.spans.push((t, t + IDLE_MS)),
+        }
+        let mut sum = 0;
+        let mut from = 0;
+        for (i, (a, b)) in self.spans.iter().enumerate().rev() {
+            if sum >= keep {
+                from = i + 1;
+                break;
+            }
+            sum += b - a;
+        }
+        self.spans.drain(..from);
+    }
+
+    /// Where the clock stands: now while it runs, else the moment it stopped.
+    pub(super) fn stand(&self, now: u64) -> u64 {
+        self.spans.last().map_or(self.born, |s| s.1.min(now))
+    }
+
+    /// How long it ran between `from` and `to`.
+    pub(super) fn ran(&self, from: u64, to: u64) -> u64 {
+        self.spans.iter().map(|&(a, b)| b.min(to).saturating_sub(a.max(from))).sum()
+    }
+}
 
 impl Rt {
     /// Nothing runs, starts, types or waits for an answer here: it can be filed.
@@ -76,8 +123,8 @@ impl Engine {
         }
     }
 
-    /// The canvas as flows: cards tied by a link, a takeover's lineage or a queued prompt's agent belong
-    /// together. Notes are context, not work: a note goes along with the one flow it feeds, and one that
+    /// The canvas as flows: cards tied by a link, a takeover's lineage, a queued prompt's agent or a
+    /// talk belong together. Notes are context, not work: a note goes along with the one flow it feeds, and one that
     /// feeds none or several belongs to none.
     pub(super) fn flows(&self) -> Vec<Vec<String>> {
         fn root(up: &mut [usize], mut i: usize) -> usize {
@@ -91,9 +138,13 @@ impl Engine {
         let note: Vec<bool> = self.flow.nodes.iter().map(|n| n.kind() == Kind::Note).collect();
         let at: HashMap<&str, usize> = ids.iter().enumerate().map(|(i, id)| (*id, i)).collect();
         let mut up: Vec<usize> = (0..ids.len()).collect();
-        let ties = self.flow.edges.iter().map(|e| (e.from.as_str(), e.to.as_str())).chain(
-            self.flow.nodes.iter().flat_map(|n| [(n.id.as_str(), n.takeover.as_str()), (n.id.as_str(), n.host.as_str())]),
-        );
+        let ties = self
+            .flow
+            .edges
+            .iter()
+            .map(|e| (e.from.as_str(), e.to.as_str()))
+            .chain(self.flow.nodes.iter().flat_map(|n| [(n.id.as_str(), n.takeover.as_str()), (n.id.as_str(), n.host.as_str())]))
+            .chain(self.flow.talks.iter().map(|t| (t.a.as_str(), t.b.as_str())));
         for (a, b) in ties {
             if let (Some(&x), Some(&y)) = (at.get(a), at.get(b)) {
                 if !note[x] && !note[y] {
@@ -125,11 +176,13 @@ impl Engine {
         flows.into_values().collect()
     }
 
-    /// The flows that go to the archive by themselves, and when (ms since the epoch). A flow goes when
-    /// every card in it is finished (done, or a branch whose condition did not come true), none failed,
-    /// waits for a person or is kept, and it stayed so for `archive_s` (one card) or `archive_flow_s`
-    /// (several) after its last step. Coming back from the archive starts the clock again.
+    /// The flows that go to the archive by themselves, and when (ms since the epoch, as if the clock
+    /// ran from where it stands: see `Active::stand`). A flow goes when every card in it is finished
+    /// (done, or a branch whose condition did not come true), none failed, waits for a person or is
+    /// kept, and it stayed so for `archive_s` (one card) or `archive_flow_s` (several) of work on the
+    /// canvas after its last step. Coming back from the archive starts the clock again.
     pub(super) fn filing_plan(&self, blocked: &HashMap<String, String>) -> Vec<(Vec<String>, u64)> {
+        let stand = self.active.stand(now_ms());
         let mut plan = Vec::new();
         for flow in self.flows() {
             let work: Vec<&String> = flow.iter().filter(|id| self.node(id).is_some_and(|n| n.kind() != Kind::Note)).collect();
@@ -154,7 +207,7 @@ impl Engine {
                 }
             }
             if let Some(l) = last.filter(|l| *l > 0) {
-                plan.push((flow, l + (wait * 1000.0) as u64));
+                plan.push((flow, (stand + (wait * 1000.0) as u64).saturating_sub(self.active.ran(l, stand))));
             }
         }
         plan
@@ -165,6 +218,26 @@ impl Engine {
         self.filing_plan(blocked).into_iter().flat_map(|(flow, at)| flow.into_iter().map(move |id| (id, at))).collect()
     }
 
+    /// Someone did something on the canvas: the archive clock runs (on).
+    pub(super) fn worked(&mut self) {
+        let keep = (self.cfg.archive_s.max(self.cfg.archive_flow_s).max(0.0) * 1000.0) as u64;
+        self.active.touch(now_ms(), keep);
+    }
+
+    /// The archive clock stopped or runs again: the browsers show it, and every countdown moves.
+    pub(super) fn tick_idle(&mut self) {
+        let now = now_ms();
+        let stand = self.active.stand(now);
+        let idle = (stand < now).then_some(stand);
+        if idle != self.idle_shown {
+            self.idle_shown = idle;
+            self.bcast(&json!({"t": "idle", "since": idle}));
+            for rt in self.rt.values_mut() {
+                rt.ui = true;
+            }
+        }
+    }
+
     /// File what is due. Not while someone has one of its terminals open: that goes once it is closed.
     pub(super) fn tick_archive(&mut self) {
         let now = now_ms();
@@ -172,12 +245,13 @@ impl Engine {
             return;
         }
         self.archive_look = now + LOOK_EVERY_MS;
+        let stand = self.active.stand(now);
         let watched: Vec<String> = self.clients.values().filter_map(|c| c.watch.as_ref().map(|w| w.node.clone())).collect();
         let blocked = self.blocked_map();
         let due: Vec<Vec<String>> = self
             .filing_plan(&blocked)
             .into_iter()
-            .filter(|(flow, at)| *at <= now && !flow.iter().any(|id| watched.contains(id)))
+            .filter(|(flow, at)| *at <= stand && !flow.iter().any(|id| watched.contains(id)))
             .map(|(flow, _)| flow)
             .collect();
         for flow in due {
@@ -231,16 +305,22 @@ impl Engine {
     /// that has uncommitted changes).
     fn forget_worktrees(&self, gone: &Filed) {
         let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
-        for wt in gone.state.values().filter_map(|s| s.worktree.clone()) {
-            let used = self.rt.values().any(|r| r.worktree.as_deref() == Some(wt.as_str()))
-                || self.flow.nodes.iter().any(|n| n.cwd == wt)
-                || self.archive.groups.iter().any(|g| {
-                    g.nodes.iter().any(|n| n.cwd == wt) || g.state.values().any(|s| s.worktree.as_deref() == Some(wt.as_str()))
-                });
+        for (id, wt) in gone.state.iter().filter_map(|(id, s)| Some((id, s.worktree.clone()?))) {
+            let used =
+                self.rt.values().any(|r| r.worktree.as_deref() == Some(wt.as_str()))
+                    || self.flow.nodes.iter().any(|n| n.cwd == wt)
+                    || self.archive.groups.iter().any(|g| {
+                        g.nodes.iter().any(|n| n.cwd == wt) || g.state.values().any(|s| s.worktree.as_deref() == Some(wt.as_str()))
+                    });
             if used {
                 continue;
             }
-            let dir = self.boot.dir.clone();
+            // (the repository it was cut from: the folder the agent worked in)
+            let dir = gone
+                .nodes
+                .iter()
+                .find(|n| n.id == *id && !n.cwd.trim().is_empty())
+                .map_or_else(|| self.boot.dir.clone(), |n| self.abs_dir(&n.cwd));
             handle.spawn(async move {
                 let _ = tokio::process::Command::new("git").args(["-C"]).arg(dir).args(["worktree", "remove", &wt]).output().await;
             });

@@ -29,7 +29,9 @@ addenda   □ Be concise   □ No commits   □ Stay in scope   + add   prompts 
 ```
 
 * The **folder** is the headline, with branch and uncommitted files. Starting in your home folder
-  or `/` shows a warning. The same path sits above the prompt bar everywhere else.
+  or `/` shows a warning. The same path sits above the prompt bar everywhere else. A click on it
+  (or `Ctrl+O`) picks **another folder** for new agents: a sibling repository, say (see
+  [Other folders](#other-folders)). Above it, your other [boards](#boards) and what they are doing.
 * **Agent, model and reasoning** are one click each and remembered, for the agent you used last.
   The model is a row of choices like the reasoning level, not a menu; its list comes from the CLI
   itself (`codex debug models`, `agy models`), and *other…* takes a name that is not listed.
@@ -55,6 +57,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 | double-click the canvas | a draft agent there, prompt focused. Enter runs it |
 | click a card's ◇ | **what next?** then · hand over · branch (below) |
 | drag a ◇ onto an agent | link them: the result is handed on |
+| drag the ○ on top of an agent onto another agent | they **talk**: they coordinate directly while they work, and only they hear it (below) |
 | drag a ◇ into empty space and let go | the line's end is where the next card goes; the **dial** opens there: queue a prompt the same agent answers · hand off to a fresh agent · git (`Alt` chooses any type) |
 | click a link's chip | cycles *always* / *only if ok* / *only if it fails* |
 | double-click a link | splice a step into it |
@@ -162,6 +165,34 @@ agent the link comes from):
   about or steer a change, ✓ to mark it reviewed.
 * **ping.** A desktop notification (and the tab title) when the agent is done, fails or needs you.
 
+### Talks: agents that coordinate
+
+Agents that work at the same time can get in each other's way: the same files, the GPU, a port,
+the dev server. Drag the round port (○) on top of one agent onto another agent: a teal line
+arches between their tops, and from then on the two coordinate directly. A third agent dragged
+onto either of them joins the conversation (everyone a talk reaches hears everyone; *let them
+talk* in the menu of a selection links several at once). Nothing fires along a talk: their
+results, links and flows stay as they are.
+
+* **What they are told.** Each agent is told once who the others are (id, name, what they were
+  asked, their folder if it is another one), what to coordinate on, and how to say something
+  to them. A working agent hears it at once; one that has not started gets it with its task.
+  They then tell each other in a sentence or two what they work on, warn before they touch
+  something of the other's, and answer only when it matters (never just to acknowledge).
+* **What they coordinate on** is the field on the line: *GPU use*, *the files under src/api*,
+  *who restarts the dev server*. It is optional (empty: wherever their work meets). While you
+  write it the agents wait for it, so they are told once, with the topic. Changing it later
+  tells them the new one.
+* **How they talk:** `weft tell <id[,id]|all> "<message>"` from the agent's shell. weft types
+  it into the others, marked `[weft] n3 "api" says: …`, nobody else. An agent that cannot take
+  it right now (not started, a dialog, a question waiting for you, a commit weft asked for)
+  gets it as soon as it can. One agent can say ten things in ten minutes, so two agents never
+  chat forever.
+* **On the canvas:** what is said flies along the line and shows over the one who said it for a
+  moment; the bubble on the line counts it and unfolds all of it. Right-click the line or ✕ on
+  the bubble stops the talk; deleting or filing an agent takes its talks along. Agents that talk
+  go to the archive together, once all of them are finished.
+
 ### Git: commit, push, open a PR
 
 Three steps, one idea each. Each step does what the steps before it would have done, so an
@@ -185,7 +216,8 @@ agent can go straight to *open PR*; the explicit chain is just easier to read.
 * **push is the barrier.** It waits until every commit linked into it has resolved
   (`Promise.all`), then pushes the branch. It never forces. If the remote moved on, the agent
   that did the work is asked to bring the branch up to date (`pull --rebase`) and the push is
-  tried once more. Linked straight from an agent it asks for the commit first.
+  tried once more. Linked straight from an agent it asks for the commit first. Commits from
+  agents in different repositories ([other folders](#other-folders)) are pushed in each of them.
 * **open PR** pushes if nothing before it did, then asks an agent that did the work to write the
   title and description and open it (`gh pr create`, or whatever the host offers). That agent
   knows why; a template does not. Extra instructions go in its options (base branch, labels,
@@ -208,11 +240,13 @@ in the bottom left corner.
   filed. Their terminals end, their results, prompts, links and worktrees are kept. A card that is
   still at work stays where it is (stop it or let it finish first). `ctrl+z` brings back what you
   just filed; *archive* is in a card's right-click menu too.
-* **It files by itself.** A lone card goes **30 minutes** after it is done. A **flow** (cards tied
-  by links, a hand-over's baton line or a queued prompt's agent) goes as one, **60 minutes after its
+* **It files by itself.** A lone card goes **10 minutes** after it is done. A **flow** (cards tied
+  by links, a hand-over's baton line or a queued prompt's agent) goes as one, **15 minutes after its
   last step**, once every card in it is finished: done, or a branch whose condition did not come
   true. Nothing in a flow that is still under way, failed or waits for you is filed, and a card whose
   terminal you have open waits until you close it. A note goes along with the one flow it feeds.
+  The clock only runs while you work on the canvas: two minutes without a click, a move or a key
+  there and it stops (the countdowns dim) until you are back, so nothing leaves while you are away.
 * **Keep.** A finished card shows when it will go (`⊟ 24m` in its footer); a click on that keeps it
   on the canvas (`kept`), and with it its whole flow. *Keep on the canvas* is in its menu too.
 * **Read and bring back.** A click on the archive unfolds what is filed, newest first: what each
@@ -221,7 +255,7 @@ in the bottom left corner.
   links; nothing is handed on again and the next prompt starts a fresh terminal. Its clock starts
   over. *×* forgets it for good (its worktree goes too, as when a card is deleted).
 
-`archive_s` (1800) and `archive_flow_s` (3600) in `config.json` set the two times in seconds; `0`
+`archive_s` (600) and `archive_flow_s` (900) in `config.json` set the two times in seconds; `0`
 means never. The archive keeps the latest 100 drops.
 
 ### The git tree
@@ -235,13 +269,89 @@ moment. Files nobody committed yet sit on top as *N uncommitted*.
 
 * **Another branch.** Click the name in its head: the checked-out one (it follows a switch),
   *every branch* at once, or any local or remote branch. Only what is shown changes, nothing is
-  checked out; the choice is kept per folder. The head also says how far the branch is from its
-  upstream (`↑2` to push, `↓1` to pull, *pushed*). A branch weft cut for an agent's worktree wears
-  that card's name.
+  checked out; the choice is kept per folder. A branch weft cut for an agent's worktree wears that
+  card's name.
+* **The remote.** The head says how the branch stands against the remote branch it follows:
+  `↑2 to push`, `↓1 to pull`, *pushed*, `↑3 new` (never pushed), *gone on origin* (deleted there,
+  say after its pull request was merged). That is true of the remote *now*: while a window is in
+  front, weft asks the remote every minute where its branches are (`git ls-remote`, one short
+  request that writes nothing) and fetches only when one of them moved; a click on it asks at once.
+  It never asks for a password: a remote that would need one is shown as not reachable (red dot) and
+  the counts are as of the last fetch. The dot beside it: lit = asked lately, hollow = not lately,
+  pulsing = asking. Commits not pushed yet have hollow amber dots and an amber bar; commits on the
+  remote that are not here yet stand above in their own lane, dashed and violet.
+* **What happened.** The line under the head says the latest thing that happened to the branch,
+  read from git's own record of it (the reflog), so it does not matter who did it (an agent, a weft
+  git step, you in a terminal): *committed "…"*, *pushed 3 commits to origin/main*, *origin/main has
+  2 new commits from elsewhere*, *pulled*, *merged*, *rebased*, *reset*. As it happens, a folded tree
+  unfolds for a few seconds (pointer on it or a click keeps it open) and it moves: a new commit lands
+  with a ripple, a push sends an arrow from its commits up to the remote, what came from the remote
+  drops into its lane. A click on the line shows that commit.
 * **A commit.** A click unfolds it: hash (click to copy), author, time, the whole message and the
   files with lines added and removed. *older commits…* at the end loads more.
-* **Out of the way.** `–` folds it to a box with the branch and its last commit (remembered); the
-  launch pad hides it; when the window is too narrow for it beside the bar it sits above it.
+* **Out of the way.** `–` folds it to a box with the branch, how it stands against the remote and
+  what happened last (remembered); the launch pad hides it; when the window is too narrow for it
+  beside the bar it sits above it.
+
+### Other folders
+
+One canvas can drive agents in several repositories: a website and the crawler that feeds it, say.
+The canvas (its `.weft/`, its daemon) stays with the folder weft was started in; each agent works
+in a folder of its own.
+
+* **New agents.** Click the folder on the launch pad, or the folder line above the bar, or press
+  `Ctrl+O`: a picker lists the project, the folders agents already work in, the ones you used
+  before and the folders beside the project (sibling repositories, those named like the project
+  first). A few letters filter it (`crawl`), a path is completed from the disk (`../`, `~/work/`,
+  `Tab` goes into a folder), `Enter` takes it. New agents start there until you pick another; the
+  choice is remembered per project, and the pad says when it is not the canvas folder (*back to
+  it*). `/folder crawler` in the bar does the same.
+* **Agents that exist.** Select one or several and do the same (the folder line then shows *their*
+  folder), or click a card's folder tag. A running agent moves at its next start (*restart there*
+  in the toast does it now, as a fresh session). The card's options have the folder as text too.
+* **Which card is where.** While the cards on the canvas work in more than one folder, each says
+  which at the top (the folder's name and colour), the ones in the project folder too. When they all
+  work in one folder, whichever it is, no card needs to say so and none does.
+* **What goes along.** An agent linked after another one, or taking over from it, works where it
+  did. A commit after an agent is made and checked in that agent's repository, and so are gates; an
+  own worktree is cut from it. A push or PR fed by work in several repositories pushes each one and
+  opens a pull request in each, asked of an agent that worked there (its card names them all). A
+  folder that does not exist is an error, not the home folder.
+
+### Boards
+
+Every folder weft was started in is a **board**: a canvas with a daemon of its own. Several run at
+once, each with its agents (in as many folders as it likes, see above).
+
+```
+  ◎ weft            2 agents · 1 working              the board you are on
+  ● shop-api        4 agents · 2 working · 1 needs you
+  ○ rubbermetrics   asleep · 6 cards
+  + new board
+```
+
+* **The launch pad lists them** above its folder, the board you are on first, then the ones you
+  opened last. The prompt keeps the keyboard, so the board you were on still starts with no click.
+  With only one board there is just *+ new board*.
+* **On the canvas**, the board's name in the top bar (or `B`) unfolds the same list under it. When
+  an agent on another board needs you, a badge next to the name says so (*shop-api needs you*);
+  a click takes you there.
+* **A click switches this window** to that board; `Ctrl`+click (or a middle click) opens it in a
+  window of its own. A board whose daemon is not running *sleeps*: a click wakes it (its cards come
+  back as they were), and its row counts its cards meanwhile.
+* **+ new board** asks for a folder and makes it one. A double-click on the name of the board you
+  are on, in the top bar's list, renames it (empty: the folder's name again); the name is kept in
+  its `flow.json`. The × on a sleeping board leaves it off the list; its cards stay in its folder.
+* **`weft` in a folder that belongs to a board opens that board**, with its new agents starting
+  in the folder: a folder inside the board's folder, or one its agents work in. So `weft` in
+  `rubbermetrics/crawler` opens *rubbermetrics* rather than a second board. `weft new [dir]` makes a
+  board of its own anyway. The home folder and `/` never take in folders below them.
+* Your settings (last agent, model, addenda, library, networks) are the same on every board: a
+  board picks up what you changed on another one when its page connects or comes to the front.
+
+Boards never call each other: each daemon writes what it is doing (agents, working, needs you,
+cards, its agents' folders) to `<id>.live.json` beside its record in `~/.local/state/weft/`, and
+a board with a page open reads the others' every few seconds.
 
 ## Networks
 
@@ -298,7 +408,7 @@ The top bar shows the two networks you used most.
 
 *Standard prompts* are copied in when you insert them (`/`). *Addenda* are referenced, so editing
 one changes every agent that uses it. Everything is editable under *library* (*prompts & addenda*) or
-in place. The built-in **Report with weft commands** addendum (off by default, see below) teaches an
+in place. The built-in **Report with weft commands** addendum (on by default, see below) teaches an
 agent to finish with `weft done`, `weft issue` or `weft fail`.
 
 ## The prompt bar
@@ -335,13 +445,14 @@ in its terminal works too: once nothing is open any more the card shows what it 
 ### Silence is not an answer
 
 An agent that stops talking may be finished, or it may have said "I will get back to you when the
-build is done", or it may be waiting for an answer. Nothing resumes it, and handing a promise on
-would send nonsense to the next step. So **a step of a running chain is asked, in its prompt, to end
-its final message with one line**, and weft reads that line from the output:
+build is done", or it may be waiting for an answer. Nothing resumes it, handing a promise on would
+send nonsense to the next step, and a card that says *done* while it waits for your decision hides
+the question (and files itself in the archive half an hour later). So **every prompt weft gives an
+agent asks it to end its final message with one line**, and weft reads that line from the output:
 
 ```
 STATUS: DONE                         finished, and checked
-STATUS: ISSUE <your question>        cannot go on without the person
+STATUS: ISSUE <your question>        needs an answer or a decision from the person
 STATUS: WAITING <what for>           waits for something; weft wakes it to check
 STATUS: FAILED <why>                 cannot be done
 ```
@@ -350,29 +461,32 @@ STATUS: FAILED <why>                 cannot be done
 | --- | --- |
 | `DONE` | its message (without the line) is the result and goes on |
 | `FAILED` | the step fails with the reason: the "only if it fails" links fire |
-| `ISSUE` | the card says *asks you* and the question unfolds under it with an answer box; the chain waits; your answer (there, in the bar or in its terminal) continues the same run |
+| `ISSUE` | the card says *asks you* and the question unfolds under it with an answer box; a chain waits; your answer (there, in the bar or in its terminal) continues the same run |
 | `WAITING` | the card says what it waits for; after `recheck_s` (60 s) weft types a short *check on it now* into the session, repeatedly, until it is DONE, or an ISSUE after `background_s` |
+| nothing | a step of a chain is asked once for the line; if that does not help, silence is the end, so a flow never hangs. A lone card (nothing waits for its answer) is simply done, with no extra turn |
 
 The message is read from the screen. Claude Code keeps its own history on the alternate screen and
-shows only the last rows of it, so while a step of a chain runs weft lays each frame of the screen
-over the answer so far (rows the frames share are matched, a line that is still being written is
-taken in place): a long answer arrives whole, head included.
-| nothing | the agent is asked once for the line; if that does not help, silence is the end, so a flow never hangs |
+shows only the last rows of it, so while a step runs weft lays each frame of the screen over the
+answer so far (rows the frames share are matched, a line that is still being written is taken in
+place): a long answer arrives whole, head included.
 
 It is plain text on the screen, so it needs no tool, no shell, no permission and no particular CLI:
 claude, codex, agy or anything with a prompt, in any permission mode. It costs one instruction in
-the prompt (about 70 tokens the first time, a one-line reminder after), no extra turn, and nothing
-at all for an agent you are just chatting with, for the last step of a chain, or for weft's own
-requests (commit, screenshot, handover: those weft checks itself, with git, a file or a test run).
-`"chain_status": false` in `config.json` turns it off.
+the prompt (about 70 tokens the first time in a session, a one-line reminder after) and one line at
+the end of each answer (not part of the card's result), no extra turn. What you type straight into
+an agent's terminal gets nothing, and neither do weft's own requests (commit, screenshot, handover:
+those weft checks itself, with git, a file or a test run). `"chain_status": false` in `config.json`
+turns it off.
 
 A step of a chain also gets one line first: *you are one step in a chain run by weft, what you write
-last is handed on, messages starting with `[weft]` are from weft*. A lone agent is told nothing.
+last is handed on, messages starting with `[weft]` are from weft*. A lone agent gets only the status
+line, unless it has the addendum below.
 
-Agents that can run a shell may say the same words with commands, which carry exact text:
-`weft done "..."`, `weft issue "..."`, `weft fail "..."`. Switch the **Report with weft commands**
-addendum on for an agent to teach it; it then does not get the status line. An agent told to use
-the commands that goes quiet without doing so is reminded once.
+Agents that can run a shell say the same words with commands, which carry exact text:
+`weft done "..."`, `weft issue "..."`, `weft fail "..."`. The **Report with weft commands** addendum
+is on by default, so new agents get these commands and not the status line; switch it off for an
+agent to get the status line back. An agent told to use the commands that goes quiet without doing
+so is reminded once.
 
 A prompt is typed only into a process that is **up**: it has drawn something and then gone quiet
 for a moment. A shell still loading its rc files, or a TUI still painting its first screen, loses
@@ -392,7 +506,8 @@ replaced by what tmux shows. A marker on a screen that has not moved for `backgr
 ## CLI
 
 ```
-weft [dir]                    open the canvas
+weft [dir]                    open the canvas (a folder of a board: that board, new agents starting there)
+weft new [dir]                a board of its own for the folder, even inside another board's
 weft app [dir] [--pick]       the same in a window of its own (no dir: the project opened last)
 weft desktop                  put weft in the app grid, to pin it to the dock
 weft ls                       nodes, status, runs, queued
@@ -405,6 +520,7 @@ weft stop [dir] [--keep]      quit: the daemon and every agent of the project en
 weft done|issue|fail [text]   report this node: finished / cannot go on without the person / cannot be done
 weft shot <image> [--note ..] show a screenshot to the reviewer; returns at once
 weft eta <90|2m|1m30s> [--note ..]   say how long it will take (what is left); returns at once
+weft tell <id[,id]|all> <text|->     say something to the agents it talks with (only they hear it)
 ```
 
 Everything goes through one small local HTTP API, so scripts can drive a flow too:
@@ -418,6 +534,7 @@ Everything goes through one small local HTTP API, so scripts can drive a flow to
 | `<project>/.weft/state.json`, `run/`, `shots/` | run state, prompt files, images; git-ignored |
 | `<project>/.weft/archive.json` | filed work: cards, links, results; git-ignored |
 | `~/.config/weft/config.json` | **your overrides only**, merged onto the defaults; also your saved networks |
+| `~/.local/state/weft/` | per board: the daemon's record (port, token), `<id>.live.json` (what it is doing, for the board list), its log; `recent` |
 
 ```json
 {
@@ -496,6 +613,7 @@ prompt the same; six processes printing ~7 000 lines a second ≈ 2.5 % of one c
 ```
 src/main.rs        the CLI (`weft`, `weft stop`, `weft done` ...) and how the daemon starts
 src/launch.rs      `weft app` / `weft desktop`: a window of its own, the dock entry, recent projects
+src/boards.rs      boards: the live files, the list, which board a folder belongs to, waking a daemon
 src/model.rs       the flow graph, node and config types, built-in defaults: plain JSON on disk
 src/server.rs      loopback HTTP + WebSocket, token and Host checks
 src/web.rs         puts the page together from web/ (embedded in the binary)
@@ -515,11 +633,13 @@ src/engine/        the single actor that owns all state
     gates.rs       the gates on a link: approve, screenshot, tests
     git.rs         commit, push and open PR as steps; repo.rs is the git plumbing under them
     handover.rs    a fresh agent takes over another one's work
+    talk.rs        agents that talk: who is told what, `weft tell`, messages held until they can be taken
     archive.rs     finished work filed away (by hand or by itself), kept, brought back
-    history.rs     the commits of a branch for the git tree in the corner (read when asked, nothing kept)
+    history.rs     the git tree in the corner: a branch's commits, what happened to it (reflog), the remote (ls-remote)
     commands.rs    the command set and its dispatcher (each command lives in its domain's module)
     ui.rs          what browsers are told, and the state file
-    info.rs        the project folder and each CLI's model list
+    info.rs        the folders agents work in (branch, uncommitted files, sibling folders), each CLI's model list
+    boards.rs      this board's live file, the other boards for the pages, open / rename / forget, shared settings
 web/               index.html (the shell), css/*.css and js/*.js (joined in file order); dev.js (dev only)
 tests/             e2e.py (real tmux, simulated agent), ui/ (browser), engine/tests.rs (unit)
 ```
@@ -530,9 +650,9 @@ state, and nothing inside `repo.rs` knows what a node is.
 ## Limits to know about
 
 * "Screen goes quiet" is a heuristic. An agent that thinks silently for longer than the quiet
-  time looks finished; raise *Quiet for* or use *Reports done*. In a chain the status line catches
+  time looks finished; raise *Quiet for* or use *Reports done*. The status line catches
   most of what the heuristic misses, but it trusts the agent to write it (and to write it truthfully).
-* `weft done`, `weft issue`, `weft fail` and `weft shot` need the agent to be allowed to reach
+* `weft done`, `weft issue`, `weft fail`, `weft shot` and `weft tell` need the agent to be allowed to reach
   `127.0.0.1` and run a shell command. Sandboxed modes that block that fall back to the quiet
   heuristic and the status line (plain text), and watches then need a capture command or
   pasted images.

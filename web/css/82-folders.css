@@ -1,0 +1,32 @@
+/* folders: the folder an agent works in. The pad's headline and the line above the bar pick it, a
+   card outside the project folder wears a tag. Each folder has a colour of its own (--fh), kept to a
+   thin edge so it never reads as a status */
+/* (the carets are drawn, not text: the name stays the name) */
+.pname{display:block;max-width:100%;text-align:left}
+.pname::after{content:"▾";margin-left:12px;font:400 calc(16px*var(--fs)) var(--mono);color:var(--i3);vertical-align:middle;transition:color .12s}
+.pname:hover,.pname:focus-visible{color:var(--cy)}
+.pname:hover::after{color:var(--cy)}
+.pother{display:flex;align-items:center;gap:8px;margin-top:10px;font:500 calc(12px*var(--fs)) var(--mono);color:var(--i3)}
+.pother>span{color:var(--i1)}
+/* (no border: the line keeps its height, the bar does not move) */
+#where .wname{pointer-events:auto;display:inline-flex;align-items:center;gap:5px;color:var(--i1);font-weight:600;padding:0 4px;margin:0 -4px}
+#where .wname:hover,#where .wname:focus-visible{color:var(--cy);background:var(--s1);box-shadow:inset 0 0 0 1px var(--l2)}
+#where .wname.away::before,.fsq{content:"";flex:none;width:7px;height:7px;background:hsl(var(--fh) 70% 62%)}
+#where .wname::after{content:"▾";color:var(--i3);font-weight:400}
+.fpick{min-width:min(460px,calc(100vw - 32px));max-width:min(580px,calc(100vw - 32px));padding:6px}
+.fpick>.fld{margin:2px 0 6px}
+.fpl{max-height:46vh;overflow:auto}
+.fpick .mi{gap:9px}
+.fname{flex:none;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:var(--i0)}
+.fpar{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--i3)}
+.fkeys{display:flex;gap:14px;padding:6px 8px 2px;border-top:1px solid var(--l1);margin-top:4px;color:var(--i3);font-size:calc(10.5px*var(--fs))}
+.fdtag{flex:none;max-width:18ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 calc(11px*var(--fs)) var(--mono);padding:1px 6px;
+  color:var(--i1);border:1px solid var(--l1);border-left:3px solid hsl(var(--fh) 70% 62%)}
+.fdtag::before{content:"/";color:hsl(var(--fh) 70% 66%);margin-right:1px}
+.fdtag:hover{color:var(--cy);border-color:var(--cy2);border-left-color:hsl(var(--fh) 70% 62%)}
+.fdtag[hidden]{display:none}
+.fdtag.several{max-width:30ch;border-left-color:var(--l3)}
+.fdtag.several::before{color:var(--i3)}
+.lod .fdtag{font-size:calc(13px*var(--fs))}
+.fdrow{display:flex;gap:6px;align-items:center}
+.fdrow .fld{flex:1;min-width:0}

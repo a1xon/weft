@@ -135,8 +135,7 @@ impl Engine {
             .and_then(|r| r.worktree.clone())
             .map(PathBuf::from)
             .filter(|p| p.is_dir())
-            .or_else(|| self.node(&from).map(|n| n.cwd.clone()).filter(|c| !c.is_empty()).map(PathBuf::from))
-            .unwrap_or_else(|| self.boot.dir.clone());
+            .unwrap_or_else(|| self.node(&from).map_or_else(|| self.boot.dir.clone(), |n| self.node_dir(n)));
         let (tx, to, from2) = (self.tx.clone(), to.to_string(), from);
         tokio::spawn(async move {
             let facts = repo_facts(&dir).await;

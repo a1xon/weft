@@ -3,6 +3,7 @@
 //! One small daemon per project keeps the flow graph, watches every agent
 //! through tmux control mode and serves the canvas UI on loopback.
 
+mod boards;
 mod client;
 mod dev; // dev: the page follows edits to web/ while weft's UI is worked on
 mod engine;
@@ -17,9 +18,7 @@ mod words;
 use serde_json::json;
 use std::{
     io::{IsTerminal, Read},
-    os::unix::process::CommandExt,
     path::PathBuf,
-    process::Stdio,
     sync::{atomic::AtomicU64, Arc},
     time::Duration,
 };
@@ -28,7 +27,10 @@ const USAGE: &str = "\
 weft - a canvas for coding agents (tmux is the only runtime)
 
 USAGE
-  weft [dir]                 open the canvas for a project (starts the daemon)
+  weft [dir]                 open the canvas for a project (starts the daemon); a folder
+                             inside a board's folder, or one its agents work in, opens
+                             that board, with new agents starting in the folder
+  weft new [dir]             a board of its own for the folder, even inside another one
   weft app [dir] [--pick]    the same in a window of its own; no dir = the project
                              opened last, --pick asks for a folder
   weft desktop               put weft in the app grid (pin it to the dock from there)
@@ -46,6 +48,9 @@ USAGE
                              text or stdin becomes its output for the next nodes
   weft issue [text]          ISSUE: it cannot go on without the person (shown on its card)
   weft fail [text]           FAILURE: it tried and it cannot be done
+  weft tell <id[,id]|all> <text|->
+                             (inside an agent) say something to the agents it is
+                             linked to talk with; nobody else hears it
 
 Nodes can be addressed by id (n1) or by name.
 Agents live in tmux socket `weft`:  tmux -L weft attach
@@ -144,12 +149,21 @@ async fn real_main(args: Vec<String>) -> Result<i32, String> {
             Ok(0)
         }
         "shot" => shot(rest),
+        "tell" => tell(rest),
         "eta" => eta(rest),
         "open" => open(rest).await.map(|_| 0),
         "app" => match launch::app_dir(rest).map_err(launch::tell)? {
-            Some(dir) => open_dir(dir, launch::Show::Window).await.map(|_| 0).map_err(launch::tell),
+            Some(dir) => {
+                let (home, at) = if rest.iter().any(|a| a == "--new") { (dir, None) } else { board_for(dir) };
+                open_dir(home, at, launch::Show::Window).await.map(|_| 0).map_err(launch::tell)
+            }
             None => Ok(0),
         },
+        // a board of its own, even inside another board's folder
+        "new" => {
+            let show = if rest.iter().any(|a| a == "--no-open") { launch::Show::Nothing } else { launch::Show::Tab };
+            open_dir(dir_from(rest)?, None, show).await.map(|_| 0)
+        }
         "desktop" => {
             let entry = launch::install()?;
             println!("weft is in the app grid now ({}): pin it to the dock from there", entry.display());
@@ -164,56 +178,32 @@ async fn real_main(args: Vec<String>) -> Result<i32, String> {
 
 async fn open(args: &[String]) -> Result<(), String> {
     let show = if args.iter().any(|a| a == "--no-open") { launch::Show::Nothing } else { launch::Show::Tab };
-    open_dir(dir_from(args)?, show).await
+    let (home, at) = board_for(dir_from(args)?);
+    open_dir(home, at, show).await
 }
 
-async fn open_dir(dir: PathBuf, show: launch::Show) -> Result<(), String> {
-    let no_open = show == launch::Show::Nothing;
-    let running = client::find_running(&dir).filter(|i| i.dir == dir);
-    let info = match running {
-        Some(i) if i.build == model::BUILD => i,
-        other => {
-            if let Some(old) = other {
-                // another build serves this folder (an older install): replace it. The agents live
-                // in tmux and are adopted again; port and token stay, so open tabs reconnect.
-                let was = if old.build.is_empty() { "an older build".to_string() } else { format!("build {}", old.build) };
-                eprintln!("weft: this folder's daemon is {was}; restarting it with this one. Your agents keep running.");
-                let _ = client::call_at(old.port, &old.token, json!({"op": "quit"}));
-                for _ in 0..80 {
-                    if !client::pid_alive(old.pid) {
-                        break;
-                    }
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-            }
-            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-            let log = model::state_dir().join(format!("{}.log", model::project_id(&dir)));
-            std::fs::create_dir_all(model::state_dir()).ok();
-            let logf = std::fs::File::create(&log).map_err(|e| e.to_string())?;
-            std::process::Command::new(exe)
-                .arg("serve")
-                .arg(&dir)
-                .arg("--no-open")
-                .stdin(Stdio::null())
-                .stdout(Stdio::from(logf.try_clone().map_err(|e| e.to_string())?))
-                .stderr(Stdio::from(logf))
-                .process_group(0)
-                .spawn()
-                .map_err(|e| format!("could not start daemon: {e}"))?;
-            let mut found = None;
-            for _ in 0..100 {
-                tokio::time::sleep(Duration::from_millis(80)).await;
-                if let Some(i) = client::find_running(&dir).filter(|i| i.dir == dir) {
-                    found = Some(i);
-                    break;
-                }
-            }
-            found.ok_or_else(|| format!("daemon did not come up - see {}", log.display()))?
-        }
-    };
-    let url = format!("http://127.0.0.1:{}/#t={}", info.port, info.token);
-    println!("weft  {}\n      {url}", dir.display());
-    if !no_open {
+/// The board a folder belongs to (see `boards::owner`) and, when that is not the folder itself,
+/// the folder, for its new agents to start in.
+fn board_for(dir: PathBuf) -> (PathBuf, Option<PathBuf>) {
+    match boards::owner(&dir) {
+        Some(home) if home != dir => (home, Some(dir)),
+        _ => (dir, None),
+    }
+}
+
+async fn open_dir(dir: PathBuf, at: Option<PathBuf>, show: launch::Show) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let info = boards::ensure(&dir, &exe, true).await?;
+    let url = boards::url(&info, at.as_deref());
+    match &at {
+        Some(a) => println!(
+            "weft  {}\n      new agents start in {}  (`weft new` makes it a board of its own)\n      {url}",
+            dir.display(),
+            a.display()
+        ),
+        None => println!("weft  {}\n      {url}", dir.display()),
+    }
+    if show != launch::Show::Nothing {
         launch::remember(&dir);
     }
     launch::show(&url, show);
@@ -435,6 +425,29 @@ fn shot(args: &[String]) -> Result<i32, String> {
     let path = std::path::Path::new(file).canonicalize().map_err(|e| format!("{file}: {e}"))?;
     client::call(json!({"op": "feed_file", "node": node, "path": path.to_string_lossy(), "note": a.note()}))?;
     println!("shown to the reviewer; carry on");
+    Ok(0)
+}
+
+/// `weft tell <id[,id]|all> <text|->`: an agent says something to the agents it talks with (the
+/// person linked them on the canvas). It reaches them at once, or as soon as they can take it.
+fn tell(args: &[String]) -> Result<i32, String> {
+    let usage = "usage: weft tell <id[,id...]|all> \"<message>\"  (or the message on stdin)";
+    let a = AgentArgs::parse(args, &[]);
+    let to = a.words.first().ok_or(usage)?;
+    let node = a.node()?;
+    let mut text = a.words[1..].join(" ");
+    if text.is_empty() {
+        text = a.note.clone().unwrap_or_default();
+    }
+    if text == "-" || (text.is_empty() && !std::io::stdin().is_terminal()) {
+        text.clear();
+        std::io::stdin().read_to_string(&mut text).map_err(|e| e.to_string())?;
+    }
+    if text.trim().is_empty() {
+        return Err(usage.into());
+    }
+    let r = client::call(json!({"op": "tell", "from": node, "to": to, "text": text}))?;
+    println!("{}", r["said"].as_str().filter(|s| !s.is_empty()).unwrap_or("told"));
     Ok(0)
 }
 

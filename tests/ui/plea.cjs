@@ -41,7 +41,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   const cb = await p.locator('.nw[data-id="' + asker + '"] .node').boundingBox(), pb = await plea(asker).boundingBox();
   ok(pb.y > cb.y + cb.height - 2 && Math.abs(pb.x - cb.x) < 4, 'attached right under the card');
   ok(await plea(asker).locator('textarea').isVisible(), 'with an answer box');
-  ok(/asker asks you: should the slug/.test(await p.locator('#toasts').innerText()), 'the toast says what it asks, not "a dialog"');
+  ok(/asker asks you: should the slug/i.test(await p.locator('#toasts').innerText()), 'the toast says what it asks, not "a dialog"');
   await p.screenshot({ path: W + '/plea-1-question.png' });
   // enter on the selected card goes to the answer box, not to the terminal
   await p.locator('.nw[data-id="' + asker + '"] .hd').click(); await sleep(150);

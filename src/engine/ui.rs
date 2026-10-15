@@ -98,7 +98,7 @@ impl Engine {
             let tail: Vec<&String> = rt.git.log.iter().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect();
             json!({"log": tail, "seen": rt.git.seen.len(), "busy": rt.git.busy,
                    "waiting_on": rt.git.wait.as_ref().and_then(|w| self.node(w)).map(|n| n.name.clone()),
-                   "commits": rt.git.facts.commits.len(), "files": rt.git.facts.files.len(), "pr": rt.git.facts.pr,
+                   "commits": rt.git.facts.commits.len(), "files": rt.git.facts.files.len(), "pr": rt.git.facts.pr, "prs": rt.git.facts.prs,
                    "stage": match rt.git.stage { GitStage::Commit => "commit", GitStage::Rebase => "rebase", GitStage::Pr => "pr" },
                    "carried": rt.git.carry.iter().map(|c| c.name.clone()).collect::<Vec<_>>()})
         } else {
@@ -236,17 +236,21 @@ impl Engine {
         json!({
             "t": "state",
             "build": crate::model::BUILD,
-            "project": {"name": self.boot.name, "dir": self.boot.dir, "session": self.boot.session, "sock": self.boot.sock,
-                        "home": home(), "git": self.proj},
+            "project": {"name": self.board_name(), "folder": self.boot.name, "dir": self.boot.dir, "session": self.boot.session, "sock": self.boot.sock,
+                        "home": home(), "git": self.proj.get(&self.boot.dir).cloned().unwrap_or(Value::Null),
+                        "dirs": self.proj.iter().map(|(d, v)| (d.to_string_lossy().into_owned(), v.clone())).collect::<HashMap<_, _>>()},
             "cfg": {"agents": self.cfg.agents, "quiet_s": self.cfg.quiet_s, "cols": self.cfg.cols, "rows": self.cfg.rows,
                     "prefs": self.cfg.prefs, "yolo": self.cfg.yolo,
                     "archive_s": self.cfg.archive_s, "archive_flow_s": self.cfg.archive_flow_s},
+            "idle": self.idle_shown,
             "models": self.models.iter().map(|(a, l)| (a.clone(), l.iter().map(|(id, label)| json!({"id": id, "label": label})).collect::<Vec<_>>())).collect::<HashMap<_, _>>(),
             "library": self.cfg.library,
             "networks": self.cfg.networks,
-            "flow": {"nodes": self.flow.nodes, "edges": self.flow.edges},
+            "flow": {"nodes": self.flow.nodes, "edges": self.flow.edges, "talks": self.flow.talks},
+            "talk": self.talk_log(),
             "rt": rts,
             "archive": self.archive_json(),
+            "boards": self.boards.list(),
         })
     }
 

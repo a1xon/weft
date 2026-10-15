@@ -67,6 +67,34 @@ pub enum Cmd {
         from: String,
         to: String,
     },
+    /// Let two agents talk: they coordinate directly while they work (see talk.rs).
+    TalkAdd {
+        a: String,
+        b: String,
+        #[serde(default)]
+        topic: String,
+        /// the person is about to write its topic: the agents wait for it
+        #[serde(default)]
+        typing: bool,
+    },
+    /// What a talk should mainly be about (no topic: the person started writing one).
+    TalkSet {
+        id: String,
+        #[serde(default)]
+        topic: Option<String>,
+        #[serde(default)]
+        typing: bool,
+    },
+    TalkDel {
+        id: String,
+    },
+    /// An agent says something to the agents it talks with (`weft tell`): ids or names, or "all".
+    Tell {
+        from: String,
+        #[serde(default)]
+        to: String,
+        text: String,
+    },
     LibSet {
         library: Vec<Snippet>,
     },
@@ -78,10 +106,37 @@ pub enum Cmd {
     PrefSet {
         prefs: Value,
     },
-    /// Look at the project folder again (branch, uncommitted files).
-    Proj {},
+    /// Look at the project folder again (branch, uncommitted files), and at `dir` from now on.
+    Proj {
+        #[serde(default)]
+        dir: String,
+    },
+    /// Folders to work in: the project's neighbours (`like`: those whose name has it), or the
+    /// folders that complete a typed path `q`.
+    Dirs {
+        #[serde(default)]
+        q: String,
+        #[serde(default)]
+        like: String,
+    },
+    /// Open a board (its daemon started when it sleeps; a folder that is none yet becomes one):
+    /// answers with its address. `window`: in a window of its own too. Answered in `Engine::handle`.
+    BoardOpen {
+        dir: String,
+        #[serde(default)]
+        window: bool,
+    },
+    /// Leave a board that sleeps off the board list (its cards stay in its folder).
+    BoardForget {
+        dir: String,
+    },
+    /// Give this board a name ("": its folder's).
+    BoardName {
+        name: String,
+    },
     /// The commits of a folder's branch for the git tree in the corner ("": what is checked out,
     /// "*": every branch), or one commit in full (`show`). Answered in `Engine::handle`, off the engine.
+    /// `remote`: ask the remote first where its branches are (fetching what moved there).
     Log {
         #[serde(default)]
         dir: String,
@@ -91,6 +146,8 @@ pub enum Cmd {
         n: usize,
         #[serde(default)]
         show: String,
+        #[serde(default)]
+        remote: bool,
     },
     /// The agent says how long it will take (seconds from now); an update replaces the last one.
     Eta {
@@ -309,6 +366,29 @@ pub enum Cmd {
     ArchiveDel {
         group: String,
     },
+    /// Someone is at the canvas (a browser says so while they use it): the archive clock runs.
+    Here {},
+}
+
+impl Cmd {
+    /// Sent because someone did something, not by a browser asking for what it shows by itself.
+    pub(super) fn is_work(&self) -> bool {
+        !matches!(
+            self,
+            Cmd::Log { .. }
+                | Cmd::BoardOpen { .. }
+                | Cmd::Proj { .. }
+                | Cmd::Dirs { .. }
+                | Cmd::Models { .. }
+                | Cmd::Preview { .. }
+                | Cmd::Read { .. }
+                | Cmd::Result { .. }
+                | Cmd::Ls {}
+                | Cmd::Eta { .. }
+                | Cmd::Tell { .. }
+                | Cmd::Done { .. }
+        )
+    }
 }
 
 impl Engine {
@@ -322,6 +402,10 @@ impl Engine {
             Cmd::EdgeSet { id, on } => self.cmd_edge_set(id, on),
             Cmd::EdgeDel { id } => self.cmd_edge_del(id),
             Cmd::Handover { from, to } => self.cmd_handover(from, to),
+            Cmd::TalkAdd { a, b, topic, typing } => self.cmd_talk_add(a, b, topic, typing),
+            Cmd::TalkSet { id, topic, typing } => self.cmd_talk_set(id, topic, typing),
+            Cmd::TalkDel { id } => self.cmd_talk_del(id),
+            Cmd::Tell { from, to, text } => self.cmd_tell(from, to, text),
             Cmd::Eta { node, seconds, note } => self.cmd_eta(node, seconds, note),
             Cmd::CheckAdd { node, kind, subject, cmd, every_s } => self.cmd_check_add(node, kind, subject, cmd, every_s),
             Cmd::CheckSet { node, check, patch } => self.cmd_check_set(node, check, patch),
@@ -333,13 +417,20 @@ impl Engine {
             Cmd::FeedDel { node, item } => self.cmd_feed_del(node, item),
             Cmd::Takeover { from, node, text } => self.cmd_takeover(from, node, text),
             Cmd::PrefSet { prefs } => self.cmd_pref_set(prefs),
-            Cmd::Proj {} => self.cmd_proj(),
+            Cmd::Proj { dir } => self.cmd_proj(dir),
+            Cmd::Dirs { q, like } => self.cmd_dirs(&q, &like),
             Cmd::Models { agent, force } => self.cmd_models(agent, force),
-            Cmd::Log { dir, branch, n, show } => {
+            Cmd::Log { dir, branch, n, show, remote } => {
                 // (only a caller that waits for the answer gets one: see `Engine::handle`)
-                self.cmd_log(dir, branch, n, show, None);
+                self.cmd_log(dir, branch, n, show, remote, None);
                 json!({"ok": false, "error": "the log answers by itself"})
             }
+            Cmd::BoardOpen { dir, window } => {
+                self.cmd_board_open(dir, window, None);
+                json!({"ok": false, "error": "a board opens by itself"})
+            }
+            Cmd::BoardForget { dir } => self.cmd_board_forget(dir),
+            Cmd::BoardName { name } => self.cmd_board_name(name),
             Cmd::LibSet { library } => self.cmd_lib_set(library),
             Cmd::NetSet { networks } => self.cmd_net_set(networks),
             Cmd::Start { id } => self.cmd_start(id),
@@ -375,6 +466,7 @@ impl Engine {
             Cmd::Revive { group, dx, dy } => self.cmd_revive(group, dx, dy),
             Cmd::ArchiveGet { group } => self.cmd_archive_get(group),
             Cmd::ArchiveDel { group } => self.cmd_archive_del(group),
+            Cmd::Here {} => json!({"ok": true}),
         }
     }
 }

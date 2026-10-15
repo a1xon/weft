@@ -156,8 +156,7 @@ impl Engine {
             .and_then(|r| r.worktree.clone())
             .map(PathBuf::from)
             .filter(|p| p.is_dir())
-            .or_else(|| self.node(id).map(|n| n.cwd.clone()).filter(|c| !c.is_empty()).map(PathBuf::from))
-            .unwrap_or_else(|| self.boot.dir.clone())
+            .unwrap_or_else(|| self.node(id).map_or_else(|| self.boot.dir.clone(), |n| self.node_dir(n)))
     }
 
     /// A watch that keeps one live item (the changes so far) replaces it instead of piling up.

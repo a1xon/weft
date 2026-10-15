@@ -58,7 +58,7 @@ struct SpawnPlan {
     id: String,
     cmd: String,
     cwd: PathBuf,
-    /// the project folder: worktrees are cut from its repository
+    /// the agent's folder before any worktree: worktrees are cut from its repository
     project: PathBuf,
     project_id: String,
     env: Vec<(String, String)>,
@@ -71,13 +71,13 @@ struct SpawnPlan {
     rows: u16,
 }
 
-/// A new git worktree on its own branch, cut from the project's HEAD.
+/// A new git worktree on its own branch, cut from the HEAD of the repository `project` is in.
 async fn add_worktree(project: &Path, id: &str, project_id: &str) -> Result<PathBuf, String> {
     let git =
         |args: Vec<String>| async move { tokio::process::Command::new("git").args(args).output().await.map_err(|e| format!("git: {e}")) };
     let top = git(vec!["-C".into(), project.to_string_lossy().into_owned(), "rev-parse".into(), "--show-toplevel".into()]).await?;
     if !top.status.success() {
-        return Err("worktree requested but the project is not a git repository".into());
+        return Err(format!("worktree requested but {} is not in a git repository", project.display()));
     }
     let top = String::from_utf8_lossy(&top.stdout).trim().to_string();
     let stamp = now_ms() % 100_000_000;
@@ -104,6 +104,10 @@ async fn do_spawn(plan: SpawnPlan) -> Result<Spawned, String> {
     tmux::ensure_session(&tm.sock, &tm.session, cols, rows).await?;
 
     let mut worktree = existing_worktree.filter(|p| PathBuf::from(p).is_dir());
+    // (tmux would open the window somewhere else, the home folder say)
+    if worktree.is_none() && !cwd.is_dir() {
+        return Err(format!("the folder {} does not exist", cwd.display()));
+    }
     if let Some(p) = &worktree {
         cwd = PathBuf::from(p);
     } else if want_worktree {
@@ -209,7 +213,6 @@ impl Engine {
         } else {
             node.cmd.clone()
         };
-        let dir = self.boot.dir.clone();
         let cwd = self.node_dir(&node);
         let boot_env = vec![
             ("WEFT_NODE".to_string(), node.id.clone()),
@@ -222,8 +225,9 @@ impl Engine {
             tm,
             id: node.id.clone(),
             cmd,
+            // an own worktree is cut from the repository of the folder the agent works in
+            project: cwd.clone(),
             cwd,
-            project: dir,
             project_id: project_id(&self.boot.dir),
             env: boot_env,
             prompt_file,
@@ -274,8 +278,10 @@ impl Engine {
                 rt.attn = false;
                 rt.issue = None;
                 rt.typing = None;
-                // a new process knows nothing of weft yet
+                // a new process knows nothing of weft yet, nor of the agents it talks with
                 rt.briefed = false;
+                rt.ruled = false;
+                rt.talk.told.clear();
                 rt.last_change = Instant::now();
                 rt.finished = false;
                 rt.ok = None;

@@ -2,6 +2,7 @@
 const omni = $('#omni');
 let omniTa = null;
 function renderOmni() {
+  renderWhere();   // (the folder line says where what is typed here will run)
   if (!omniTa) {
     omniTa = h('textarea', { rows: 1, spellcheck: 'false', 'aria-label': 'Message or new agent' });
     omniTa._grow = growOmni;
@@ -174,6 +175,7 @@ function commands() {
     { label: 'quit', hint: 'q', run: quitWeft },
     ...TYPES.map(t => ({ label: 'new ' + t.label, hint: t.hint, run: () => { const c = toWorld(innerWidth / 2 - NW / 2, innerHeight / 2 - NH); spawnHere(t.k, c.x, c.y); } })),
     ...agentEntries().map(([k, a]) => ({ label: 'new ' + (a.label || k), hint: agentTag(k), run: () => { select([]); setAgent(k); omniTa.value = ''; omniTa.focus(); } })),
+    ...folderCommands(),
     ...S.lib.filter(s => s.kind === 'prompt').map(s => ({ label: 'prompt: ' + s.title, hint: 'insert', run: () => { omniTa.value = s.text; growOmni(); omniTa.focus(); } })),
     ...S.lib.filter(s => s.kind === 'addendum').map(s => ({ label: 'addendum: ' + s.title, hint: 'append', run: () => { omniTa.value = (omniTa.value + '\n\n' + s.text).trim(); growOmni(); omniTa.focus(); } })),
   ];

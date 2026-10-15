@@ -129,6 +129,7 @@ function multiMenu(x, y) {
     { label: 'gather into one agent', hint: 'g', run: () => gather(ids) },
     { label: 'commit each, then push', hint: 'one commit per agent, one push', run: () => shipThese(ids) },
     { label: 'save as network\u2026', hint: 'reuse these cards and links', run: () => saveNetFrom(ids, x, y) },
+    ...talkMulti(ids),
     { sep: true },
     { label: 'run all', run: () => ids.forEach(i => runNode(i)) },
     { label: 'stop all', run: () => ids.forEach(i => send('stop', { id: i })) },
@@ -206,6 +207,11 @@ async function spawnAt(agent0, x, y, opts = {}) {
     if (ac.yolo_arg) node.yolo = ex.yolo ?? yoloDefault();
   }
   if (opts.text) { if (agent === 'sh') node.cmd = opts.text; else node.prompt = opts.text; }
+  // where it works: the folder chosen for new agents (linked after a card, the daemon takes that card's)
+  if (k === 'agent' && agent !== 'step' && !opts.from) {
+    const d = opts.extra && 'cwd' in opts.extra ? opts.extra.cwd : cwdField(newDir());
+    if (d) node.cwd = d;
+  }
   const r = await req('node_add', { node, from: opts.from || null, run: !!opts.run });
   if (!r.ok) { toast('err', r.error || 'could not add that'); return null; }
   if (opts.to) send('edge_add', { from: r.id, to: opts.to });

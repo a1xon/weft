@@ -304,12 +304,30 @@ pub struct Edge {
     pub on: On,
 }
 
+/// Two agents that coordinate while they work: each may message the other directly (`weft tell`),
+/// and nothing fires along it. Talks that share an agent make one group, where everyone hears
+/// everyone.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Talk {
+    pub id: String,
+    pub a: String,
+    pub b: String,
+    /// What they should mainly coordinate on, in the person's words ("" = wherever their work meets).
+    #[serde(default)]
+    pub topic: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Flow {
+    /// the board's name, when it was given one (else its folder's)
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
     #[serde(default)]
     pub nodes: Vec<Node>,
     #[serde(default)]
     pub edges: Vec<Edge>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub talks: Vec<Talk>,
 }
 
 /// How a library snippet is used.
@@ -430,14 +448,17 @@ pub struct Config {
     pub yolo: bool,
     /// How long weft keeps waiting for background work an idle agent announced (seconds).
     pub background_s: f64,
-    /// A step of a chain is asked to end with a `STATUS:` line (done, issue, waiting, failed) that
-    /// weft reads from the output before it hands the result on.
+    /// Every prompt to an agent asks it to end with a `STATUS:` line (done, issue, waiting, failed)
+    /// that weft reads from the output: before a chain hands the result on, and so that a lone card
+    /// that asks a question needs the person instead of looking done. (The name is from when only
+    /// chains had it.)
     pub chain_status: bool,
     /// How long an agent that said it is waiting may be silent before weft wakes it to check (seconds).
     pub recheck_s: f64,
-    /// A finished card that is part of no flow goes to the archive after this long (seconds; 0 = never).
+    /// A finished card that is part of no flow goes to the archive after this long (seconds of work on
+    /// the canvas: the clock stops while nobody is at it; 0 = never).
     pub archive_s: f64,
-    /// A flow of several cards goes to the archive this long after its last step finished (0 = never).
+    /// A flow of several cards goes to the archive this long after its last step finished (likewise; 0 = never).
     pub archive_flow_s: f64,
     /// Cards are named by their agent's `title_cmd` (until you rename one yourself).
     pub titles: bool,
@@ -462,8 +483,8 @@ impl Default for Config {
             background_s: 600.0,
             chain_status: true,
             recheck_s: 60.0,
-            archive_s: 1800.0,
-            archive_flow_s: 3600.0,
+            archive_s: 600.0,
+            archive_flow_s: 900.0,
             titles: true,
         }
     }
@@ -588,7 +609,7 @@ pub fn default_library() -> Vec<Snippet> {
         snip("fix", SnippetKind::Prompt, "Fix findings", "Fix the issues listed below, then re-run the tests.\n\n{{inputs}}", false),
         snip("tests", SnippetKind::Prompt, "Write tests", "Write tests for the behaviour described below. Run them and make sure they pass.\n\n", false),
         snip("summarize", SnippetKind::Prompt, "Summarize", "Summarize the results below into a short report for the user: what was done, what is open.\n\n{{inputs}}", false),
-        snip("report-done", SnippetKind::Addendum, "Report with weft commands", crate::words::REPORT_ADDENDUM, false),
+        snip("report-done", SnippetKind::Addendum, "Report with weft commands", crate::words::REPORT_ADDENDUM, true),
         snip("concise", SnippetKind::Addendum, "Be concise", "Keep your answers short. No preamble, no recap of the task.", false),
         snip("no-commit", SnippetKind::Addendum, "No commits", "Do not commit or push. Leave all changes in the working tree.", false),
         snip("scope", SnippetKind::Addendum, "Stay in scope", "Only change what the task requires. Mention anything else you notice instead of fixing it.", false),

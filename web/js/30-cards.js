@@ -22,6 +22,7 @@ function mkNode(n) {
   el.st = h('span', { class: 'st' });
   el.nm = h('span', { class: 'nm', title: 'double-click to rename' });
   el.ag = h('button', { class: 'ag', title: 'change what runs this' });
+  el.fd = h('button', { class: 'fdtag', hidden: true });
   el.gear = h('button', { class: 'ib', title: 'options ( , )', html: ICON.gear });
   el.ask = h('div', { class: 'ask', title: 'click to edit' });
   el.ans = h('div', { class: 'ans', title: 'click to unfold the full result' });
@@ -44,13 +45,14 @@ function mkNode(n) {
   el.bShip = h('button', { class: 'fb', hidden: true, title: 'commit what is there and push now' }, 'ship now');
   el.pin = h('div', { class: 'port in', title: 'input: click to add a step before this one, drag to link another agent in' });
   el.pout = h('div', { class: 'port out', title: 'what next: click to continue this agent, hand over or branch. Drag onto an agent to link, drag to empty canvas to spawn one there' });
+  el.ptalk = h('div', { class: 'port talk', title: 'talk: drag onto another agent and the two coordinate directly while they work (only they hear it)' });
   el.grip = h('div', { class: 'grip', title: 'drag to resize: more of the terminal and the result. Double-click: the default size' });
   el.root = h('div', { class: 'nw', 'data-id': n.id },
     h('div', { class: 'node chamf' },
       // floats first: the name's text flows around them (right floats: first one is the rightmost)
-      h('div', { class: 'hd' }, el.st, el.gear, el.ag, el.nm), el.ask, el.body,
+      h('div', { class: 'hd' }, el.st, el.gear, el.ag, el.fd, el.nm), el.ask, el.body,
       h('div', { class: 'ft' }, el.stx, el.q, el.bGo, el.bChg, el.bNo, el.bArm, el.bShip, el.bRun, el.bStop, el.bOpen)),
-    el.pin, el.pout, el.grip);
+    el.pin, el.pout, el.ptalk, el.grip);
   nodeEls.set(n.id, el);
   const id = n.id;
 
@@ -101,6 +103,7 @@ function mkNode(n) {
     if (kindOf(S.nodes.get(id)) !== 'agent' || S.nodes.get(id).agent === 'step') return openFly(id, 'options');
     popup([{ cap: 'run this step with' }, ...agentEntries().map(([k, a]) => ({ label: a.label || k, hint: k, run: () => convertTo(id, k) }))], r.left, r.bottom + 4);
   });
+  el.fd.addEventListener('click', e => { e.stopPropagation(); folderTagClick(id); });
   el.nm.addEventListener('dblclick', e => { e.stopPropagation(); renameInline(id); });
   el.ask.addEventListener('click', e => { e.stopPropagation(); select([id]); editAsk(id); });
   el.root.addEventListener('dblclick', e => {
@@ -120,10 +123,13 @@ function mkNode(n) {
     if (!S.sel.has(id)) select([id]);
     if (e.altKey) return cloneDrag(e, id);
     const onLive = el.live.contains(e.target);
-    dragNodes(e, [...S.sel], onLive ? moved => { if (!moved) openLive(); } : undefined);
+    // the first card of a finished flow brings the whole flow along (ctrl: just this card)
+    const ids = S.sel.size === 1 && !(e.ctrlKey || e.metaKey) ? doneFlowFrom(id) : [...S.sel];
+    dragNodes(e, ids, onLive ? moved => { if (!moved) openLive(); } : undefined);
   });
   el.pout.addEventListener('pointerdown', e => startConnect(e, id, 'out'));
   el.pin.addEventListener('pointerdown', e => startConnect(e, id, 'in'));
+  el.ptalk.addEventListener('pointerdown', e => startTalk(e, id));
   el.pout.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); portMenu(id, 'out', e.clientX, e.clientY); });
   el.pin.addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); portMenu(id, 'in', e.clientX, e.clientY); });
   el.grip.addEventListener('pointerdown', e => { if (e.button === 0) { e.stopPropagation(); closeMenu(); resizeNode(e, id); } });
@@ -163,6 +169,24 @@ function sizeNode(id, w, hh) {
   n.w = w; n.h = hh;
   placeNode(n); redrawEdgesOf(id); placeFly();
   send('node_set', { id, patch: { w, h: hh } });
+}
+/* the cards a drag of this one moves: all of its flow when it is the flow's first card (nothing
+   leads into it) and every card of the flow is finished, else just this one */
+function doneFlowFrom(id) {
+  const n = S.nodes.get(id);
+  if (!n || n.takeover || incoming(id).length) return [id];
+  const nb = new Map();
+  const link = (a, b) => { if (a && b && a !== b && S.nodes.has(a) && S.nodes.has(b)) { (nb.get(a) || nb.set(a, []).get(a)).push(b); (nb.get(b) || nb.set(b, []).get(b)).push(a); } };
+  for (const e of S.edges.values()) link(e.from, e.to);
+  for (const m of S.nodes.values()) link(m.takeover, m.id);
+  const ids = [id], seen = new Set(ids);
+  for (let i = 0; i < ids.length; i++) for (const m of nb.get(ids[i]) || []) if (!seen.has(m)) { seen.add(m); ids.push(m); }
+  const finished = i => {
+    if (kindOf(S.nodes.get(i)) === 'note') return true;
+    const r = S.rt.get(i);
+    return !!r && (cat(r.status) === 'end' || r.status === 'blocked');
+  };
+  return ids.length > 1 && ids.every(finished) ? ids : [id];
 }
 function dragNodes(e, ids, then) {
   const sx = e.clientX, sy = e.clientY;
@@ -306,6 +330,7 @@ function renderNode(id) {
   if (isStep) el.ag.title = `answered by ${hostOf(n).name} in its own session`;
   else el.ag.title = tuneTag(n) ? `${agentTag(n.agent)}${n.model ? ' · model ' + n.model : ''}${n.effort ? ' · reasoning ' + n.effort : ''}${manages(n.agent) && !yoloOf(n) ? ' · asks before it acts' : ''} (click to change)` : 'change what runs this';
   el.stx.textContent = statusText(n, r);
+  renderFolderTag(id, n, el);
 
   // ask: what this node is told to do (agents only)
   el.ask.hidden = k !== 'agent';
@@ -368,7 +393,7 @@ function renderNode(id) {
     const op = n.git_op || '';
     const src = incoming(id).map(e => S.nodes.get(e.from)).filter(Boolean).map(x => hostOf(x).name);
     const carried = g.carried || [];
-    key = 'git:' + op + n.branch + n.remote + (n.prompt || '') + src.join() + g.log.join('|') + (r ? r.status : '') + (g.pr || '') + (g.commits || 0) + '/' + (g.files || 0) + carried.join();
+    key = 'git:' + op + n.branch + n.remote + (n.prompt || '') + src.join() + g.log.join('|') + (r ? r.status : '') + (g.pr || '') + (g.prs || []).join() + (g.commits || 0) + '/' + (g.files || 0) + carried.join();
     build = () => ({ cls: 'ans kv', kids: nn([
       op === 'commit'
         ? h('span', { class: 'kvl' }, 'commits the work of ', h('b', {}, src[0] || '(link an agent in)'), ...(n.branch ? [' on ', h('b', {}, n.branch)] : []))
@@ -380,7 +405,8 @@ function renderNode(id) {
           : op === 'push' ? 'waits until every commit linked into it has resolved, then pushes.'
             : op === 'pr' ? 'once pushed, asks an agent that did the work to write and open the pull request.'
               : 'commits each result as it arrives; pushes when every incoming link has delivered.')]),
-      g.pr ? h('a', { class: 'prlink', href: g.pr, target: '_blank', rel: 'noopener', title: 'open the pull request' }, g.pr) : null,
+      // (one pull request per repository the work is in)
+      ...((g.prs && g.prs.length ? g.prs : g.pr ? [g.pr] : []).map(u => h('a', { class: 'prlink', href: u, target: '_blank', rel: 'noopener', title: 'open the pull request' }, u))),
       r && st === 'done' && (g.commits || g.files || carried.length)
         ? h('span', { class: 'src on' }, 'passes on: ' + [g.commits ? `${g.commits} commit${g.commits > 1 ? 's' : ''}` : '', g.files ? `${g.files} file${g.files > 1 ? 's' : ''}` : '',
           carried.length ? `what ${carried.join(' and ')} did` : ''].filter(Boolean).join(' · ')) : null,
@@ -430,6 +456,7 @@ function renderNode(id) {
   el.bShip.hidden = !(k === 'git' && !n.draft && st !== 'busy');
   el.bShip.textContent = n.git_op === 'commit' ? 'commit now' : n.git_op === 'push' ? 'push now' : n.git_op === 'pr' ? 'open PR now' : 'ship now';
   el.gear.hidden = k === 'note';
+  el.ptalk.hidden = !canTalk(n);
 }
 
 function renameInline(id) {

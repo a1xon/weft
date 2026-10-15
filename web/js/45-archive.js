@@ -5,7 +5,7 @@
    or forget it. A daemon without an archive (an older build) shows none of this. */
 ICON.archive = I('<path d="M2.4 3.2h11.2v3H2.4z"/><path d="M3.4 6.2v6.6h9.2V6.2"/><path d="M6.2 8.8h3.6"/>');
 ICON.keep = I('<path d="M5.4 2.4h5.2M6.4 2.4v4.2L4.4 9h7.2l-2-2.4V2.4M8 9v4.8"/>');
-const AR = { groups: null, open: false, q: '', unfold: null, full: new Map(), over: false, sure: null };
+const AR = { groups: null, open: false, q: '', unfold: null, full: new Map(), over: false, sure: null, leave: null };
 const archEl = $('#arch');
 const archOn = () => Array.isArray(AR.groups);
 const mins = s => Math.round((s || 0) / 60);
@@ -68,7 +68,7 @@ function renderArchPanel() {
   const hit = g => !q || g.nodes.some(n => [n.name, n.agent, n.asked, n.out].some(t => (t || '').toLowerCase().includes(q)));
   const groups = AR.groups.slice().reverse().filter(hit);
   const cards = AR.groups.reduce((s, g) => s + g.nodes.length, 0);
-  const lone = mins(S.cfg.archive_s ?? 1800), flow = mins(S.cfg.archive_flow_s ?? 3600);
+  const lone = mins(S.cfg.archive_s ?? 600), flow = mins(S.cfg.archive_flow_s ?? 900);
   const find = h('input', { class: 'aq', placeholder: 'find in the archive…', spellcheck: 'false', value: AR.q, 'aria-label': 'Find in the archive' });
   find.addEventListener('input', () => { AR.q = find.value; renderArchPanel(); });
   find.addEventListener('keydown', e => { e.stopPropagation(); if (e.key === 'Escape') closeArch(); });
@@ -79,7 +79,7 @@ function renderArchPanel() {
     AR.groups.length > 4 ? find : null,
     h('div', { class: 'alist' }, groups.length ? groups.map(archRow)
       : h('div', { class: 'aempty' }, q ? 'nothing filed matches that.' : 'nothing filed yet. drag finished cards onto the archive.')),
-    h('div', { class: 'afoot' }, by.length ? `files by itself: ${by.join(', ')}. ` : 'nothing files itself. ', h('span', { class: 'kk', html: ICON.keep }), ' keep on a card holds it and its flow.')]));
+    h('div', { class: 'afoot' }, by.length ? `files by itself: ${by.join(', ')} (counting while you work here). ` : 'nothing files itself. ', h('span', { class: 'kk', html: ICON.keep }), ' keep on a card holds it and its flow.')]));
   if (typing) { const f = p.querySelector('input'); if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } }
 }
 function archRow(g) {
@@ -134,12 +134,13 @@ addEventListener('keydown', e => { if (e.key === 'Escape' && AR.open) { e.stopIm
 /* ---- filing: cards dragged onto the archive, or picked from a menu */
 function archHit(x, y) {
   // while dragging the box is a quarter circle centred on the bottom left corner
-  const r = (parseFloat(getComputedStyle(archEl).getPropertyValue('--qr')) || 170) + 16;
+  const r = (parseFloat(getComputedStyle(archEl).getPropertyValue('--qr')) || 255) + 16;
   return Math.hypot(x, innerHeight - y) <= r;
 }
 /* while cards move the archive shows itself as a place to drop them */
 function archHover(ev, ids) {
   if (!archOn()) return;
+  if (AR.leave) { clearTimeout(AR.leave); AR.leave = null; archEl.classList.remove('leave', 'back'); archEl.box.querySelector('.al').textContent = 'drop to file'; }
   archEl.classList.add('drag');
   const over = archHit(ev.clientX, ev.clientY);
   if (over === AR.over) return;
@@ -153,8 +154,18 @@ function archDrop(ids) {
   if (!archOn()) return false;
   const hit = AR.over;
   AR.over = false;
-  archEl.classList.remove('drag', 'over');
-  archEl.box.querySelector('.al').textContent = 'archive';
+  archEl.classList.remove('over');
+  // the quarter circle fades and shrinks away, then the button fades back in
+  if (archEl.classList.contains('drag') && !AR.leave) {
+    archEl.classList.add('leave');
+    AR.leave = setTimeout(() => {
+      AR.leave = null;
+      archEl.classList.remove('drag', 'leave');
+      archEl.box.querySelector('.al').textContent = 'archive';
+      archEl.classList.remove('back'); void archEl.offsetWidth; archEl.classList.add('back');
+      setTimeout(() => archEl.classList.remove('back'), 260);
+    }, 750);
+  }
   for (const i of ids) { const el = nodeEls.get(i); if (el) el.root.classList.remove('tofile'); }
   if (hit) fileAway(ids);
   return hit;
@@ -204,8 +215,9 @@ function freeOffset(ns) {
 }
 
 /* ---- on the card: when it files itself, and keep */
+/* the clock runs while someone works on the canvas: stopped (S.idle: since when), what is left stays */
 function filingLeft(at) {
-  const s = (at - Date.now()) / 1000;
+  const s = (at - (S.idle || Date.now())) / 1000;
   if (s < 60) return 'soon';
   const m = Math.ceil(s / 60);
   return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`;
@@ -222,22 +234,35 @@ function renderFiling(id, n, r) {
   el.fil.hidden = false;
   el.fil.classList.toggle('on', kept);
   const left = kept ? '' : filingLeft(at);
-  const key = kept ? 'k' : 'a' + left;
+  const paused = !kept && !!S.idle;
+  const key = kept ? 'k' : 'a' + left + (paused ? 'p' : '');
   if (el.fil._key === key) return;
   el.fil._key = key;
   el.fil.innerHTML = (kept ? ICON.keep : ICON.archive) + `<span>${kept ? 'kept' : left}</span>`;
+  el.fil.classList.toggle('paused', paused);
   const flow = !kept && [...S.rt.values()].filter(x => x.archive_at === at).length > 1;
   el.fil.title = kept ? 'kept on the canvas: it does not go to the archive by itself, nor does its flow. click to let it go'
-    : `finished: goes to the archive ${left === 'soon' ? 'any moment' : 'in ' + left}${flow ? ', with the rest of its flow' : ''}. click to keep it on the canvas`;
+    : `finished: goes to the archive ${left === 'soon' ? 'any moment' : 'in ' + left}${flow ? ', with the rest of its flow' : ''}`
+      + (paused ? ' of work here (the clock waits while nobody is at the canvas)' : '') + '. click to keep it on the canvas';
+}
+function refreshFiling() {
+  if (!archOn()) return;
+  for (const [id, n] of S.nodes) { const r = S.rt.get(id); if (r && r.archive_at) renderFiling(id, n, r); }
 }
 function keepNode(id) {
   const n = S.nodes.get(id); if (!n) return;
   patchNode(id, { keep: !n.keep }, 0);
 }
-setInterval(() => {
-  if (document.hidden || !archOn()) return;
-  for (const [id, n] of S.nodes) { const r = S.rt.get(id); if (r && r.archive_at) renderFiling(id, n, r); }
-}, 15000);
+setInterval(() => { if (!document.hidden) refreshFiling(); }, 15000);
+/* someone is at the canvas: say so now and then, so the archive clock runs */
+let hereAt = 0;
+function here() {
+  const t = Date.now();
+  if (document.hidden || t - hereAt < 20000) return;
+  hereAt = t; send('here');
+}
+for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown']) addEventListener(ev, here, { capture: true, passive: true });
+addEventListener('visibilitychange', () => { hereAt = 0; here(); });
 /* menu entries: file it now, keep it */
 function archItems(id) {
   const n = S.nodes.get(id);

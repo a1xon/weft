@@ -77,6 +77,7 @@ function applyFlow(nodes, edges) {
     if (S.selEdge === id) { S.selEdge = null; buildEdgeBar(); }
   }
   drawAllEdges();
+  folderSpread();   // (whether cards say which folder they work in depends on all of them)
   for (const id of S.nodes.keys()) renderNode(id);
   $('#empty').hidden = S.nodes.size > 0;
   renderOmni(); renderQueue();
@@ -164,12 +165,14 @@ function styleEdge(e) {
 }
 function drawAllEdges() {
   drawHands();
+  drawTalks();
   for (const e of S.edges.values()) drawEdge(e);
   for (const id of S.nodes.keys()) updateJunction(id);
   for (const e of S.edges.values()) styleEdge(e);
 }
 function redrawEdgesOf(id) {
   drawHands();
+  drawTalksOf(id);
   for (const e of S.edges.values()) if (e.from === id || e.to === id) drawEdge(e);
   updateJunction(id);
   for (const e of outgoing(id)) updateJunction(e.to);

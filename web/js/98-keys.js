@@ -27,8 +27,9 @@ function shortcuts() {
     ['drag a ◇ to empty space', 'spawn the same agent there, linked'], ['  + alt', 'choose the type instead'],
     ['drag a ◇ onto an agent', 'hand its result over'], ['click a link’s chip', 'always / if ok / if fails'],
     ['double-click a link', 'insert a step into it'], ['alt-drag an agent', 'clone it'],
+    ['drag a finished flow’s first card', 'the whole flow comes along'], ['  + ctrl', 'just that card'],
     ['shift+click, shift+drag', 'select several'], ['g', 'gather the selection into one agent'],
-    ['right-click anything', 'what it can do'], ['/', 'commands and standard prompts'], ['@', 'insert another agent’s result'],
+    ['right-click anything', 'what it can do'], ['ctrl+o', 'the folder new agents (or the selected) work in'], ['/', 'commands and standard prompts'], ['@', 'insert another agent’s result'],
     ['enter  r  ,', 'terminal / result / options'], ['t  f', 'tidy / fit'], ['del  ctrl+z', 'delete / undo'], ['q', 'quit weft'],
   ];
   popup(rows.map(([a, b]) => ({ label: a, hint: b, run() {} })), innerWidth / 2 - 240, 70);
@@ -38,6 +39,7 @@ addEventListener('keydown', e => {
   const t = e.target, tag = (t.tagName || '').toLowerCase();
   const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || t.id === 'term';
   if ((e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey)) { e.preventDefault(); omniTa.focus(); omniTa.value = '/'; growOmni(); omniMenu(); return; }
+  if ((e.key === 'o' || e.key === 'O') && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && t.id !== 'term') { e.preventDefault(); folderKey(); return; }
   if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !typing) { e.preventDefault(); return undo(); }
   if (SB.id && !(typing && e.key !== 'Escape')) {
     if (e.key === 'Escape') return closeShotbox();
@@ -63,6 +65,7 @@ addEventListener('keydown', e => {
   } else if (e.key === 'Enter' && p) { e.preventDefault(); const n = S.nodes.get(p); if (focusPlea(p)) return; if (kindOf(n) === 'agent') openFocus(p); else if (kindOf(n) === 'note') editNote(p); }
   else if ((e.key === 'q' || e.key === 'Q') && !e.ctrlKey && !e.metaKey && !e.altKey) quitWeft();
   else if (e.key === 'f' || e.key === 'F') fit();
+  else if ((e.key === 'b' || e.key === 'B') && !e.ctrlKey && !e.metaKey && !e.altKey) toggleBoards();
   else if ((e.key === 't' || e.key === 'T') && !e.ctrlKey && !e.metaKey) tidy();
   else if ((e.key === 'g' || e.key === 'G') && S.sel.size > 1) gather([...S.sel]);
   else if (e.key === 'r' && p) openFly(p, 'result');

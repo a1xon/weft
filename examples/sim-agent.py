@@ -21,7 +21,7 @@ Prompt directives it understands (case-insensitive):
     FAIL_TASK      do the work badly: report failure
     SLOW           think three times longer
 
-A step of a chain is asked to end with "STATUS: <WORD>" (DONE, ISSUE, WAITING, FAILED); it does.
+A prompt from weft asks it to end with "STATUS: <WORD>" (DONE, ISSUE, WAITING, FAILED); it does.
 
 It also answers weft's own requests like a competent agent would: commit what it
 changed (on the branch it is told to use), save a screenshot at the given path, write
@@ -253,7 +253,14 @@ def work(prompt):
                 f.write("=== prompt ===\n" + prompt + "\n")
         except OSError:
             pass
-    # the status line weft asks a step of a chain to end with (the literal "status: <word>" is the rule)
+    # linked with agents to coordinate with: tell them once what it works on, as a real agent would
+    # (a message from one of them only says how to answer: that line is not at the start of a line)
+    mt = re.search(r'^\s*(\S+) tell (\S+) "<message>"', prompt, re.M)
+    if mt:
+        say("\x1b[2m●\x1b[0m Bash(weft tell " + mt.group(2) + ")")
+        subprocess.run([mt.group(1), "tell", mt.group(2), "%s here: I am working on textkit/slug.py" % args.name],
+                       capture_output=True, text=True)
+    # the status line weft asks a prompt to end with (the literal "status: <word>" is the rule)
     rule = "status: <word>" in low or "end with the status line" in low
     if "had no status line" in low:
         # weft asks for the line it did not get: answer the way the turn went
@@ -350,12 +357,13 @@ def work(prompt):
                        " an off-by-one in the line-length comparison.")]
         if args.chatty:
             body += ["  - read the module", "  - compared with the tests", "  - kept the public API unchanged"]
-    if label:
-        body.append("  STATUS: DONE" if ok else "  STATUS: FAILED " + (outcome[1] or "the step did not succeed"))
-    say("", *body, "", "\x1b[2m✻ Cooked for %ds\x1b[0m" % int(time.time() - t0))
     # BACKGROUND=<seconds>: like an agent that started a shell and will answer when it ends:
     # the turn is over, the screen is still, and the status line says what it is waiting for
     mb = re.search(r"BACKGROUND=(\d+)", prompt)
+    last = "  STATUS: DONE" if ok else "  STATUS: FAILED " + (outcome[1] or "the step did not succeed")
+    if label and not mb:
+        body.append(last)
+    say("", *body, "", "\x1b[2m✻ Cooked for %ds\x1b[0m" % int(time.time() - t0))
     if mb:
         say("", "● I started it in the background and will answer again when it finishes.")
         # the status line above the input box names what it is waiting for, like the real one
@@ -366,7 +374,9 @@ def work(prompt):
             if select.select([fd], [], [], 0.2)[0]:
                 handle_keys(os.read(fd, 4096), busy=True)
         status = ""
-        say("", "● Background command \"sleep\" completed (exit code 0)", "● It finished.", "\x1b[2m✻ Worked for 1s · done 7:08\x1b[0m")
+        # the status line ends its final message, the one after the shell
+        say("", "● Background command \"sleep\" completed (exit code 0)", "● It finished.", *([last] if label else []),
+            "\x1b[2m✻ Worked for 1s · done 7:08\x1b[0m")
     m = re.search(r"^(\S+) done <<'EOF'", prompt, re.M)
     if m:
         summary = ("Fixed: " + ", ".join(edited)) if edited else "Analysis: normalisation and an off-by-one in the width check."

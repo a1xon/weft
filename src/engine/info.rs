@@ -4,8 +4,10 @@ use super::*;
 
 /// how often the folder is looked at again while a browser is open (on top of the moments it surely changed)
 const PROJ_EVERY: Duration = Duration::from_secs(5);
+/// folders a browser asked about that no agent works in yet: the last few are kept
+const PROJ_ASKED: usize = 4;
 
-/// Branch and uncommitted files of the project folder: the "am I in the right place" line. Also the command
+/// Branch and uncommitted files of a folder: the "am I in the right place" line. Also the command
 /// that checks the work done in it (`check`), when one can be guessed.
 async fn project_info(dir: &Path) -> Value {
     let mut v = git_info(dir).await;
@@ -79,6 +81,9 @@ pub(super) fn guess_check(dir: &Path) -> String {
 }
 
 async fn git_info(dir: &Path) -> Value {
+    if !dir.is_dir() {
+        return json!({"repo": false, "missing": true});
+    }
     let probe = async {
         let (inside, _) = git_run(dir, &["rev-parse", "--is-inside-work-tree"]).await?;
         if !inside {
@@ -113,6 +118,37 @@ fn fingerprint(text: &str) -> String {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     text.hash(&mut h);
     format!("{:x}", h.finish())
+}
+
+/// A folder that could be worked in.
+struct Sub {
+    path: PathBuf,
+    /// it is (the top of) a git repository
+    repo: bool,
+    touched: Option<SystemTime>,
+}
+
+/// The folders in `base` whose names begin with `prefix` (any case); hidden ones only when the
+/// prefix asks for them. Quick: one directory, and only so many entries of it.
+fn subdirs(base: &Path, prefix: &str) -> Vec<Sub> {
+    let Ok(rd) = std::fs::read_dir(base) else { return Vec::new() };
+    let pre = prefix.to_lowercase();
+    let mut out = Vec::new();
+    for e in rd.flatten().take(2000) {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if (name.starts_with('.') && !pre.starts_with('.')) || !name.to_lowercase().starts_with(&pre) {
+            continue;
+        }
+        let path = e.path();
+        // (a link to a folder counts as one)
+        let Ok(md) = std::fs::metadata(&path) else { continue };
+        if !md.is_dir() {
+            continue;
+        }
+        let repo = path.join(".git").exists();
+        out.push(Sub { path, repo, touched: md.modified().ok() });
+    }
+    out
 }
 
 /// Run an agent's model-listing command the way its terminal would (aliases apply).
@@ -201,7 +237,20 @@ impl Engine {
         json!({"ok": true})
     }
 
-    /// Look at the project folder again: its branch and uncommitted files reach the browsers as `Ev::Proj`.
+    /// The folders whose branch and uncommitted files the browsers show: the project's, every
+    /// other one an agent works in, and the ones a browser asked about.
+    fn project_dirs(&self) -> Vec<PathBuf> {
+        let mut out = vec![self.boot.dir.clone()];
+        let agents = self.flow.nodes.iter().filter(|n| n.kind() == Kind::Agent && !n.cwd.trim().is_empty()).map(|n| self.node_dir(n));
+        for d in agents.chain(self.proj_ask.iter().rev().cloned()) {
+            if out.len() < 12 && !out.contains(&d) {
+                out.push(d);
+            }
+        }
+        out
+    }
+
+    /// Look at the folders again: their branches and uncommitted files reach the browsers as `Ev::Proj`.
     /// One look at a time; asking during one queues exactly one more.
     pub(super) fn refresh_project(&mut self) {
         if self.proj_busy {
@@ -211,18 +260,28 @@ impl Engine {
         let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
         self.proj_busy = true;
         self.proj_at = Instant::now();
-        let (dir, tx) = (self.boot.dir.clone(), self.tx.clone());
+        let (dirs, tx) = (self.project_dirs(), self.tx.clone());
         handle.spawn(async move {
-            let _ = tx.send(Ev::Proj(project_info(&dir).await));
+            let mut out = Vec::with_capacity(dirs.len());
+            for d in dirs {
+                let v = project_info(&d).await;
+                out.push((d, v));
+            }
+            let _ = tx.send(Ev::Proj(out));
         });
     }
 
-    pub(super) fn on_project(&mut self, v: Value) {
+    pub(super) fn on_project(&mut self, list: Vec<(PathBuf, Value)>) {
         self.proj_busy = false;
-        if v != self.proj {
-            self.proj = v.clone();
-            self.bcast(&json!({"t": "proj", "git": v}));
+        let mut seen = HashMap::with_capacity(list.len());
+        for (d, v) in list {
+            if self.proj.get(&d) != Some(&v) {
+                self.bcast(&json!({"t": "proj", "dir": d, "git": v}));
+            }
+            seen.insert(d, v);
         }
+        // a folder nobody works in any more is not looked at again
+        self.proj = seen;
         if std::mem::take(&mut self.proj_due) {
             self.refresh_project();
         }
@@ -235,9 +294,65 @@ impl Engine {
         }
     }
 
-    pub(super) fn cmd_proj(&mut self) -> Value {
+    /// Look again now; `dir` (a folder the person is about to start agents in) is looked at from now on.
+    pub(super) fn cmd_proj(&mut self, dir: String) -> Value {
+        // (a page came to the front: another board may have changed the settings meanwhile)
+        self.sync_user_config();
+        let mut known = Value::Null;
+        if !dir.trim().is_empty() {
+            let d = self.abs_dir(&dir);
+            known = self.proj.get(&d).cloned().unwrap_or(Value::Null);
+            if d != self.boot.dir {
+                self.proj_ask.retain(|x| *x != d);
+                self.proj_ask.push(d);
+                if self.proj_ask.len() > PROJ_ASKED {
+                    self.proj_ask.remove(0);
+                }
+            }
+        }
         self.refresh_project();
-        json!({"ok": true})
+        json!({"ok": true, "git": known})
+    }
+
+    /// Folders to start agents in. Nothing typed: the folders beside the project (its sibling
+    /// repositories), those whose name begins like the project's first, then git repositories, then
+    /// the ones touched last; `like` keeps those whose name has it. A path typed so far (`q`): the
+    /// folders that complete it.
+    pub(super) fn cmd_dirs(&self, q: &str, like: &str) -> Value {
+        let (q, like) = (q.trim(), like.trim().to_lowercase());
+        let list = if q.is_empty() {
+            let Some(parent) = self.boot.dir.parent() else { return json!({"ok": true, "dirs": []}) };
+            let lower = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+            let name = lower(&self.boot.dir);
+            let mut l: Vec<Sub> =
+                subdirs(parent, "").into_iter().filter(|s| s.path != self.boot.dir && lower(&s.path).contains(&like)).collect();
+            let kin = |s: &Sub| {
+                let n = lower(&s.path);
+                // (a name the search begins with comes before one that merely has it)
+                let first = !like.is_empty() && n.starts_with(&like);
+                let k = n.chars().zip(name.chars()).take_while(|(a, b)| a == b).count();
+                (first, if k >= 3 { k } else { 0 })
+            };
+            l.sort_by(|a, b| kin(b).cmp(&kin(a)).then(b.repo.cmp(&a.repo)).then(b.touched.cmp(&a.touched)));
+            l.truncate(if like.is_empty() { 12 } else { 30 });
+            l
+        } else {
+            let p = self.abs_dir(q);
+            let (base, pre) = if q.ends_with('/') || p.file_name().is_none() {
+                (p, String::new())
+            } else {
+                (
+                    p.parent().map(Path::to_path_buf).unwrap_or_default(),
+                    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+                )
+            };
+            let mut l = subdirs(&base, &pre);
+            l.sort_by(|a, b| a.path.cmp(&b.path));
+            l.truncate(30);
+            l
+        };
+        let dirs: Vec<Value> = list.iter().map(|s| json!({"path": s.path, "repo": s.repo})).collect();
+        json!({"ok": true, "dirs": dirs})
     }
 
     pub(super) fn cmd_models(&mut self, agent: String, force: bool) -> Value {

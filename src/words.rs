@@ -3,11 +3,13 @@
 //! The rules the wording follows:
 //!
 //! * a message that comes from weft starts with `[weft]`, so an agent can tell it from the task;
-//! * a step of a chain is asked to end its final message with one line, `STATUS: <WORD>`, where the
-//!   word is **DONE**, **ISSUE** (it cannot go on without the person), **WAITING** (it waits for
-//!   something; weft wakes it to check) or **FAILED**. That line is plain text on the screen, so it
-//!   needs no tool, no shell, no permission and no particular CLI, and weft reads it from the
-//!   output ([`read_status`]). Only if it is missing is the agent asked once more;
+//! * a prompt to an agent asks it to end its final message with one line, `STATUS: <WORD>`, where the
+//!   word is **DONE**, **ISSUE** (it needs an answer or a decision from the person), **WAITING** (it
+//!   waits for something; weft wakes it to check) or **FAILED**. That line is plain text on the
+//!   screen, so it needs no tool, no shell, no permission and no particular CLI, and weft reads it
+//!   from the output ([`read_status`]). Only if it is missing from a step of a chain is the agent
+//!   asked once more; a lone card without it is simply done;
+//! * only a step of a chain is told what weft is ([`intro`]);
 //! * the three words may also be said with commands (`weft done|issue|fail`), which carry exact
 //!   text: an optional addendum for agents that have a shell;
 //! * everything else is progress (`weft eta`, `weft shot`) and never ends the task;
@@ -19,7 +21,7 @@ pub const TAG: &str = "[weft]";
 
 /// Reporting with commands instead of the status line: exact text, no label to parse, but it needs
 /// a shell the agent may run `weft` in. A library addendum (`{{weft}}` is the path of this binary),
-/// off by default; a person can switch it on per agent or reword it.
+/// on by default; a person can switch it off per agent (the status line comes back) or reword it.
 pub const REPORT_ADDENDUM: &str = "\
 ## How to report back to weft
 weft only knows that you are finished when you run one of these commands as your very last action. \
@@ -49,19 +51,22 @@ part of your job."
     )
 }
 
-/// What ends the message of a step of a chain: the first time in a session in full, later as a reminder.
+/// What ends the message of every prompt to an agent: the first time in a session in full, later as a reminder.
 /// The literal `STATUS: DONE` is never written out here, so an agent's own line cannot be mistaken
 /// for an echo of this text.
 pub fn status_rule(first: bool) -> String {
     if first {
         format!(
             "{TAG} Finish your final message with one last line: STATUS: <WORD>, where <WORD> is DONE (finished, and you checked it), \
-ISSUE (you cannot go on without the person: add your question), WAITING (you are waiting for something: add what for; \
-weft wakes you to check) or FAILED (it cannot be done: add why). Nothing resumes you after your final message, so do not \
-end it with a promise to report later."
+ISSUE (you need an answer or a decision from the person before you can go on: add it; an offer to do more is not one), \
+WAITING (you are waiting for something: add what for; weft wakes you to check) or FAILED (it cannot be done: add why). \
+Nothing resumes you after your final message, so do not end it with a promise to report later."
         )
     } else {
-        format!("{TAG} End with the STATUS line: <WORD> is DONE, ISSUE (add your question), WAITING (add what for) or FAILED (add why).")
+        format!(
+            "{TAG} End with the STATUS line: <WORD> is DONE, ISSUE (add the question or decision you need), WAITING (add what for) \
+or FAILED (add why)."
+        )
     }
 }
 
@@ -330,6 +335,11 @@ If something goes wrong, run `{exe} fail \"<what>\"`.",
     )
 }
 
+/// The work is in several repositories: this pull request is for one of them.
+pub fn git_pr_in(dir: &str) -> String {
+    format!("Open it for the repository in `{dir}` only: the work in the other repositories gets a pull request of its own.")
+}
+
 /// A rejected push: the remote has commits this branch does not.
 pub fn git_rebase(exe: &str, branch: &str, remote: &str, dir: &str) -> String {
     let b = if branch.is_empty() { "the branch".to_string() } else { format!("`{branch}`") };
@@ -358,6 +368,57 @@ Do not change any files. {}\n\nReport the note as your very last action:\n\n{exe
 If you cannot, run `{exe} fail \"<why>\"`.",
         separate()
     )
+}
+
+// ------------------------------------------------------------------ talks
+
+/// What the agents of a talk should mainly coordinate on.
+fn talk_focus(topic: &str) -> String {
+    if topic.trim().is_empty() {
+        "Coordinate wherever your work meets theirs: the same files, shared resources (CPU, GPU, memory, ports, servers, \
+databases) and the order of changes."
+            .to_string()
+    } else {
+        format!("Coordinate mainly on: {}.", topic.trim().trim_end_matches('.'))
+    }
+}
+
+/// Told once per session to an agent the person linked with others: who they are (`peers`, one line
+/// each), what to coordinate on and how to say something to them (`to`: their ids, comma-separated).
+pub fn talk_brief(exe: &str, peers: &str, to: &str, topic: &str) -> String {
+    format!(
+        "{TAG} You are not working alone: the person linked you with agents that work at the same time as you, so that you \
+coordinate directly with each other:\n{peers}\n{}\n\
+- As soon as you know what you will change (files, modules) or use (CPU, GPU, ports, servers), tell them in one or two \
+sentences (or what you did, if you are already finished):\n  {exe} tell {to} \"<message>\"\n  (one id for one of them, \
+\"all\" for everyone; it returns at once).\n\
+- Before you do something that affects their work, tell them first. If one of them said it is working on something, do not \
+undo or overwrite it: ask.\n\
+- Their messages reach you as lines that start with \"{TAG} <id> ... says:\". Answer only when it matters (a question, a \
+conflict, a change of plan), never just to acknowledge or to thank.\n\
+- Keep every message short. Your task is still the one you were given; theirs is not yours.",
+        talk_focus(topic)
+    )
+}
+
+/// Agents joined after the agent was told about the others: all of them now, the topic, and whom
+/// to introduce itself to (`new`: their ids, comma-separated).
+pub fn talk_joined(exe: &str, peers: &str, new: &str, topic: &str) -> String {
+    format!(
+        "{TAG} More agents coordinate with you now. All of them:\n{peers}\n{}\nTell {new} in one or two sentences what you are \
+working on:\n  {exe} tell {new} \"<message>\"",
+        talk_focus(topic)
+    )
+}
+
+/// The person changed what the agent and the others (`ids`) should coordinate on.
+pub fn talk_refocus(ids: &str, topic: &str) -> String {
+    format!("{TAG} The person changed what you and {ids} coordinate on. {}", talk_focus(topic))
+}
+
+/// A message from another agent of the talk.
+pub fn talk_message(exe: &str, from: &str, name: &str, text: &str) -> String {
+    format!("{TAG} {from} \"{name}\" says: {}\n(Answer only if it matters: {exe} tell {from} \"<message>\")", text.trim())
 }
 
 // ------------------------------------------------------------------ card names
@@ -402,9 +463,30 @@ mod tests {
             status_rule(false),
             missing_status(),
             recheck("the build"),
+            talk_brief(EXE, "- n2 \"api\": fix the cache", "n2", ""),
+            talk_joined(EXE, "- n2 \"api\": fix the cache", "n2", "GPU use"),
+            talk_refocus("n2", "GPU use"),
+            talk_message(EXE, "n2", "api", "I am in src/cache.rs"),
         ];
         for t in all {
             assert!(t.starts_with(TAG), "{t}");
+        }
+    }
+
+    #[test]
+    fn a_talk_says_how_to_answer_and_what_to_coordinate_on() {
+        let b = talk_brief(EXE, "- n2 \"api\": fix the cache", "n2,n3", "");
+        assert!(b.contains(&format!("{EXE} tell n2,n3 \"<message>\"")) && b.contains("the same files"), "{b}");
+        let b = talk_brief(EXE, "- n2", "n2", "GPU use.");
+        assert!(b.contains("Coordinate mainly on: GPU use.") && !b.contains("the same files"), "{b}");
+        let u = talk_joined(EXE, "- n2\n- n7", "n7", "");
+        assert!(u.contains(&format!("{EXE} tell n7")), "{u}");
+        let r = talk_refocus("n2,n7", "x");
+        assert!(r.ends_with("you and n2,n7 coordinate on. Coordinate mainly on: x.") && !r.contains(" tell "), "{r}");
+        let m = talk_message(EXE, "n2", "api", "  I am in src/cache.rs\n");
+        assert!(m.starts_with("[weft] n2 \"api\" says: I am in src/cache.rs\n") && m.contains(&format!("{EXE} tell n2")), "{m}");
+        for t in [b, u, r, m] {
+            assert_eq!(read_status(&t, false), None, "{t}");
         }
     }
 

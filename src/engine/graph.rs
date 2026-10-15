@@ -21,17 +21,67 @@ impl Engine {
         id
     }
 
-    /// The folder a node works in: its own `cwd` (`~` and relative paths understood), else the project's.
+    /// The folder a node works in: its own `cwd`, else for a queued prompt, gate or git step the
+    /// folder of the agent whose work it handles (a commit lands in that agent's repository), else
+    /// the project's.
     pub(super) fn node_dir(&self, n: &Node) -> PathBuf {
-        if n.cwd.trim().is_empty() {
+        if !n.cwd.trim().is_empty() {
+            return self.abs_dir(&n.cwd);
+        }
+        if matches!(n.kind(), Kind::Agent | Kind::Note) {
             return self.boot.dir.clone();
         }
-        let p = PathBuf::from(n.cwd.replacen('~', &home().to_string_lossy(), 1));
-        if p.is_absolute() {
-            p
-        } else {
-            self.boot.dir.join(p)
+        // (an agent that took over in a worktree weft made works on a branch of the project's repository)
+        let wts = state_dir().join("worktrees");
+        match self.agent_upstream(&n.id).and_then(|a| self.node(&a)).map(|a| a.cwd.trim()).filter(|c| !c.is_empty()) {
+            Some(c) if !self.abs_dir(c).starts_with(&wts) => self.abs_dir(c),
+            _ => self.boot.dir.clone(),
         }
+    }
+
+    /// A folder as people write it (`~`, relative to the project, `..`) made absolute, spelled the
+    /// one way the browsers spell it too.
+    pub(super) fn abs_dir(&self, dir: &str) -> PathBuf {
+        use std::path::Component;
+        let d = dir.trim();
+        let p =
+            if d == "~" || d.starts_with("~/") { PathBuf::from(d.replacen('~', &home().to_string_lossy(), 1)) } else { PathBuf::from(d) };
+        let p = if p.is_absolute() { p } else { self.boot.dir.join(p) };
+        let mut out = PathBuf::from("/");
+        for c in p.components() {
+            match c {
+                Component::ParentDir => {
+                    out.pop();
+                }
+                Component::Normal(x) => out.push(x),
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// The first agent (or command) whose work reaches `id`: the agent a queued prompt is asked of,
+    /// else through the links in (gates, queued prompts, git steps before it). Notes do no work.
+    fn agent_upstream(&self, id: &str) -> Option<String> {
+        let mut seen = std::collections::HashSet::new();
+        let mut todo = VecDeque::from([id.to_string()]);
+        while let Some(at) = todo.pop_front() {
+            if !seen.insert(at.clone()) {
+                continue;
+            }
+            match self.node(&at) {
+                None => continue,
+                Some(n) if n.kind() == Kind::Note => continue,
+                Some(n) if n.kind() == Kind::Agent => return Some(at),
+                Some(n) if n.kind() == Kind::Step && !n.host.is_empty() => {
+                    todo.push_front(n.host.clone());
+                    continue;
+                }
+                Some(_) => {}
+            }
+            todo.extend(self.flow.edges.iter().filter(|e| e.to == at).map(|e| e.from.clone()));
+        }
+        None
     }
 
     pub(super) fn node(&self, id: &str) -> Option<&Node> {
@@ -190,11 +240,12 @@ impl Engine {
     }
 
     pub(super) fn flow_changed(&mut self) {
+        self.prune_talks();
         self.reconcile_hosts();
         // links and names upstream decide what a git step is called
         self.retitle_git();
         save_json(&self.flow_path, &self.flow);
-        let m = json!({"t": "flow", "nodes": self.flow.nodes, "edges": self.flow.edges});
+        let m = json!({"t": "flow", "nodes": self.flow.nodes, "edges": self.flow.edges, "talks": self.flow.talks});
         self.bcast(&m);
         for rt in self.rt.values_mut() {
             rt.ui = true;
@@ -218,6 +269,15 @@ impl Engine {
         let kind = n.kind();
         if !has_finish {
             n.finish = if n.agent == "sh" || (n.agent.is_empty() && !n.cmd.is_empty()) { Finish::Exit } else { Finish::Idle };
+        }
+        // the next agent works where the work it receives was done (unless told otherwise)
+        if kind == Kind::Agent && n_json.get("cwd").is_none() {
+            if let Some(src) = from.as_deref().and_then(|f| self.node(f)) {
+                let d = self.node_dir(src);
+                if d != self.boot.dir && !d.starts_with(state_dir().join("worktrees")) {
+                    n.cwd = d.to_string_lossy().into_owned();
+                }
+            }
         }
         if !has_add {
             n.addenda = if n.finish == Finish::Exit || kind != Kind::Agent {
@@ -370,7 +430,8 @@ impl Engine {
         }
         self.kill(id);
         if let Some(wt) = self.rt.get(id).and_then(|r| r.worktree.clone()).filter(|_| worktree && !shared) {
-            let dir = self.boot.dir.clone();
+            // (the repository it was cut from: the folder the agent works in)
+            let dir = self.node(id).map_or_else(|| self.boot.dir.clone(), |n| self.node_dir(n));
             tokio::spawn(async move {
                 let _ = tokio::process::Command::new("git").args(["-C"]).arg(dir).args(["worktree", "remove", &wt]).output().await;
             });

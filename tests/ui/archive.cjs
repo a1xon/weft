@@ -51,7 +51,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   });
   ok(await waitFor(async () => (await card(alpha).count()) === 0, 5000), 'let go: the card leaves the canvas');
   ok((await p.locator('#arch .an').innerText()) === '1', 'the archive counts it');
-  ok(await p.locator('#arch.drag').count() === 0, 'and is a small box again');
+  ok(await waitFor(async () => (await p.locator('#arch.drag').count()) === 0, 2000), 'and is a small box again: ' + await p.locator('#arch').getAttribute('class'));
   ok(await p.locator('.toast', { hasText: 'Filed "alpha"' }).count() === 1, 'a toast says it was filed and how to undo');
   await p.keyboard.press('Control+z');
   ok(await waitFor(async () => (await card(alpha).count()) === 1, 5000), 'ctrl+z brings it back');
@@ -107,6 +107,8 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   execFileSync(BIN, ['stop', W + '/proj'], { env: process.env });
   execFileSync(BIN, ['open', W + '/proj', '--no-open'], { env: process.env });
   await open();
+  // someone is at the canvas all along: the archive clock runs
+  await p.evaluate(() => setInterval(() => send('here'), 10000));
   const lone = await add({ name: 'lone', agent: 'claude', prompt: 'Explain textkit in one line', x: 160, y: 140 });
   const held = await add({ name: 'held', agent: 'agy', prompt: 'Explain textkit in one line', keep: true, x: 160, y: 640 });
   const up = await add({ name: 'up', agent: 'claude', prompt: 'Say what textkit/slug.py is for', x: 700, y: 140 });
