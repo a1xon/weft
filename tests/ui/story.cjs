@@ -15,7 +15,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++
   // 1. first agent: the launch pad greets you with the folder and a focused prompt: type, enter
   ok(await p.evaluate(() => document.activeElement.tagName === 'TEXTAREA' && !!document.activeElement.closest('#pad')), 'the launch pad opens with its prompt focused');
   await T('Fix the slugify function in textkit/slug.py so that tests/test_slug.py passes. Keep the public API.');
-  await G('press enter (creates the agent in the middle and runs it)', () => p.keyboard.press('Enter'));
+  await G('press ctrl+enter (creates the agent in the middle and runs it)', () => p.keyboard.press('Control+Enter'));
   await p.waitForSelector('.nw[data-id="n1"]');
   await sleep(500);
   ok((await st('n1')) === 'busy' || (await st('n1')) === 'starting', 'enter runs it (' + await st('n1') + ')');

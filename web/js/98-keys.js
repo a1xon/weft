@@ -22,7 +22,7 @@ $('#zFit').addEventListener('click', fit);
 
 function shortcuts() {
   const rows = [
-    ['type + enter', 'new agent, or message the selected one'], ['tab', 'switch the new agent type'],
+    ['type + ctrl+enter', 'new agent, or message the selected one'], ['tab', 'switch the new agent type'],
     ['double-click canvas', 'place an agent right there'], ['click a ◇', 'add the next (or previous) step'],
     ['drag a ◇ to empty space', 'spawn the same agent there, linked'], ['  + alt', 'choose the type instead'],
     ['drag a ◇ onto an agent', 'hand its result over'], ['click a link’s chip', 'always / if ok / if fails'],

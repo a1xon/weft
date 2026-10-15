@@ -31,15 +31,25 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(pathBox.y + pathBox.height < box.y, 'the path is above the prompt');
   ok((await ta.getAttribute('placeholder')).includes('proj'), 'the placeholder names the folder: ' + (await ta.getAttribute('placeholder')));
 
-  // --- everything that is a choice sits on one line
+  // --- the choices are a grid: agents on the left (centred), model, then reasoning and yolo on the right
   const ab0 = await p.locator('#pad .pagents').boundingBox();
   const yb0 = await p.locator('#pyolo').boundingBox();
+  const mb0 = await p.locator('#pmodel').boundingBox();
   const eb0 = await p.locator('#pad .peff').boundingBox().catch(() => null);
-  ok(Math.abs(yb0.y - ab0.y) < 12 && yb0.x > ab0.x + ab0.width, 'yolo is on the first line with the agents (' + Math.round(yb0.y) + ' vs ' + Math.round(ab0.y) + ')');
-  ok(!eb0 || Math.abs(eb0.y - ab0.y) < 12, 'and so is the reasoning level');
+  ok(mb0.x > ab0.x + ab0.width && mb0.y + mb0.height <= yb0.y + 2, 'the model is on the first line to the right of the agents, yolo below it');
+  ok(!eb0 || (Math.abs(eb0.y - yb0.y) < 12 && yb0.x > eb0.x + eb0.width), 'the reasoning level and yolo share the second line');
+  const mid = (mb0.y + yb0.y + yb0.height) / 2;
+  ok(Math.abs(ab0.y + ab0.height / 2 - mid) < 10, 'the agents are centred against the two lines (' + Math.round(ab0.y + ab0.height / 2) + ' vs ' + Math.round(mid) + ')');
   const running = () => p.evaluate(() => document.getAnimations().filter(a => { const t = a.effect && a.effect.target; return t && t.closest && (t.closest('#pad') || t.closest('.menu')); }).length);
   await sleep(450);
   ok((await running()) === 0, 'nothing is animating once the pad has opened');
+
+  const cell = s => p.evaluate(q => { const cs = getComputedStyle(document.querySelector(q)); return [cs.paddingTop, cs.paddingLeft, cs.borderTopWidth, cs.fontSize].join(' '); }, s);
+  ok((await cell('#pad .peff .seg button')) === (await cell('#pmodel .seg button')) && parseFloat((await cell('#pad .peff .seg button'))) <= 5, 'reasoning and model are the same selector style, with little padding (' + (await cell('#pad .peff .seg button')) + ')');
+  await p.locator('#pad .pbox .xp').click();
+  const bigBox = await p.locator('#pbox').boundingBox();
+  ok(bigBox.height > 300, 'the prompt can be expanded here too (' + Math.round(bigBox.height) + 'px)');
+  await p.locator('#pad .pbox .xp').click();
 
   // --- one click to switch agent
   const names = await p.locator('#pad .pagents button').allInnerTexts();
@@ -54,17 +64,14 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(await p.locator('#pad .pagents button[aria-pressed=true]').innerText().then(t => t !== 'agy'), 'tab cycles to the next agent');
   await p.locator('#pad .pagents button', { hasText: /^codex$/ }).click();
 
-  // --- model and reasoning sit right next to it
-  const mb = await p.locator('#pmodel').boundingBox(), ab = await p.locator('#pad .pagents').boundingBox();
-  ok(Math.abs(mb.y - ab.y) < 14 && mb.x > ab.x + ab.width, 'the model button is right next to the agents');
-  await p.locator('#pmodel').click();
-  await p.locator('.menu .mi', { hasText: 'Sim Deep' }).waitFor({ timeout: 8000 });
-  const items = await p.locator('.menu .mi').allInnerTexts();
-  ok(items.some(t => t.includes('default')) && items.some(t => t.includes('Sim Deep')), 'the model menu offers default and what the CLI lists (' + items.map(t => t.replace(/\s+/g, ' ')).join(' / ') + ')');
-  ok((await running()) === 0, 'the model menu appears without an animation');
-  await p.locator('.menu .mi', { hasText: 'Sim Deep' }).click();
+  // --- the model is a row of one-click choices, like the reasoning level
+  await p.locator('#pmodel .seg button', { hasText: /^Sim Deep$/ }).waitFor({ timeout: 8000 });
+  const items = await p.locator('#pmodel .seg button').allInnerTexts();
+  ok(items.some(t => t.includes('default')) && items.some(t => t.includes('Sim Deep')) && await p.locator('.menu').count() === 0, 'it offers default and what the CLI lists, no menu to open (' + items.join(' | ') + ')');
+  ok((await running()) === 0, 'the model row appears without an animation');
+  await p.locator('#pmodel .seg button', { hasText: /^Sim Deep$/ }).click();
   ok((await running()) === 0, 'and choosing a model does not animate');
-  ok((await p.locator('#pmodel b').innerText()) === 'Sim Deep', 'the chosen model shows on the button');
+  ok((await p.locator('#pmodel .seg button[aria-pressed=true]').innerText()) === 'Sim Deep', 'the chosen model is the one selected');
   await p.locator('#pad .peff .seg button', { hasText: /^high$/ }).click();
   ok((await running()) === 0, 'choosing a reasoning level does not animate either');
   ok(await pressed('high'), 'one click sets the reasoning level');
@@ -77,7 +84,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await sleep(500);
   await p.reload(); await p.waitForSelector('#pad:not([hidden]) textarea'); await sleep(500);
   ok(await pressed('codex'), 'after a reload the last agent is preselected');
-  ok(await pressed('high') && (await p.locator('#pmodel b').innerText()) === 'Sim Deep', 'and so are its model and reasoning level');
+  ok(await pressed('high') && (await p.locator('#pmodel .seg button[aria-pressed=true]').innerText()) === 'Sim Deep', 'and so are its model and reasoning level');
   await p.screenshot({ path: W + '/pad-2-codex.png' });
 
   // --- addenda: click to switch, curate in place
@@ -100,9 +107,12 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok((await chip('Run the tests').count()) === 0, 'right-click removes it again');
 
   // --- empty prompt: nothing happens
-  await ta.click(); await p.keyboard.press('Enter');
+  await ta.click(); await p.keyboard.press('Control+Enter');
   await sleep(250);
-  ok((await p.locator('.nw').count()) === 0, 'enter on an empty prompt creates nothing');
+  ok((await p.locator('.nw').count()) === 0, 'ctrl+enter on an empty prompt creates nothing');
+  await p.keyboard.type('first line'); await p.keyboard.press('Enter'); await p.keyboard.type('second line'); await sleep(250);
+  ok((await ta.inputValue()) === 'first line\nsecond line' && (await p.locator('.nw').count()) === 0, 'a plain enter is a new line and starts nothing');
+  await ta.fill('');
 
   // --- yolo: on by default, one click to make agents ask first
   ok((await p.locator('#pyolo').getAttribute('aria-pressed')) === 'true' && (await p.locator('#pyolo').innerText()).includes('yolo'), 'yolo is on by default, and visible');
@@ -114,7 +124,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   // --- start: the node appears in the middle and runs, with the chosen model
   await ta.click();
   await p.keyboard.type('Explain what textkit/slug.py does in one sentence.');
-  await p.keyboard.press('Enter');
+  await p.keyboard.press('Control+Enter');
   await p.waitForSelector('.nw[data-id="n1"]');
   ok(await p.locator('#pad').isHidden(), 'the pad gets out of the way');
   await sleep(700);
@@ -154,7 +164,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await p.waitForSelector('#pad:not([hidden]) textarea');
   await p.locator('#pyolo').click();
   await p.locator('#pad textarea').fill('Say hello in one word.');
-  await p.keyboard.press('Enter');
+  await p.keyboard.press('Control+Enter');
   await p.waitForSelector('.nw[data-id="n2"]');
   await sleep(2500);
   const flow2 = JSON.parse(fs.readFileSync(W + '/proj/.weft/flow.json', 'utf8'));

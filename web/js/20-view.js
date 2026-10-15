@@ -17,12 +17,18 @@ function zoomAt(cx, cy, f) {
   S.v.x = cx - (cx - S.v.x) * r; S.v.y = cy - (cy - S.v.y) * r; S.v.k = k;
   applyView();
 }
+/* where the bar at the bottom starts (it is taller with the model row and the addenda): the canvas
+   above it is what fit / reveal / centre work with */
+function barTop() {
+  const d = $('#dock'), r = d && d.getBoundingClientRect();
+  return r && r.height ? Math.min(r.top, innerHeight - 70) : innerHeight - 117;
+}
 function fit() {
   const ns = [...S.nodes.values()];
   if (!ns.length) { S.v = { x: 90, y: 110, k: 1 }; return applyView(); }
   const x0 = Math.min(...ns.map(n => n.x)) - JX, y0 = Math.min(...ns.map(n => n.y));
   const x1 = Math.max(...ns.map(n => n.x + nw(n))), y1 = Math.max(...ns.map(n => n.y + nh(n)));
-  const W = innerWidth, Hh = innerHeight - 200;
+  const W = innerWidth, Hh = Math.min(innerHeight - 200, barTop() - 10 - 70);
   const k = Math.min(1.1, Math.max(0.15, Math.min((W - 120) / (x1 - x0), (Hh - 40) / (y1 - y0))));
   S.v = { k, x: (W - (x1 - x0) * k) / 2 - x0 * k, y: 70 + (Hh - (y1 - y0) * k) / 2 - y0 * k };
   applyView();
@@ -31,7 +37,7 @@ function fit() {
 function reveal(id) {
   const n = S.nodes.get(id); if (!n) return;
   const k = S.v.k, x0 = S.v.x + n.x * k, y0 = S.v.y + n.y * k, x1 = x0 + nw(n) * k, y1 = y0 + nh(n) * k;
-  const top = 60, bottom = innerHeight - 110, left = 24 + JX * k, right = innerWidth - 24;
+  const top = 60, bottom = Math.min(innerHeight - 110, barTop() - 10), left = 24 + JX * k, right = innerWidth - 24;
   let dx = 0, dy = 0;
   if (x0 < left) dx = left - x0; else if (x1 > right) dx = right - x1;
   if (y0 < top) dy = top - y0; else if (y1 > bottom) dy = bottom - y1;
@@ -39,7 +45,7 @@ function reveal(id) {
 }
 function centerOn(id) {
   const n = S.nodes.get(id); if (!n) return;
-  S.v.x = innerWidth / 2 - (n.x + nw(n) / 2) * S.v.k; S.v.y = (innerHeight - 160) / 2 - (n.y + nh(n) / 2) * S.v.k + 40;
+  S.v.x = innerWidth / 2 - (n.x + nw(n) / 2) * S.v.k; S.v.y = Math.min((innerHeight - 160) / 2 + 40, (42 + barTop()) / 2) - (n.y + nh(n) / 2) * S.v.k;
   applyView();
 }
 /* layered left-to-right layout: depth = longest path from a start agent */

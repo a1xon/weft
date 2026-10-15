@@ -1,4 +1,5 @@
-// The prompt bar at the bottom always carries the choices: agent, model, reasoning, yolo.
+// The prompt bar at the bottom always carries the choices: agent, model, reasoning, yolo, and it is
+// the launch pad's own prompt box (same component, compact) with the same keys and addenda.
 const { chromium } = require(process.env.PLAYWRIGHT);
 const fs = require('fs');
 const W = process.env.SANDBOX;
@@ -13,17 +14,67 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   const running = () => p.evaluate(() => document.getAnimations().filter(a => { const t = a.effect && a.effect.target; return t && t.closest && (t.closest('#omni') || t.closest('.menu')); }).length);
 
   await p.goto(fs.readFileSync(W + '/url.txt', 'utf8').trim()); await p.waitForSelector('#pad:not([hidden]) textarea'); await sleep(400);
+  const padBox = await p.evaluate(() => ({ h: document.querySelector('#pbox').getBoundingClientRect().height, font: parseFloat(getComputedStyle(document.querySelector('#pad textarea')).fontSize) }));
   await p.keyboard.press('Escape'); await sleep(250);
+
+  // --- the bar is the pad's prompt box, compact
+  ok(await p.locator('#omni .pbox.compact textarea').count() === 1 && await p.locator('#omni .pbox.chamf').count() === 1, 'the bar holds the same prompt box as the launch pad, in its compact form');
+  const barBox = await p.evaluate(() => ({ h: document.querySelector('#omni .pbox').getBoundingClientRect().height, font: parseFloat(getComputedStyle(document.querySelector('#omni textarea')).fontSize) }));
+  ok(barBox.h < padBox.h * 0.6 && barBox.font < padBox.font, `with less padding and smaller type (${Math.round(barBox.h)}px / ${barBox.font}px against ${Math.round(padBox.h)}px / ${padBox.font}px)`);
+  const keys = await p.locator('#omni .pfoot kbd').allInnerTexts();
+  ok(['ctrl+enter', 'enter', 'tab', '/'].every(k => keys.includes(k)), 'its footer lists the keys of the pad (' + keys.join(' ') + ')');
+  ok((await p.locator('#omni .pfoot .btn').innerText()) === 'start', 'and has its start button');
+  const chips = p.locator('#omni .pchips .chip:not(.add)');
+  ok(await chips.count() >= 2 && await p.locator('#omni .pchips .chip.add').count() === 2, 'the standard addenda sit under it, with + add and prompts');
+  const pressed = () => chips.nth(1).getAttribute('aria-pressed');
+  const a0 = await pressed();
+  await chips.nth(1).click();
+  ok((await pressed()) !== a0 && await p.locator('#omni textarea').evaluate(e => document.activeElement === e), 'one click switches one on, and the prompt keeps the keyboard');
+  await chips.nth(1).click();
+  ok((await pressed()) === a0, 'and off again');
+
+  // --- the prompt: two lines to begin with, a little larger type, expandable for editing several lines
+  const taInfo = () => p.evaluate(() => { const t = document.querySelector('#omni textarea'), cs = getComputedStyle(t); return { h: t.getBoundingClientRect().height, line: parseFloat(cs.lineHeight), font: parseFloat(cs.fontSize), fs: parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fs')) || 1 }; });
+  const ta0 = await taInfo();
+  ok(Math.abs(ta0.h - 2 * ta0.line) < 3, `the prompt is two lines tall (${Math.round(ta0.h)}px for ${Math.round(ta0.line)}px lines)`);
+  ok(ta0.font / ta0.fs > 13.5 && ta0.font < padBox.font, `in slightly larger type than before and still smaller than on the pad (${ta0.font}px)`);
+  await p.locator('#omni textarea').fill('a\nb\nc\nd\ne');
+  ok((await taInfo()).h > ta0.h + ta0.line, 'it grows with the lines typed');
+  await p.locator('#omni textarea').fill('');
+  await p.locator('#omni .pfoot .xp').click();
+  const big = await taInfo();
+  ok(big.h > ta0.h * 3 && await p.locator('#omni textarea').evaluate(e => document.activeElement === e), `expand gives a tall box to edit several lines in (${Math.round(big.h)}px) and the prompt keeps the keyboard`);
+  await p.locator('#omni .pfoot .xp').click();
+  ok(Math.abs((await taInfo()).h - ta0.h) < 3, 'and it folds back to two lines');
+  const cell = s => p.evaluate(q => { const cs = getComputedStyle(document.querySelector(q)); return [cs.paddingTop, cs.paddingLeft, cs.borderTopWidth, cs.fontSize].join(' '); }, s);
+  ok((await cell('#omni .peff .seg button')) === (await cell('#omodel .seg button')) && parseFloat((await cell('#omni .peff .seg button'))) <= 3, 'reasoning is the same selector style as the model, with little padding (' + (await cell('#omni .peff .seg button')) + ')');
 
   // --- with nothing selected the bar is for a new agent: all the choices are there
   ok(await p.locator('#omni .oc .pagents').count() === 1, 'the bar has the agent switch');
   ok(await p.locator('#omodel').count() === 1, 'and the model');
   ok(await p.locator('#omni .oc .peff').count() === 1, 'and the reasoning level');
   ok(await p.locator('#oyolo').count() === 1, 'and yolo');
-  const r1 = await p.evaluate(() => { const a = document.querySelector('#omni .oc .pagents').getBoundingClientRect(); const m = document.querySelector('#omodel').getBoundingClientRect(); const y = document.querySelector('#oyolo').getBoundingClientRect(); const t = document.querySelector('#omni textarea').getBoundingClientRect(); return { a: a.top, m: m.top, y: y.top, t: t.top }; });
-  ok(Math.abs(r1.a - r1.m) < 10 && Math.abs(r1.a - r1.y) < 10 && r1.t > r1.a + 14, 'on one line above the prompt');
+  const r1 = await p.evaluate(() => { const q = s => { const r = document.querySelector(s).getBoundingClientRect(); return { t: r.top, b: r.bottom, l: r.left, r: r.right, c: (r.top + r.bottom) / 2 }; }; return { a: q('#omni .oc .pagents'), m: q('#omodel'), e: q('#omni .oc .peff'), y: q('#oyolo'), t: q('#omni textarea') }; });
+  ok(r1.m.l > r1.a.r && r1.e.l > r1.a.r && r1.m.b <= r1.e.t + 2, 'the agents sit on the left, the model first and the reasoning level second on the right');
+  ok(Math.abs(r1.a.c - (r1.m.t + r1.e.b) / 2) < 8 && r1.y.t > r1.m.b - 2 && r1.y.l > r1.e.r && r1.t.t > r1.e.b, 'the agents are centred against both lines, yolo ends the second one, the prompt is below');
+  ok(await p.locator('#omodel .seg button').count() >= 4 && await p.locator('#omodel select, #omodel .pmodel').count() === 0, 'the model is a row of one-click choices like the reasoning level, not a menu');
+  ok((await p.locator('#omodel .seg button[aria-pressed=true]').innerText()) === 'default', 'default is the one selected');
   const names = await seg();
   ok(names.length === 6 && names.includes('xhigh'), 'claude: auto low med high xhigh max (' + names.join(' ') + ')');
+
+  // alt+up / alt+down: the reasoning level from the keyboard, as on the pad
+  const level = () => p.locator('#omni .oc .peff .seg button[aria-pressed=true]').innerText();
+  await p.locator('#omni textarea').focus();
+  await p.keyboard.press('Alt+ArrowUp');
+  ok((await level()) === 'low', 'alt+up raises the reasoning level (' + (await level()) + ')');
+  await p.keyboard.press('Alt+ArrowDown');
+  ok((await level()) === 'auto', 'alt+down lowers it again');
+
+  // --- enter is a new line, ctrl+enter sends
+  await p.locator('#omni textarea').fill('');
+  await p.keyboard.type('one'); await p.keyboard.press('Enter'); await p.keyboard.type('two'); await sleep(200);
+  ok((await p.locator('#omni textarea').inputValue()) === 'one\ntwo' && (await p.evaluate(() => S.nodes.size)) === 0, 'a plain enter is a new line in the bar and sends nothing');
+  await p.locator('#omni textarea').fill('');
 
   // --- agy: its reasoning is low / medium / high, and only with its own default model
   await p.locator('#omni .oc .pagents button', { hasText: /^agy$/ }).click();
@@ -31,18 +82,23 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok((await running()) === 0, 'switching agent animates nothing');
   const agyNames = await seg();
   ok(agyNames.join(' ') === 'auto low med high', 'agy offers auto low med high (' + agyNames.join(' ') + ')');
-  await p.locator('#omodel').click();
-  const menu = p.locator('.menu .mi', { hasText: 'Sim Deep' });
-  await menu.waitFor({ timeout: 8000 });
-  const mbox = await p.locator('.menu').boundingBox(), bbox = await p.locator('#omodel').boundingBox();
-  ok(mbox.y + mbox.height <= bbox.y + 2, 'the model menu opens upward, clear of the bar');
-  await menu.click();
-  await waitFor(async () => (await p.locator('#omodel b').innerText()) === 'Sim Deep');
-  ok((await p.locator('#omni .oc .peff').count()) === 0, 'with a model of its own agy has no separate reasoning choice (the level is in the model)');
-  await p.locator('#omodel').click();
-  await p.locator('.menu .mi', { hasText: 'default' }).first().click();
+  const deep = p.locator('#omodel .seg button', { hasText: /^Sim Deep$/ });
+  await deep.waitFor({ timeout: 8000 });
+  ok(await p.locator('#omodel .seg button', { hasText: /^Sim Fast$/ }).count() === 1, 'the models its CLI lists are all there, no click needed to see them');
+  await deep.click();
+  await waitFor(async () => (await p.locator('#omodel .seg button[aria-pressed=true]').innerText()) === 'Sim Deep');
+  ok((await p.locator('#omodel .seg button[aria-pressed=true]').innerText()) === 'Sim Deep' && (await p.locator('#omni .oc .peff').count()) === 0, 'one click picks it; with a model of its own agy has no separate reasoning choice (the level is in the model)');
+  await p.locator('#omodel .seg button', { hasText: /^default$/ }).click();
   await waitFor(async () => (await p.locator('#omni .oc .peff').count()) === 1);
   ok((await p.locator('#omni .oc .peff').count()) === 1, 'back to its default model the reasoning choice is back');
+
+  // --- a model that is not listed: other… takes a name
+  await p.locator('#omodel .other').click();
+  await p.keyboard.type('my-own-model'); await p.keyboard.press('Enter');
+  await waitFor(async () => (await p.locator('#omodel .seg button[aria-pressed=true]').innerText().catch(() => '')) === 'my-own-model', 4000);
+  ok((await p.locator('#omodel .seg button[aria-pressed=true]').innerText()) === 'my-own-model', 'other… takes any model name and shows it selected');
+  await p.locator('#omodel .seg button', { hasText: /^default$/ }).click();
+  await waitFor(async () => (await p.locator('#omodel .seg button', { hasText: /^my-own-model$/ }).count()) === 0, 4000);
 
   // --- codex
   await p.locator('#omni .oc .pagents button', { hasText: /^codex$/ }).click();
@@ -54,7 +110,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
 
   // --- a new agent takes exactly those choices
   await p.locator('#omni textarea').fill('Say hello in one word.');
-  await p.keyboard.press('Enter');
+  await p.keyboard.press('Control+Enter');
   await p.waitForSelector('.nw[data-id="n1"]');
   await sleep(600);
   const flow = JSON.parse(fs.readFileSync(W + '/proj/.weft/flow.json', 'utf8'));
@@ -75,6 +131,14 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await sleep(500);
   const flow3 = JSON.parse(fs.readFileSync(W + '/proj/.weft/flow.json', 'utf8'));
   ok(flow3.nodes.find(n => n.id === 'n1').yolo === false, 'and so does yolo');
+
+  // --- a message to an agent that exists: same box and button, no addenda (they make a new agent)
+  ok(await p.locator('#omni .pbox.compact .pfoot .btn').count() === 1 && await p.locator('#omni .pchips').count() === 0, 'a message to an agent has the same box and button, without the addenda row');
+  await p.locator('#omni textarea').click(); await p.keyboard.press('Tab');
+  await waitFor(async () => (await p.locator('#omni .oc .tgt').innerText()).includes('hand over'), 4000);
+  ok(await p.locator('#omni .pchips').count() === 1 && (await p.locator('#omni .pfoot .btn').innerText()) === 'hand over', 'handing over makes a new agent: its addenda are back, the button says so');
+  await p.keyboard.press('Tab');
+  await waitFor(async () => !(await p.locator('#omni .oc .tgt').innerText()).includes('hand over'), 4000);
 
   // --- two agents: nothing to choose for both
   await p.mouse.dblclick(400, 300); await p.waitForSelector('.ask-edit'); await p.keyboard.type('x'); await p.mouse.click(1200, 600); await sleep(300);

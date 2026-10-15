@@ -27,7 +27,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
 
   // --- A: omnibar creates and runs an agent (0 clicks)
   await p.locator('#omni textarea').click();
-  await p.keyboard.type('Explain what textkit/slug.py does in one sentence.'); await p.keyboard.press('Enter');
+  await p.keyboard.type('Explain what textkit/slug.py does in one sentence.'); await p.keyboard.press('Control+Enter');
   await p.waitForSelector('.nw[data-id="n1"]');
   ok(await waitSt('n1', ['busy', 'starting', 'done']), 'typing in the omnibar creates and runs an agent');
   { const okd = await waitSt('n1', ['done']);
@@ -142,8 +142,8 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await p.mouse.click(1100, 40);
   await p.locator('.nw[data-id="n1"] .hd').click();
   await p.locator('#omni textarea').click();
-  await p.keyboard.type('Now answer with only the file name.'); await p.keyboard.press('Enter'); await sleep(500);
-  await p.keyboard.type('Then say done.'); await p.keyboard.press('Enter'); await sleep(500);
+  await p.keyboard.type('Now answer with only the file name.'); await p.keyboard.press('Control+Enter'); await sleep(500);
+  await p.keyboard.type('Then say done.'); await p.keyboard.press('Control+Enter'); await sleep(500);
   const queued = await p.locator('#qpanel .qi').count();
   ok(queued >= 1, 'messages to a busy agent queue up and show as a list (' + queued + ')');
   await p.screenshot({ path: W + '/f-7-queue.png' });

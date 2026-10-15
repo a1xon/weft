@@ -59,17 +59,21 @@ function closePad() {
   pad.open = false; pad.ed = null; padEl.hidden = true; document.body.classList.remove('padopen');
   $('#empty').hidden = S.nodes.size > 0;
   closeMenu();
+  renderOmni();   // what was chosen on the pad is what the bar shows now
 }
 function padEsc() {
   if (menuEl) return closeMenu();
   if (pad.ed) { pad.ed = null; renderPad(); return; }
   closePad();
 }
+const modelsAsked = new Set();
 async function ensureModels(a, force) {
   const cfg = S.cfg.agents[a];
-  if (!cfg || !cfg.models_cmd || (S.models[a] && !force)) return;
+  if (!cfg || !cfg.models_cmd || (S.models[a] && !force) || modelsAsked.has(a)) return;
+  modelsAsked.add(a);
   const r = await req('models', { agent: a, force: !!force });
-  if (r && r.models && r.models.length) { S.models[a] = r.models; if (pad.open) renderPad(); }
+  modelsAsked.delete(a);
+  if (r && r.models && r.models.length) { S.models[a] = r.models; redrawPrompts(); }
 }
 /* one menu for the model, in the pad and in the options flyout */
 /* the choices that make an agent, one click each: which one, which model, how hard it thinks and
@@ -81,31 +85,55 @@ function effortApplies(a, model) {
 }
 function agentControls(c) {
   const cfg = S.cfg.agents[c.agent] || {};
-  const out = [];
+  // left: which agent (claude | agy | codex), centred against the two lines on the right;
+  // right: the model on the first line, the reasoning level (and yolo) on the second
+  const left = [], right = [], second = [];
+  if (c.lead) left.push(c.lead);
   if (c.agents) {
     const sg = seg(c.agents.map(([k, v]) => [k, k, v.label || k]), c.agent, k => c.onAgent(k));
     sg.classList.add('pagents');
-    out.push(sg);
+    left.push(sg);
   }
-  if (cfg.model_arg) {
-    const mid = c.model || '';
-    const lab = mid ? ((modelOptions(c.agent).find(o => o.id === mid) || {}).label || mid) : 'default';
-    out.push(h('button', { class: 'pmodel', id: c.id + 'model', title: mid ? 'model ' + mid : 'the CLI picks its own default model', onclick: ev => {
-      const r = ev.currentTarget.getBoundingClientRect();
-      modelMenu(r.left, c.above ? r.top - 4 : r.bottom + 4, c.agent, mid, v => c.onModel(v), !!c.above);
-    } }, h('span', { class: 'dl' }, 'model'), h('b', {}, lab), h('span', { class: 'car' }, '▾')));
-  }
+  if (cfg.model_arg) right.push(modelRow(c, cfg));
   if (cfg.effort_arg && (cfg.efforts || []).length && effortApplies(c.agent, c.model)) {
-    out.push(h('div', { class: 'peff' }, h('span', { class: 'dl' }, 'reasoning'),
-      seg([['', 'auto', 'the CLI decides'], ...cfg.efforts.map(e => [e, e === 'medium' ? 'med' : e, 'reasoning effort ' + e + (c.id === 'p' ? ' (alt+↑/↓)' : '')])], c.effort || '', v => c.onEffort(v))));
+    const eg = seg([['', 'auto', 'the CLI decides'], ...cfg.efforts.map(e => [e, e === 'medium' ? 'med' : e, 'reasoning effort ' + e + ' (alt+↑/↓)'])], c.effort || '', v => c.onEffort(v));
+    eg.classList.add('cells');
+    second.push(h('div', { class: 'peff' }, h('span', { class: 'dl' }, 'reasoning'), eg));
   }
   if (cfg.yolo_arg) {
     const on = !!c.yolo;
-    out.push(h('button', { class: 'pyolo', id: c.id + 'yolo', 'aria-pressed': String(on),
+    second.push(h('button', { class: 'pyolo', id: c.id + 'yolo', 'aria-pressed': String(on),
       title: on ? `yolo: ${c.agent} acts without asking (${cfg.yolo_arg}). Click to make it ask before it acts.` : `${c.agent} asks before it acts. Click for yolo: no permission prompts (${cfg.yolo_arg}).`,
       onclick: () => c.onYolo(!on) }, h('i'), on ? 'yolo' : 'asks first'));
   }
-  return out;
+  if (second.length) right.push(h('div', { class: 'pline' }, ...second));
+  if (!left.length && !right.length) return [];
+  return [h('div', { class: 'pgrid' }, left.length ? h('div', { class: 'pleft' }, ...left) : null, right.length ? h('div', { class: 'pright' }, ...right) : null)];
+}
+function modelRow(c, cfg) {
+  const a = c.agent, mid = c.model || '', opts = modelOptions(a);
+  const pending = cfg.models_cmd && S.models[a] === undefined && !S.modelErr[a];
+  if (cfg.models_cmd && S.models[a] === undefined) ensureModels(a);
+  const items = [['', 'default', 'the CLI picks its own default model'],
+    ...opts.map(o => [o.id, o.label, o.label !== o.id ? o.id : 'model ' + o.id])];
+  if (mid && !opts.some(o => o.id === mid)) items.push([mid, mid, 'model ' + mid + ' (typed by hand)']);
+  const sg = seg(items, mid, v => c.onModel(v));
+  sg.classList.add('cells');
+  sg.append(h('button', { class: 'other', title: 'type a model name', onclick: ev => {
+    const r = ev.currentTarget.getBoundingClientRect();
+    askModel(r.left, c.above ? r.top - 90 : r.bottom + 4, a, mid, v => c.onModel(v));
+  } }, 'other…'));
+  return h('div', { class: 'pmodels', id: c.id + 'model' }, h('span', { class: 'dl' }, 'model'), sg,
+    pending ? h('span', { class: 'dl', title: 'asking its CLI for its models' }, '…') : null,
+    S.modelErr[a] && !opts.length ? h('span', { class: 'dl', title: S.modelErr[a] }, 'could not list models') : null);
+}
+/* a model name typed by hand: where you clicked, enter keeps it */
+function askModel(x, y, a, cur, onPick) {
+  const cfg = S.cfg.agents[a] || {};
+  askText(x, y, 'model name for ' + (cfg.label || a), cur || '', t => {
+    if (t && !/^[A-Za-z0-9._:\/@+-]{1,80}$/.test(t)) return toast('err', 'model names are plain words: letters, digits and . _ : / @ + -');
+    onPick(t);
+  });
 }
 function modelMenu(x, y, a, cur, onPick, above) {
   const cfg = S.cfg.agents[a] || {};
@@ -118,10 +146,7 @@ function modelMenu(x, y, a, cur, onPick, above) {
     ...modelOptions(a).map(o => ({ k: cur === o.id ? '\u25cf' : ' ', label: o.label, hint: o.label !== o.id ? o.id : '', run: () => onPick(o.id) })),
     ...(S.modelErr[a] && !modelOptions(a).length ? [{ cap: 'could not list models: ' + S.modelErr[a] }] : []),
     { sep: true },
-    { label: 'other\u2026', hint: 'type a model name', run: () => askText(x, above ? y - 90 : y, 'model name for ' + (cfg.label || a), cur || '', t => {
-      if (t && !/^[A-Za-z0-9._:\/@+-]{1,80}$/.test(t)) return toast('err', 'model names are plain words: letters, digits and . _ : / @ + -');
-      onPick(t);
-    }) },
+    { label: 'other\u2026', hint: 'type a model name', run: () => askModel(x, above ? y - 90 : y, a, cur, onPick) },
   ];
   popup(items, x, y, { above: !!above }).dataset.kind = 'model';
   ensureModels(a);
@@ -145,11 +170,68 @@ function padStep(d) {
   const ks = agentList().map(x => x[0]); if (!ks.length) return;
   setAgent(ks[(ks.indexOf(S.lastAgent) + d + ks.length) % ks.length]);
 }
+/* one step along the reasoning levels of an agent (alt+up / alt+down), or null where it has none */
+function effortStep(a, model, cur, d) {
+  const cfg = S.cfg.agents[a] || {}, list = ['', ...(cfg.efforts || [])];
+  if (!cfg.effort_arg || !effortApplies(a, model)) return null;
+  return list[Math.max(0, Math.min(list.length - 1, list.indexOf(cur || '') + d))];
+}
 function padEffort(d) {
-  const a = S.lastAgent, cfg = S.cfg.agents[a] || {}, list = ['', ...(cfg.efforts || [])];
-  if (!cfg.effort_arg || !effortApplies(a, tuned(a, 'model'))) return;
-  const i = Math.max(0, Math.min(list.length - 1, list.indexOf(tuned(a, 'effort')) + d));
-  setTuned(a, 'effort', list[i]); renderPad();
+  const a = S.lastAgent, v = effortStep(a, tuned(a, 'model'), tuned(a, 'effort'), d);
+  if (v === null) return;
+  setTuned(a, 'effort', v); redrawPrompts();
+}
+/* the prompt box is one component: the launch pad shows it big, the bar at the bottom compact. The
+   text, the keys that work in it (listed in its footer) and a button that does what Enter does. */
+function keyHints(rows) { return rows.map(([k, w]) => h('span', { class: 'kh' }, h('kbd', {}, k), ' ' + w)); }
+/* the prompt can be expanded to edit several lines in; the choice is remembered in this browser */
+let promptBig = (() => { try { return localStorage.getItem('weft.promptBig') === '1'; } catch { return false; } })();
+function togglePromptBig() {
+  promptBig = !promptBig;
+  try { localStorage.setItem('weft.promptBig', promptBig ? '1' : '0'); } catch {}
+  redrawPrompts();
+}
+const ICON_GROW = I('<path d="M9.5 2.5h4v4M13.5 2.5L9 7M6.5 13.5h-4v-4M2.5 13.5L7 9"/>');
+const ICON_SHRINK = I('<path d="M9.5 2.5v4h4M9.5 6.5L14 2M6.5 13.5v-4h-4M6.5 9.5L2 14"/>');
+function promptBox(o) {
+  const ta = o.ta;
+  if (!ta._boxed) {
+    ta._boxed = true;
+    ta.addEventListener('focus', () => { const b = ta.closest('.pbox'); if (b) b.classList.add('focus'); });
+    ta.addEventListener('blur', () => { const b = ta.closest('.pbox'); if (b) b.classList.remove('focus'); });
+  }
+  const tip = promptBig ? 'back to a short prompt' : 'expand the prompt: more room to edit several lines';
+  return h('div', { id: o.id, class: 'pbox chamf' + (o.compact ? ' compact' : '') + (promptBig ? ' big' : '') }, ta,
+    h('div', { class: 'pfoot' }, h('span', { class: 'khs' }, ...o.hint), h('span', { class: 'sp' }),
+      h('button', { class: 'xp', title: tip, 'aria-label': tip, 'aria-pressed': String(promptBig), onclick: togglePromptBig, html: promptBig ? ICON_SHRINK : ICON_GROW }),
+      h('button', { class: 'btn pri', onclick: o.go }, o.label)));
+}
+function shake(box) { if (box) { box.classList.remove('nope'); void box.offsetWidth; box.classList.add('nope'); } }
+/* the pad and the bar show the same choices: a change made in one is drawn in both */
+function redrawPrompts() { renderPad(); omni._key = null; renderOmni(); }
+/* standard addenda: click to switch on, right-click to curate. While one is written the editor takes the row. */
+function addendaRow() {
+  if (pad.ed) return pad.ed.el || addendumEditor(pad.ed);
+  const adds = S.lib.filter(x => x.kind === 'addendum');
+  return h('div', { class: 'pchips' }, h('span', { class: 'dl' }, 'addenda'),
+    ...adds.map(x => {
+      const b = h('button', { class: 'chip', 'aria-pressed': String(addendumOn(x)), title: (x.text || '').slice(0, 400) + '\n\n(right-click: edit or remove)' }, h('i', { class: 'dot' }), x.title);
+      b.addEventListener('click', () => { const m = S.prefs.addenda = S.prefs.addenda || {}; m[x.id] = !addendumOn(x); savePrefs(); redrawPrompts(); });
+      b.addEventListener('contextmenu', ev => { ev.preventDefault(); addendumMenu(x, ev.clientX, ev.clientY); });
+      return b;
+    }),
+    h('button', { class: 'chip add', title: 'Write a new standard addendum', onclick: () => { pad.ed = { id: null, title: '', text: '' }; redrawPrompts(); } }, '+ add'),
+    h('button', { class: 'chip add', title: 'Standard prompts (or type / in the prompt)', onclick: ev => promptsMenu(ev.currentTarget, padOpenTa()) }, 'prompts ▾'));
+}
+/* the prompt that is on screen: the pad's while it is open, else the bar's */
+const padOpenTa = () => (pad.open ? padTa : omniTa);
+/* where the keyboard goes after the pad or the bar was drawn again: back into the addendum editor if
+   that had it, else to the prompt with its selection (the pad always keeps it, the bar only if it had it) */
+function editorFocus() { return pad.ed && pad.ed.el && pad.ed.el.contains(document.activeElement) ? document.activeElement : null; }
+function settleKeys(ta, had, sel, edFocus, always) {
+  if (edFocus) edFocus.focus();
+  else if (pad.ed && pad.ed.fresh) { pad.ed.fresh = false; const f = pad.ed.el.querySelector('input'); if (f) f.focus(); }
+  else if (had || (always && !pad.ed)) { ta.focus(); if (sel) try { ta.setSelectionRange(sel[0], sel[1]); } catch {} }
 }
 function renderPad() {
   if (!pad.open) return;
@@ -157,15 +239,13 @@ function renderPad() {
     padTa = h('textarea', { rows: 4, spellcheck: 'false', 'aria-label': 'What should the agent do?' });
     const grow = () => { padTa.style.height = 'auto'; padTa.style.height = Math.min(Math.max(padTa.scrollHeight, 128), innerHeight * 0.44) + 'px'; };
     padTa.addEventListener('input', grow);
-    padTa.addEventListener('focus', () => $('#pbox') && $('#pbox').classList.add('focus'));
-    padTa.addEventListener('blur', () => $('#pbox') && $('#pbox').classList.remove('focus'));
     padTa.addEventListener('keydown', e => {
       if (e.isComposing) return;
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); padStart(); }
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); padStart(); }   // plain enter is a new line
       else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); padEsc(); }
       else if (e.key === 'Tab') { e.preventDefault(); padStep(e.shiftKey ? -1 : 1); }
       else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); padEffort(e.key === 'ArrowUp' ? 1 : -1); }
-      else if (e.key === '/' && !padTa.value) { e.preventDefault(); padPrompts(padTa); }
+      else if (e.key === '/' && !padTa.value) { e.preventDefault(); promptsMenu(padTa, padTa); }
     });
     padTa._grow = grow;
   }
@@ -201,55 +281,40 @@ function renderPad() {
     onEffort: v => setTuned(a, 'effort', v),
     onYolo: v => { S.prefs.yolo = v; savePrefs(); renderPad(); },
   });
-  const go = h('button', { class: 'btn pri', onclick: padStart }, 'start');
-  const box = h('div', { id: 'pbox', class: 'chamf' }, padTa,
-    h('div', { class: 'pfoot' }, h('span', {}, h('kbd', {}, 'enter'), ' start  ', h('kbd', {}, 'shift+enter'), ' new line  ', h('kbd', {}, 'tab'), ' next agent  ', h('kbd', {}, '/'), ' prompts'),
-      h('span', { class: 'sp' }), go));
+  const box = promptBox({ id: 'pbox', ta: padTa, label: 'start', go: padStart,
+    hint: keyHints([['ctrl+enter', 'start'], ['enter', 'new line'], ['tab', 'next agent'], ['/', 'prompts']]) });
   padTa.placeholder = `Tell ${a} what to do in ${P.name}…`;
 
-  // standard addenda: click to switch on, right-click to curate
-  let chipsRow;
-  const edFocus = pad.ed && pad.ed.el && pad.ed.el.contains(document.activeElement) ? document.activeElement : null;
-  if (pad.ed) chipsRow = pad.ed.el || addendumEditor(pad.ed);
-  else {
-    const adds = S.lib.filter(x => x.kind === 'addendum');
-    chipsRow = h('div', { class: 'pchips' }, h('span', { class: 'dl' }, 'addenda'),
-      ...adds.map(x => {
-        const b = h('button', { class: 'chip', 'aria-pressed': String(addendumOn(x)), title: (x.text || '').slice(0, 400) + '\n\n(right-click: edit or remove)' }, h('i', { class: 'dot' }), x.title);
-        b.addEventListener('click', () => { const m = S.prefs.addenda = S.prefs.addenda || {}; m[x.id] = !addendumOn(x); savePrefs(); renderPad(); });
-        b.addEventListener('contextmenu', ev => { ev.preventDefault(); addendumMenu(x, ev.clientX, ev.clientY); });
-        return b;
-      }),
-      h('button', { class: 'chip add', title: 'Write a new standard addendum', onclick: () => { pad.ed = { id: null, title: '', text: '' }; renderPad(); } }, '+ add'),
-      h('button', { class: 'chip add', title: 'Standard prompts (or type / in the prompt)', onclick: ev => padPrompts(ev.currentTarget) }, 'prompts ▾'));
-  }
+  const edFocus = editorFocus();
+  const chipsRow = addendaRow();
 
   const top = padEl.scrollTop;
   padEl.replaceChildren(h('div', { class: 'pw' }, where, h('div', { class: 'pctl' }, ...ctl), box, chipsRow));
   padEl.scrollTop = top;
   if (padTa._grow) padTa._grow();
-  if (edFocus) edFocus.focus();
-  else if (pad.ed && pad.ed.fresh) { pad.ed.fresh = false; const f = pad.ed.el.querySelector('input'); if (f) f.focus(); }
-  else if (had || !pad.ed) { padTa.focus(); if (sel) try { padTa.setSelectionRange(sel[0], sel[1]); } catch {} }
+  settleKeys(padTa, had, sel, edFocus, true);
 }
 padEl.addEventListener('pointerdown', ev => { if (ev.target === padEl && S.nodes.size) closePad(); });
 padEl.addEventListener('click', ev => {
   if (pad.ed || !padTa || !ev.target.closest) return;
-  if (ev.target.closest('button')) setTimeout(() => { if (pad.open && !pad.ed && !menuEl) padTa.focus(); }, 0);
+  if (ev.target.closest('button')) setTimeout(() => { if (pad.open && !pad.ed && !menuEl && !typingInField()) padTa.focus(); }, 0);
 });
-function padPrompts(anchor) {
-  const r = anchor.getBoundingClientRect();
+/* a one-line field (a model name, say) has the keyboard: do not take it back */
+const typingInField = () => { const a = document.activeElement; return !!a && a.tagName === 'INPUT'; };
+/* the standard prompts, inserted into the prompt that asked (the menu opens upward from the bar) */
+function promptsMenu(anchor, ta) {
+  const r = anchor.getBoundingClientRect(), above = !pad.open;
   const ps = S.lib.filter(x => x.kind === 'prompt');
   popup([{ cap: 'standard prompts' }, ...(ps.length ? ps.map(x => ({ label: x.title, hint: 'insert', run: () => {
-    padTa.value = x.text + (padTa.value ? '\n' + padTa.value : ''); padTa._grow(); padTa.focus(); padTa.setSelectionRange(padTa.value.length, padTa.value.length);
-  } })) : [{ cap: 'none yet: add some in the library' }])], r.left, r.bottom + 4);
+    ta.value = x.text + (ta.value ? '\n' + ta.value : ''); ta._grow(); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+  } })) : [{ cap: 'none yet: add some in the library' }])], r.left, above ? r.top - 4 : r.bottom + 4, { above });
 }
 function addendumMenu(x, mx, my) {
   popup([
-    { label: 'edit…', run: () => { pad.ed = { id: x.id, title: x.title, text: x.text }; renderPad(); } },
-    { k: x.default_on ? '●' : ' ', label: 'on for new agents by default', run: () => { x.default_on = !x.default_on; delete (S.prefs.addenda || {})[x.id]; savePrefs(); saveLib(); renderPad(); } },
+    { label: 'edit…', run: () => { pad.ed = { id: x.id, title: x.title, text: x.text }; redrawPrompts(); } },
+    { k: x.default_on ? '●' : ' ', label: 'on for new agents by default', run: () => { x.default_on = !x.default_on; delete (S.prefs.addenda || {})[x.id]; savePrefs(); saveLib(); redrawPrompts(); } },
     { sep: true },
-    { label: 'remove', danger: true, run: () => { S.lib = S.lib.filter(y => y.id !== x.id); saveLib(); renderPad(); } },
+    { label: 'remove', danger: true, run: () => { S.lib = S.lib.filter(y => y.id !== x.id); saveLib(); redrawPrompts(); } },
   ], mx, my);
 }
 function addendumEditor(ed) {
@@ -265,11 +330,11 @@ function addendumEditor(ed) {
       S.lib.push({ id, kind: 'addendum', title: t, text: body, default_on: false });
       (S.prefs.addenda = S.prefs.addenda || {})[id] = true; savePrefs();
     }
-    saveLib(); pad.ed = null; renderPad();
+    saveLib(); pad.ed = null; redrawPrompts();
   };
   const key = e => {
     e.stopPropagation();
-    if (e.key === 'Escape') { pad.ed = null; renderPad(); }
+    if (e.key === 'Escape') { pad.ed = null; redrawPrompts(); }
     else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
     else if (e.key === 'Enter' && e.target === name) { e.preventDefault(); text.focus(); }
   };
@@ -277,12 +342,12 @@ function addendumEditor(ed) {
   ed.fresh = true; // renderPad puts the keyboard in the name field as soon as the editor is on screen
   return ed.el = h('div', { class: 'aed' }, name, text,
     h('div', { class: 'row2' }, h('button', { class: 'btn sm pri', onclick: save }, ed.id ? 'save' : 'add'),
-      h('button', { class: 'btn sm', onclick: () => { pad.ed = null; renderPad(); } }, 'cancel'),
+      h('button', { class: 'btn sm', onclick: () => { pad.ed = null; redrawPrompts(); } }, 'cancel'),
       h('span', { class: 'note', style: 'margin:0 0 0 auto' }, 'ctrl+enter saves')));
 }
 async function padStart() {
   const text = padTa.value.trim();
-  if (!text) { const b = $('#pbox'); if (b) { b.classList.remove('nope'); void b.offsetWidth; b.classList.add('nope'); } padTa.focus(); return; }
+  if (!text) { shake($('#pbox')); padTa.focus(); return; }
   const a = S.lastAgent, cfg = S.cfg.agents[a] || {};
   const c = toWorld(innerWidth / 2, innerHeight / 2);
   const extra = { model: cfg.model_arg ? tuned(a, 'model') : '', effort: cfg.effort_arg ? tuned(a, 'effort') : '', addenda: addendaIds(), yolo: cfg.yolo_arg ? yoloDefault() : undefined };

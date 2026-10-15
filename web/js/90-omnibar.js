@@ -4,14 +4,14 @@ let omniTa = null;
 function renderOmni() {
   if (!omniTa) {
     omniTa = h('textarea', { rows: 1, spellcheck: 'false', 'aria-label': 'Message or new agent' });
+    omniTa._grow = growOmni;
     omniTa.addEventListener('input', () => { growOmni(); omniMenu(); });
-    omniTa.addEventListener('focus', () => { omni.classList.add('focus'); $('#omniw').classList.add('focus'); });
-    omniTa.addEventListener('blur', () => { omni.classList.remove('focus'); $('#omniw').classList.remove('focus'); });
     omniTa.addEventListener('keydown', onOmniKey);
     attachMentions(omniTa, null);
-    // a click on one of the choices above hands the keyboard back to the prompt
+    // a click on one of the choices around the prompt hands the keyboard back to it
     omni.addEventListener('click', ev => {
-      if (ev.target.closest && ev.target.closest('.oc button') && !menuEl) omniTa.focus();
+      if (pad.ed || menuEl || typingInField() || !ev.target.closest) return;
+      if (ev.target.closest('button')) omniTa.focus();
     });
   }
   const ids = [...S.sel];
@@ -26,19 +26,20 @@ function renderOmni() {
   // the choices for a new agent are the saved ones, the same as on the launch pad
   const forNew = () => {
     const a = S.lastAgent;
-    return agentControls({ id: 'o', agent: a, agents, above: true, model: tuned(a, 'model'), effort: tuned(a, 'effort'), yolo: yoloDefault(),
+    return agentControls({ id: 'o', agent: a, agents, lead: chip, above: true, model: tuned(a, 'model'), effort: tuned(a, 'effort'), yolo: yoloDefault(),
       onAgent: k => setAgent(k),
       onModel: v => { setTuned(a, 'model', v); redo(); },
       onEffort: v => setTuned(a, 'effort', v),
       onYolo: v => { S.prefs.yolo = v; savePrefs(); redo(); } });
   };
   // the choices of an agent that exists apply the next time it is started
-  const forNode = n => agentControls({ id: 'o', agent: n.agent, agents: null, above: true, model: n.model || '', effort: n.effort || '', yolo: yoloOf(n),
+  const forNode = n => agentControls({ id: 'o', agent: n.agent, agents: null, lead: chip, above: true, model: n.model || '', effort: n.effort || '', yolo: yoloOf(n),
     onModel: v => { patchNode(n.id, { model: v }, 0); redo(); },
     onEffort: v => patchNode(n.id, { effort: v }, 0),
     onYolo: v => { patchNode(n.id, { yolo: v }, 0); redo(); } });
-  let chip = null, controls = [], ckey = '';
+  let chip = null, controls = [], ckey = '', forNewAgent = false;
   if (ids.length === 0) {
+    forNewAgent = true;
     controls = forNew();
     ckey = JSON.stringify([S.lastAgent, tuned(S.lastAgent, 'model'), tuned(S.lastAgent, 'effort'), yoloDefault(), (S.models[S.lastAgent] || []).length]);
   } else if (ids.length > 1) {
@@ -47,6 +48,7 @@ function renderOmni() {
     chip = h('button', { class: 'tgt', title: handing ? 'tab: continue this agent instead' : 'tab: hand the work over to a fresh agent instead', onclick: flip },
       handing ? '⇢ hand over from ' + single.name : '↻ ' + single.name);
     if (handing) {
+      forNewAgent = true;
       controls = forNew();
       ckey = JSON.stringify(['new', S.lastAgent, tuned(S.lastAgent, 'model'), tuned(S.lastAgent, 'effort'), yoloDefault(), (S.models[S.lastAgent] || []).length]);
     } else {
@@ -55,40 +57,67 @@ function renderOmni() {
     }
   } else if (single && kindOf(single) !== 'agent') {
     chip = h('span', { class: 'tgt', style: 'cursor:default' }, '→ ' + single.name);
+    forNewAgent = true;
     controls = forNew();
     ckey = JSON.stringify(['new', S.lastAgent, tuned(S.lastAgent, 'model'), tuned(S.lastAgent, 'effort'), yoloDefault(), (S.models[S.lastAgent] || []).length]);
   } else {
     chip = h('span', { class: 'tgt', style: 'cursor:default' }, '→ ' + (single ? single.name : '?'));
   }
-  let hint, ph;
+  // the same keys as on the launch pad (enter, shift+enter, tab, /), plus the ones a running agent adds
+  let hint, ph, label;
   if (handing) {
     ph = 'what should the new agent do? it takes over this work';
-    hint = [h('kbd', {}, 'enter'), ' hand over ', h('kbd', {}, 'tab'), ' continue instead'];
+    hint = [['ctrl+enter', 'hand over'], ['enter', 'new line'], ['tab', 'continue instead']]; label = 'hand over';
   } else if (ids.length === 0) {
     ph = S.lastAgent === 'sh' ? 'a shell command to run…' : 'ask an agent to…';
-    hint = [h('kbd', {}, 'enter'), ' run ', h('kbd', {}, 'tab'), ' agent ', h('kbd', {}, '/'), ' commands'];
+    hint = [['ctrl+enter', 'start'], ['enter', 'new line'], ['tab', 'next agent'], ['/', 'commands']]; label = 'start';
   } else if (single && kindOf(single) !== 'agent') {
     ph = 'start a new agent that receives this result…';
-    hint = [h('kbd', {}, 'enter'), ' create & link'];
+    hint = [['ctrl+enter', 'create & link'], ['enter', 'new line']]; label = 'create & link';
   } else {
     const busy = ids.some(i => { const r = S.rt.get(i); return r && r.status === 'busy'; });
     ph = busy ? 'queue a prompt…' : 'message the agent…';
-    hint = [h('kbd', {}, 'enter'), busy ? ' queue ' : ' send ', h('kbd', {}, 'alt+enter'), ' steer now ', ...(canHand ? [h('kbd', {}, 'tab'), ' hand over'] : [])];
+    hint = [['ctrl+enter', busy ? 'queue' : 'send'], ['alt+enter', 'steer now'], ['enter', 'new line'], ...(canHand ? [['tab', 'hand over']] : [])];
+    label = busy ? 'queue' : 'send';
   }
+  // the standard addenda belong to the agent that is about to be made
+  const addenda = forNewAgent && S.lastAgent !== 'sh' && !pad.open;   // (the pad shows them itself while it is open)
+  const addKey = addenda ? JSON.stringify([S.lib.filter(x => x.kind === 'addendum').map(x => [x.id, x.title, addendumOn(x)]), !!pad.ed, S.lib.filter(x => x.kind === 'prompt').length]) : '';
   // only touch the DOM when something visible changed, and never steal focus from a user who is typing
-  const key = [ids.join(','), single ? single.name : '', ph, S.lastAgent, S.omniMode, ckey, agents.map(x => x[0]).join(',')].join('|');
+  const key = [ids.join(','), single ? single.name : '', ph, label, S.lastAgent, S.omniMode, ckey, agents.map(x => x[0]).join(','), addKey].join('|');
   if (key === omni._key) return;
   omni._key = key;
+  if (!addenda && !pad.open) pad.ed = null;   // an addendum being written has no room in this mode
   const had = document.activeElement === omniTa;
   const sel = had ? [omniTa.selectionStart, omniTa.selectionEnd] : null;
+  const edFocus = editorFocus();
   omniTa.placeholder = ph;
-  const top = chip || controls.length ? h('div', { class: 'oc' }, ...nn([chip, ...controls])) : null;
-  omni.replaceChildren(...nn([top, h('div', { class: 'or' }, h('span', { class: 'prompt' }, '>_'), omniTa, h('span', { class: 'hint2' }, ...hint))]));
-  if (had) { omniTa.focus(); try { omniTa.setSelectionRange(sel[0], sel[1]); } catch {} }
+  // (the target chip sits in the controls' own left column when there are controls)
+  const top = chip || controls.length ? h('div', { class: 'oc' }, ...nn([controls.length ? null : chip, ...controls])) : null;
+  // the launch pad's own box in its compact form, and under it the same addenda
+  const box = promptBox({ id: 'obox', ta: omniTa, compact: true, label, go: () => submitOmni('auto'), hint: keyHints(hint) });
+  omni.replaceChildren(...nn([top, box, addenda ? addendaRow() : null]));
+  growOmni();
+  settleKeys(omniTa, had, sel, edFocus, false);
 }
-function growOmni() { omniTa.style.height = ''; omniTa.style.height = Math.min(160, omniTa.scrollHeight) + 'px'; }
+/* alt+up / alt+down: the reasoning level of what the bar is set up for (the next new agent, or the selected one) */
+function omniEffort(d) {
+  const picked = S.sel.size === 1 ? S.nodes.get([...S.sel][0]) : null;
+  const one = picked ? hostOf(picked) : null;
+  const mine = one && kindOf(one) === 'agent' && one.agent !== 'sh' && S.omniMode !== 'hand';
+  if (mine) {
+    const v = effortStep(one.agent, one.model || '', one.effort || '', d);
+    if (v !== null) { patchNode(one.id, { effort: v }, 0); omni._key = null; renderOmni(); }
+  } else if (S.sel.size <= 1) padEffort(d);
+}
+/* two lines to begin with, one more for every line typed up to a cap (expanded: a fixed tall box) */
+function growOmni() {
+  omniTa.style.height = '';
+  if (promptBig) return;
+  omniTa.style.height = Math.min(Math.max(240, innerHeight * 0.3), omniTa.scrollHeight) + 'px';
+}
 async function submitOmni(mode) {
-  const text = omniTa.value.trim(); if (!text) return;
+  const text = omniTa.value.trim(); if (!text) { shake($('#obox')); return; }
   const ids = [...S.sel];
   omniTa.value = ''; growOmni(); closePalette();
   const single = ids.length === 1 ? S.nodes.get(ids[0]) : null;
@@ -105,9 +134,11 @@ async function submitOmni(mode) {
   } else for (const id of ids) send('send', { id, text, mode });
 }
 function onOmniKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+  if (e.key === 'Enter' && !e.isComposing) {
+    // ctrl+enter sends (it queues by itself while the agent is busy), alt+enter steers now; a plain
+    // enter is a new line. Only a command chosen from the palette takes a plain enter.
     if (paletteOpen()) { e.preventDefault(); return palettePick(); }
-    e.preventDefault(); submitOmni(e.altKey ? 'now' : (e.metaKey || e.ctrlKey) ? 'queue' : 'auto');
+    if (e.ctrlKey || e.metaKey || e.altKey) { e.preventDefault(); submitOmni(e.altKey ? 'now' : 'auto'); }
   } else if (e.key === 'Escape') { if (!closePalette()) { omniTa.value = ''; growOmni(); omniTa.blur(); } e.stopPropagation(); }
   else if (e.key === 'Tab' && !S.sel.size && !omniTa.value.startsWith('/')) {
     e.preventDefault();
@@ -121,6 +152,8 @@ function onOmniKey(e) {
     }
   } else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && paletteOpen()) {
     e.preventDefault(); paletteMove(e.key === 'ArrowDown' ? 1 : -1);
+  } else if (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+    e.preventDefault(); omniEffort(e.key === 'ArrowUp' ? 1 : -1);
   }
 }
 

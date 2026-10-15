@@ -18,7 +18,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
 
   await p.goto(fs.readFileSync(W + '/url.txt', 'utf8').trim()); await p.waitForSelector('#pad:not([hidden]) textarea'); await sleep(400);
   await p.keyboard.type('Fix the slugify function in textkit/slug.py so that tests/test_slug.py passes. Keep the public API.');
-  await p.keyboard.press('Enter');
+  await p.keyboard.press('Control+Enter');
   await p.waitForSelector('.nw[data-id="n1"]');
   ok(await waitSt('n1', ['done']), 'the agent finishes its task');
 

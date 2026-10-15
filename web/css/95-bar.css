@@ -1,13 +1,17 @@
 /* the bar at the bottom: what runs it, then what to say */
-#omni .oc{display:flex;align-items:center;gap:8px 12px;margin-bottom:7px;min-width:0}
+#omni .oc{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;margin-bottom:7px;min-width:0}
 #omni .oc>*{flex:none}
-#omni .oc>.pmodel{flex:0 1 auto;min-width:0}
-#omni .oc>.pyolo{margin-left:auto}
+#omni .oc>.pgrid{flex:1 1 100%;gap:6px 16px}
+#omni .pleft{gap:6px}
+#omni .pright{gap:6px}
 #omni .oc .pagents.seg button{padding:4px 11px;font-size:calc(12px*var(--fs))}
-#omni .oc .pmodel,#omni .oc .pyolo{height:26px;padding:0 9px;font-size:calc(11.5px*var(--fs))}
-#omni .oc .peff .seg button{padding:4px 7px;font-size:calc(11px*var(--fs))}
-#omni .oc .dl{font-size:calc(10.5px*var(--fs))}
-#omni .or{display:flex;align-items:flex-start;gap:10px}
+#omni .oc .pyolo{padding:2px 9px;font-size:calc(11.5px*var(--fs))}
+#omni .oc .seg.cells button{padding:2px 8px;font-size:calc(11px*var(--fs))}
+#omni .oc .dl{font-size:calc(10.5px*var(--fs));color:var(--i3)}
+#omni .pchips{margin-top:6px;gap:5px 4px}
+#omni .pchips .chip{padding:1px 6px;gap:5px;font-size:calc(10.5px*var(--fs))}
+#omni .pchips .dl{font-size:calc(10.5px*var(--fs));margin-right:2px}
+#omni .aed{margin-top:7px;padding:9px}
 .nw.drop.watch .node{--bd:var(--cy)}
 .tchip{display:flex;align-items:center;gap:6px;padding:3px 9px;border:1px solid var(--l2);font:600 calc(11.5px*var(--fs)) var(--display);letter-spacing:.04em;color:var(--i1);cursor:grab;touch-action:none}
 .tchip:hover{border-color:var(--cy);color:var(--i0)}

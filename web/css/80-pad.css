@@ -14,31 +14,54 @@ body.padopen #dock,body.padopen #zoom,body.padopen #tray,body.padopen #empty{vis
 .pgit .last{color:var(--i3);max-width:48ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pwarn{margin-top:10px;padding:7px 11px;border-left:2px solid var(--am);background:rgba(255,180,84,.07);color:#ffd08a;font:500 calc(12px*var(--fs))/1.5 var(--mono)}
 .pcanvas{flex:none;align-self:flex-start}
-.pctl{display:flex;align-items:center;gap:10px 14px;flex-wrap:nowrap}
-.pctl>*{flex:none}
-.pctl>.pmodel{flex:0 1 auto;min-width:0}
-.pctl>.pyolo{margin-left:auto}
+/* the choices as a grid: the agents on the left, centred; model, then reasoning and yolo on the right */
+.pgrid{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:10px 22px}
+.pleft{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.pright{display:flex;flex-direction:column;align-items:stretch;gap:10px;min-width:0}
+.pline{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap}
+.pline>.pyolo{margin-left:auto}
 .pctl .dl,.pchips .dl{font:500 calc(11.5px*var(--fs)) var(--mono);color:var(--i3)}
 .pagents.seg button{padding:7px 15px;font:600 calc(13px*var(--fs)) var(--display);letter-spacing:.03em}
 .pmodel{display:inline-flex;align-items:center;gap:8px;height:33px;padding:0 11px;border:1px solid var(--l1);font:500 calc(12.5px*var(--fs)) var(--mono);color:var(--i1)}
 .pmodel:hover{border-color:var(--cy2);color:var(--i0)}
 .pmodel b{font-weight:600;color:var(--i0);max-width:16ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .pmodel .car{color:var(--i3)}
-.pyolo{display:inline-flex;align-items:center;gap:8px;height:33px;padding:0 11px;border:1px solid var(--l1);font:600 calc(12px*var(--fs)) var(--display);letter-spacing:.04em;color:var(--i3)}
+.pyolo{display:inline-flex;align-items:center;gap:8px;padding:4px 10px;border:1px solid var(--l1);font:600 calc(12px*var(--fs)) var(--display);letter-spacing:.04em;color:var(--i3)}
 .pyolo i{width:7px;height:7px;background:var(--l3);flex:none}
 .pyolo:hover{border-color:var(--l3);color:var(--i1)}
 .pyolo[aria-pressed=true]{border-color:rgba(255,180,84,.55);color:var(--am);background:rgba(255,180,84,.07)}
 .pyolo[aria-pressed=true] i{background:var(--am);box-shadow:0 0 7px var(--am)}
 .peff{display:inline-flex;align-items:center;gap:8px}
-.peff .seg button{padding:7px 8px}
-#pbox{--bd:var(--l2);--fill:#080c12;--c:16px;padding:16px 18px 10px}
-#pbox.focus{--bd:var(--cy2)}
-#pbox.nope{animation:nope .22s}
+.pmodels{display:flex;align-items:center;gap:6px 8px;min-width:0}
+.pmodels>.dl,.peff>.dl{flex:none;min-width:9ch}
+/* the reasoning level and the model are one selector: a bordered cell per choice, wrapping when there are many */
+.seg.cells{flex-wrap:wrap;border:0;min-width:0}
+.seg.cells button{flex:none;max-width:26ch;overflow:hidden;text-overflow:ellipsis;padding:4px 10px;border:1px solid var(--l1);margin:0 -1px -1px 0}
+.seg.cells button[aria-pressed=true]{position:relative;z-index:1;border-color:var(--cy2)}
+.seg.cells button.other{color:var(--i3);border-style:dashed}
+.seg.cells button.other:hover{color:var(--i0)}
+/* the prompt box: one component, big on the pad, .compact in the bar at the bottom */
+.pbox{--bd:var(--l2);--fill:#080c12;--c:16px;padding:16px 18px 10px}
+.pbox.focus{--bd:var(--cy2)}
+.pbox.nope{animation:nope .22s}
 @keyframes nope{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
-#pbox textarea{display:block;width:100%;min-height:128px;max-height:44vh;resize:none;border:0;outline:0;background:transparent;color:var(--i0);font:calc(15px*var(--fs))/1.65 var(--mono);padding:0}
-#pbox textarea::placeholder{color:var(--i4)}
+.pbox textarea{display:block;width:100%;min-height:128px;max-height:44vh;resize:none;border:0;outline:0;background:transparent;color:var(--i0);font:calc(15px*var(--fs))/1.65 var(--mono);padding:0}
+.pbox textarea::placeholder{color:var(--i4)}
+.pbox.big textarea{min-height:min(52vh,520px);max-height:none}
 .pfoot{display:flex;align-items:center;gap:12px;margin-top:10px;color:var(--i4);font:500 calc(11px*var(--fs)) var(--mono);flex-wrap:wrap}
 .pfoot .sp{flex:1}
+.pfoot .khs{display:flex;flex-wrap:wrap;gap:2px 12px;min-width:0}
+.pfoot .kh{white-space:nowrap}
+.pfoot .xp{flex:none;display:inline-flex;align-items:center;justify-content:center;width:26px;height:24px;color:var(--i3);border:1px solid transparent}
+.pfoot .xp:hover{color:var(--cy);border-color:var(--l2)}
+.pfoot .xp[aria-pressed=true]{color:var(--cy)}
+.pfoot .xp svg{width:14px;height:14px;display:block}
+.pbox.compact{--c:8px;--bd:var(--l1);--fill:var(--void);padding:6px 11px 5px}
+.pbox.compact.focus{--bd:var(--cy2)}
+.pbox.compact textarea{min-height:0;max-height:none;height:calc(42px*var(--fs));font-size:calc(14px*var(--fs));line-height:calc(21px*var(--fs))}
+.pbox.compact.big textarea{height:min(46vh,480px)}
+.pbox.compact .pfoot{margin-top:2px;gap:10px;font-size:calc(10.5px*var(--fs))}
+.pbox.compact .pfoot .btn{height:22px;padding:0 10px;font-size:calc(11px*var(--fs))}
 .pchips{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .pchips .chip{padding:4px 11px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;font-size:calc(12px*var(--fs))}
 .pchips .chip .dot{width:6px;height:6px;background:var(--l3);flex:none}
@@ -47,7 +70,7 @@ body.padopen #dock,body.padopen #zoom,body.padopen #tray,body.padopen #empty{vis
 .aed{display:flex;flex-direction:column;gap:8px;padding:12px;border:1px solid var(--l2);background:var(--s1)}
 .aed textarea{min-height:88px;resize:vertical;font:calc(13px*var(--fs))/1.55 var(--mono)}
 .aed .row2{margin-top:0}
-@media (max-width:900px){.pctl{flex-wrap:wrap}.pctl>.pyolo{margin-left:0}}
+@media (max-width:640px){.pgrid{grid-template-columns:minmax(0,1fr)}.pline>.pyolo{margin-left:0}}
 @media (max-width:560px){.pname{font-size:calc(30px*var(--fs))}.pagents.seg button{padding:7px 12px}}
 #where{pointer-events:none;width:min(820px,100%);display:flex;gap:10px;align-items:center;font:500 calc(11px*var(--fs))/calc(18px*var(--fs)) var(--mono);color:var(--i3);padding:0 8px;white-space:nowrap;overflow:hidden;
   background:linear-gradient(90deg,rgba(4,6,10,.9),rgba(4,6,10,.9) 55%,rgba(4,6,10,0))}

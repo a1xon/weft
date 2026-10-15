@@ -15,7 +15,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   const clickPort = async id => { const o = await port(id); await p.mouse.click(o.x + o.width / 2, o.y + o.height / 2); };
 
   await p.goto(fs.readFileSync(W + '/url.txt', 'utf8').trim()); await p.waitForSelector('#pad:not([hidden]) textarea'); await sleep(400);
-  await p.keyboard.type('Explain what textkit/slug.py does in one sentence.'); await p.keyboard.press('Enter');
+  await p.keyboard.type('Explain what textkit/slug.py does in one sentence.'); await p.keyboard.press('Control+Enter');
   await p.waitForSelector('.nw[data-id="n1"]');
   ok(await waitSt('n1', ['done']), 'the first agent finishes');
 

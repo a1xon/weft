@@ -20,7 +20,8 @@ You open weft and see where you are and what to do:
 ~/work/
 shop-api                        main · 3 uncommitted · last: 4f2a1c Fix cart rounding
 
-[ claude | agy | codex ]   model  opus ▾   reasoning  auto low med high xhigh max   ■ yolo
+[ claude | agy | codex ]   reasoning  auto low med high xhigh max   ■ yolo
+model  default | opus | sonnet | haiku | other…
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ Tell claude what to do in shop-api…                                          │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -30,9 +31,11 @@ addenda   □ Be concise   □ No commits   □ Stay in scope   + add   prompts 
 * The **folder** is the headline, with branch and uncommitted files. Starting in your home folder
   or `/` shows a warning. The same path sits above the prompt bar everywhere else.
 * **Agent, model and reasoning** are one click each and remembered, for the agent you used last.
-  Model lists come from the CLI itself (`codex debug models`, `agy models`).
-* **Enter** creates the agent in the middle of the screen and starts it. `Tab` cycles agents,
-  `Alt+↑/↓` the reasoning level, `/` opens your standard prompts, `Esc` shows the canvas.
+  The model is a row of choices like the reasoning level, not a menu; its list comes from the CLI
+  itself (`codex debug models`, `agy models`), and *other…* takes a name that is not listed.
+* **Ctrl+Enter** creates the agent in the middle of the screen and starts it; a plain `Enter` is a
+  new line, so a prompt can be several paragraphs. `Tab` cycles agents, `Alt+↑/↓` the reasoning
+  level, `/` opens your standard prompts, `Esc` shows the canvas.
 * **yolo** is on by default: agents act without asking (`claude --dangerously-skip-permissions`,
   `codex --dangerously-bypass-approvals-and-sandbox`, `agy --dangerously-skip-permissions`).
   One click makes new agents *ask first*; the choice is remembered, and a card's options
@@ -100,7 +103,8 @@ A new LLM session is not free: it must re-read everything. So the choice is expl
 * **Queue**: every agent has one FIFO. Prompts go out one after another; links fire when the
   queue is drained, so a script of several steps hands over only its final result. A message you
   type on a settled agent is a conversation: it does not re-fire the links (hand it over
-  explicitly). `Alt+Enter` steers a busy agent immediately. The queue panel reorders, removes
+  explicitly). `Ctrl+Enter` sends (it queues by itself while the agent is busy), `Alt+Enter`
+  steers a busy agent immediately. The queue panel reorders, removes
   and promotes.
 * **Hand over** asks the old agent for a note (goal, state, open items, gotchas) because it knows
   best, then starts the new one with: your instruction, the original task, that note, and what
@@ -193,10 +197,15 @@ finish with `weft done`, `weft issue` or `weft fail`.
 
 ## The prompt bar
 
-The bar at the bottom always carries the choices that make an agent, one click each: **agent**,
-**model**, **reasoning** and **yolo**. With nothing selected they are for the next new agent (the
-same remembered choices as the launch pad). With an agent selected they are *that agent's* own
-settings and apply the next time it starts. Not every agent takes every choice: `agy` accepts
+The bar at the bottom is the launch pad's own prompt box in a compact form (one component: the
+same choices, box, key hints, start button and addenda, with less padding and smaller type). It
+always carries the choices that make an agent, one click each: **agent**, **reasoning**, **yolo**
+and, on a second row, the **model**. With nothing selected they are for the next new agent (the
+same remembered choices as the launch pad, and its addenda sit under the box). With an agent
+selected they are *that agent's* own settings and apply the next time it starts. The keys are the
+pad's: `Ctrl+Enter` sends (starts the agent, or messages the selected one and queues it while it
+is busy), a plain `Enter` is a new line, `Tab`, `/` and `Alt+↑/↓` for reasoning; `Alt+Enter`
+steers the selected agent now. The footer under the text lists the ones that apply. Not every agent takes every choice: `agy` accepts
 low / medium / high, and only with its default model (its other models carry the level in the
 name, and agy drops the whole model choice when the two disagree), so the control is hidden where
 it would not work.
