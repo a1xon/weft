@@ -292,6 +292,13 @@ moment. Files nobody committed yet sit on top as *N uncommitted*.
 * **Out of the way.** `–` folds it to a box with the branch, how it stands against the remote and
   what happened last (remembered); the launch pad hides it; when the window is too narrow for it
   beside the bar it sits above it.
+* **Other repositories.** While the board's agents work in more than one repository (a website and
+  its crawler, say), each one the tree does not show is a folded line on top of it: its name, branch,
+  how it stands against its remote and what happened there last. When something happens there, its
+  line unfolds for a few seconds with its latest commits, the new ones lit. A click shows that
+  repository in the tree (until the folder the line above the bar names changes) and the other one
+  becomes a line. Folders inside one repository, and an agent's own worktree, count as that
+  repository. Where the folder you are in is no repository, only the lines show.
 
 ### Other folders
 

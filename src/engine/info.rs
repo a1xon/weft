@@ -85,10 +85,13 @@ async fn git_info(dir: &Path) -> Value {
         return json!({"repo": false, "missing": true});
     }
     let probe = async {
-        let (inside, _) = git_run(dir, &["rev-parse", "--is-inside-work-tree"]).await?;
+        let (inside, out) = git_run(dir, &["rev-parse", "--is-inside-work-tree", "--git-common-dir"]).await?;
         if !inside {
             return Ok::<Value, String>(json!({"repo": false}));
         }
+        // which repository it is: git's shared folder, the same for every folder of a checkout and
+        // for the checkout's worktrees (git prints it relative to the folder asked about, or absolute)
+        let common = out.lines().nth(1).map(|c| dir.join(c.trim())).map(|c| c.canonicalize().unwrap_or(c)).unwrap_or_default();
         let (ok, b) = git_run(dir, &["symbolic-ref", "--short", "-q", "HEAD"]).await?;
         let branch = if ok && !b.trim().is_empty() {
             b.trim().to_string()
@@ -104,7 +107,7 @@ async fn git_info(dir: &Path) -> Value {
         // (a commit on any branch, a fetch, a new branch: the git tree in the corner looks again)
         let (_, refs) = git_run(dir, &["for-each-ref", "--format=%(objectname)%(refname)", "refs/heads", "refs/remotes"]).await?;
         let refs = fingerprint(&refs);
-        Ok(json!({"repo": true, "branch": branch, "dirty": dirty, "last": last, "refs": refs}))
+        Ok(json!({"repo": true, "branch": branch, "dirty": dirty, "last": last, "refs": refs, "common": common}))
     };
     match tokio::time::timeout(Duration::from_secs(4), probe).await {
         Ok(Ok(v)) => v,
@@ -404,5 +407,46 @@ impl Engine {
         if let Some(path) = &self.boot.config_file {
             save_config_key(path, key, value);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sh(dir: &Path, args: &[&str]) {
+        let ok = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap()
+            .status
+            .success();
+        assert!(ok, "git {args:?}");
+    }
+
+    #[tokio::test]
+    async fn folders_of_one_repository_and_its_worktrees_name_the_same_repository() {
+        let tmp = std::env::temp_dir().join(format!("weft-info-{}", now_ms()));
+        let (site, crawler) = (tmp.join("site"), tmp.join("crawler"));
+        for d in [&site, &crawler] {
+            std::fs::create_dir_all(d.join("src")).unwrap();
+            sh(d, &["init", "-q", "-b", "main"]);
+            sh(d, &["commit", "-q", "--allow-empty", "-m", "first"]);
+        }
+        sh(&site, &["worktree", "add", "-q", "-b", "side", tmp.join("site-wt").to_str().unwrap()]);
+        let common = |v: Value| v["common"].as_str().unwrap_or("").to_string();
+        let top = common(git_info(&site).await);
+        assert!(top.ends_with("site/.git"), "{top}");
+        assert_eq!(common(git_info(&site.join("src")).await), top, "a folder inside it");
+        assert_eq!(common(git_info(&tmp.join("site-wt")).await), top, "a worktree of it");
+        assert_ne!(common(git_info(&crawler).await), top, "another repository");
+        assert_eq!(git_info(&tmp).await["repo"], false, "the folder that holds both is none");
+        std::fs::remove_dir_all(&tmp).ok();
     }
 }

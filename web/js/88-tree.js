@@ -11,7 +11,9 @@
    asked every minute while this window is in front (one short request; only what moved there is
    fetched), so "↑2 to push", "↓1 to pull" and "pushed" are true of the remote now. Commits not
    pushed yet have hollow amber dots and a bar, the remote's commits that are not here yet dashed
-   violet ones. */
+   violet ones.
+   While the board's agents work in more than one repository, each one the tree does not show is a
+   folded line on top of it (see "the other repositories" below). */
 const GT = { dir: '', git: {}, key: '', pick: '', dirty: 0, data: null, n: 100, busy: false, again: false, againRemote: false, off: false,
   open: true, unfold: null, info: new Map(), t: 0, seen: new Map(), looked: new Map(), looking: false, peeking: false, peekT: 0,
   plays: [], playUntil: 0, dots: new Map() };
@@ -26,14 +28,18 @@ const treePick = d => { try { return localStorage.getItem('weft-tree-branch:' + 
    uncommitted files, `refs`): look again when the folder changed or a branch there moved */
 function treeFollow(d, g = {}) {
   if (GT.off || !d) return;
+  // (a repository picked from its line stays in the tree until the folder in question changes)
+  GT.from = d;
+  if (GT.pin) { if (GT.pin.from === d) { d = GT.pin.dir; g = gitOf(d); } else GT.pin = null; }
   GT.git = g;
   const pick = treePick(d);
   const key = JSON.stringify([d, pick, g.repo, g.branch, g.last, g.refs]);
   if (d === GT.dir && (g.dirty || 0) !== GT.dirty) { GT.dirty = g.dirty || 0; renderTree(); }
-  if (key === GT.key) return;
+  if (key === GT.key) return refreshOthers();
   if (d !== GT.dir) { GT.dir = d; GT.unfold = null; GT.n = 100; GT.info.clear(); }
   GT.key = key; GT.pick = pick; GT.dirty = g.dirty || 0;
   clearTimeout(GT.t); GT.t = setTimeout(loadTree, 120);
+  refreshOthers();
 }
 /* `remote`: the daemon asks the remote first (and fetches what moved there), so it takes longer */
 async function loadTree(remote) {
@@ -124,7 +130,7 @@ function syncChip(d, quiet) {
       d.behind ? `${counted(d.behind, 'commit')} on ${d.up} that are not here (not pulled)` : ''].filter(Boolean).join('\n');
   } else { kids = ['pushed']; cls = 'sync'; says = `${d.up} has every commit of this branch, and no other`; }
   const age = R.at ? Date.now() / 1000 - R.at : Infinity;
-  const fresh = GT.looking ? 'busy' : R.at && !R.ok ? 'bad' : age < 180 ? 'live' : 'old';
+  const fresh = (d.looking !== undefined ? d.looking : GT.looking) ? 'busy' : R.at && !R.ok ? 'bad' : age < 180 ? 'live' : 'old';
   const when = fresh === 'busy' ? `asking ${R.name}…`
     : fresh === 'bad' ? `${R.name} could not be reached ${agoWords(R.at)} (${R.err}): this is as of the last fetch`
     : R.at ? `${R.name} asked ${agoWords(R.at)}${fresh === 'old' ? ': this may be out of date' : ''}` : `${R.name} not asked yet: this is as of the last fetch`;
@@ -373,11 +379,116 @@ function refBadges(refs, d) {
   return els;
 }
 
+/* ---- the other repositories: while the board's agents work in more than one repository, each one
+   the tree does not show is a folded line on top of it: its branch, how it stands against its remote,
+   what happened there last. When something happens there its line unfolds for a moment with its
+   latest commits; a click shows that repository in the tree. A repository is git's shared folder
+   (`common`), so the folders of one checkout and its worktrees are one repository. */
+const GO = new Map();   // repository -> { dir, key, data, seen, news, peekUntil, busy, again }
+const repoOf = d => { const g = gitOf(d); return g && g.repo && g.common ? g.common : ''; };
+const repoName = r => baseName(r.replace(/\/\.git$/, ''));
+/* the repositories this board works in, each with a folder to show it by: every agent's and the
+   one new agents start in (a checkout of its own rather than an agent's worktree) */
+function treeRepos() {
+  const out = new Map();
+  const dirs = [newDir(), ...[...S.nodes.values()].filter(n => kindOf(n) === 'agent' && n.agent !== 'step').map(workDir)];
+  for (const d of dirs) {
+    const r = repoOf(d), have = out.get(r);
+    if (r && (!have || (weftWorktree(have) && !weftWorktree(d)))) out.set(r, d);
+  }
+  return out;
+}
+/* the ones the tree does not show; none while there is only one repository */
+function treeOthers() {
+  if (GT.off) return [];
+  const all = treeRepos(), mine = repoOf(GT.dir);
+  if (all.size + (mine && !all.has(mine) ? 1 : 0) < 2) return [];
+  return [...all].filter(([r]) => r !== mine).map(([repo, dir]) => ({ repo, dir }));
+}
+const otherLines = () => treeOthers().map(x => GO.get(x.repo)).filter(o => o && o.data && o.data.repo !== false);
+/* look again at a repository whose branch moved (or that is new here) */
+function refreshOthers() {
+  const list = treeOthers(), keep = new Set(list.map(x => x.repo));
+  for (const r of [...GO.keys()]) if (!keep.has(r)) { clearTimeout(GO.get(r).peekT); GO.delete(r); }
+  for (const { repo, dir } of list) {
+    const g = gitOf(dir), key = JSON.stringify([dir, g.branch, g.last, g.refs]);
+    let o = GO.get(repo);
+    if (!o) GO.set(repo, o = { repo, dir, key: '', data: null, seen: null, news: new Set(), peekUntil: 0, busy: false, again: false });
+    o.dir = dir;
+    if (o.key !== key) { o.key = key; loadOther(o); }
+  }
+  renderOthers();
+}
+async function loadOther(o, remote) {
+  if (o.busy) { o.again = true; return; }
+  o.busy = true;
+  if (remote && o.data) { o.data.looking = true; renderOthers(); }
+  const r = await req('log', { dir: o.dir, n: 6, remote: !!remote }, remote ? 45000 : 8000);
+  o.busy = false;
+  if (r && r.ok && GO.get(o.repo) === o) {
+    r.dir = o.dir; r.pick = ''; r.looking = false;
+    // (what happened before this page looked is not news: the line still says the latest)
+    const evs = r.events || [], now = Date.now() / 1000;
+    const news = o.seen ? evs.filter(e => !o.seen.has(evKey(e)) && now - e.t < 180 && e.k !== 'switch') : [];
+    o.seen = new Set(evs.map(evKey));
+    o.data = r;
+    if (news.length) {
+      o.news = new Set(news.map(e => e.h));
+      o.peekUntil = Date.now() + PEEK_MS;
+      clearTimeout(o.peekT); o.peekT = setTimeout(renderOthers, PEEK_MS + 50);
+    }
+  } else if (o.data) o.data.looking = false;
+  renderOthers();
+  if (o.again) { o.again = false; loadOther(o); }
+}
+/* a line came or went: the corner may have to show up (or go); else just the lines */
+function renderOthers() {
+  const list = otherLines();
+  // (the corner shows up for a first line, and goes with the last one where it showed only lines)
+  if (!treeEl.others || (treeEl.hidden && list.length) || (!list.length && treeEl.classList.contains('bare'))) return renderTree();
+  if (treeEl.hidden) return;
+  drawOthers(list);
+  placeTree();
+}
+function drawOthers(list) {
+  treeEl.others.hidden = !list.length;
+  treeEl.others.replaceChildren(...list.map(otherLine));
+}
+function otherLine(o) {
+  const d = o.data, name = d.head || `detached ${(d.at || '').slice(0, 7)}`;
+  const ev = (d.events || [])[0], last = (d.commits || []).find(c => !c.i);
+  const recent = ev && Date.now() / 1000 - ev.t < 1800 ? ev : null;
+  const peek = Date.now() < o.peekUntil;
+  const line = h('button', { class: 'gbox grepo' + (peek ? ' hit' : ''),
+    title: `${o.dir}\n${name}${last ? ': ' + last.s : ''}\nclick: show this repository in the tree`, onclick: () => focusRepo(o) },
+    h('span', { class: 'gi', html: ICON.git }), h('span', { class: 'grn' }, repoName(o.repo)), h('span', { class: 'gbn' }, branchName(name)),
+    syncChip(d, true),
+    recent ? h('span', { class: 'gs' }, `${ago(recent.t)} · ${eventWords(recent, d).join(' ')}`) : last ? h('span', { class: 'gs' }, `${ago(last.t)} · ${last.s}`) : null);
+  if (!peek) return line;
+  // unfolded for a moment: its latest commits, the new ones lit
+  const rows = (d.commits || []).filter(c => !c.i).slice(0, 3).map(c =>
+    h('div', { class: 'gpr' + (o.news.has(c.h) ? ' fresh' : '') }, h('i'), h('span', { class: 'gs' }, c.s), h('span', { class: 'ga' }, ago(c.t))));
+  return h('div', { class: 'gother' }, line, h('div', { class: 'gpeek' }, ...rows));
+}
+/* show that repository in the tree (until the folder the line above the bar names changes) */
+function focusRepo(o) {
+  GT.pin = { dir: o.dir, from: GT.from };
+  treeFollow(GT.from, gitOf(GT.from));
+}
+/* their remotes are asked too, as the tree's is */
+setInterval(() => {
+  if (document.visibilityState !== 'visible' || treeEl.hidden) return;
+  for (const o of GO.values()) { const R = o.data && o.data.remote; if (R && Date.now() / 1000 - R.at > LOOK_EVERY / 1000) loadOther(o, true); }
+}, LOOK_EVERY);
+/* a card moved to another folder, a new agent somewhere else: the lines follow */
+setInterval(() => { if (document.visibilityState === 'visible' && !GT.off && GT.from) refreshOthers(); }, 3000);
+
 /* ---- the corner */
 function renderTree() {
   const d = GT.data, on = !GT.off && !!d && d.repo !== false && (d.dir === GT.dir || GT.git.repo !== false);
-  treeEl.hidden = !on;
-  if (!on) return;
+  const others = otherLines();
+  treeEl.hidden = !on && !others.length;
+  if (treeEl.hidden) return;
   if (!treeEl.panel) {
     treeEl.head = h('div', { class: 'gh' });
     treeEl.evl = h('div', { class: 'gev', hidden: true });
@@ -389,9 +500,14 @@ function renderTree() {
     // (a click in a tree that unfolded by itself keeps it open)
     treeEl.addEventListener('pointerdown', () => { if (GT.peeking) { GT.open = true; stopPeek(); try { localStorage.setItem('weft-tree', 'open'); } catch {} } }, true);
     for (const ev of ['pointerdown', 'wheel', 'dblclick', 'contextmenu']) treeEl.addEventListener(ev, e => e.stopPropagation());
-    treeEl.append(treeEl.panel, treeEl.box);
+    treeEl.others = h('div', { class: 'gothers' });
+    treeEl.append(treeEl.others, treeEl.panel, treeEl.box);
     new ResizeObserver(placeTree).observe($('#dock'));
   }
+  // (where the folder in question is no repository, the other repositories' lines stand alone)
+  treeEl.classList.toggle('bare', !on);
+  drawOthers(others);
+  if (!on) return placeTree();
   const shown = GT.open || GT.peeking;
   treeEl.classList.toggle('shut', !shown);
   treeEl.classList.toggle('stale', d.dir !== GT.dir);

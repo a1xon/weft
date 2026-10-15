@@ -158,7 +158,30 @@ body.padopen #gtree{visibility:hidden}
 #gtree .gbox .gs{font-size:calc(11px*var(--fs));color:var(--i3);letter-spacing:0}
 #gtree .gbox .gab{letter-spacing:0;padding:0}
 
+/* the other repositories the board's agents work in: a folded line each, on top of the tree; one
+   unfolds for a moment with its latest commits when something happens there */
+#gtree .gothers{display:flex;flex-direction:column;align-items:flex-end;gap:4px;max-width:100%;margin-bottom:6px}
+#gtree .gothers[hidden]{display:none}
+#gtree.bare .gpanel,#gtree.bare>.gbox{display:none}
+#gtree.bare .gothers{margin-bottom:0}
+#gtree .gothers .gbox.grepo{display:flex;min-width:0}
+#gtree.stale .gothers .gbox{opacity:1}
+#gtree .grepo .grn{flex:none;color:var(--i0)}
+#gtree .grepo .gbn{flex:none;max-width:16ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 calc(11px*var(--fs)) var(--mono);color:var(--i2);letter-spacing:0}
+#gtree .grepo .gs{white-space:nowrap;text-align:left}
+#gtree .grepo.hit{border-color:var(--cy2)}
+#gtree .gother{display:flex;flex-direction:column;max-width:100%;min-width:min(300px,100%);border:1px solid var(--cy2);background:rgba(7,10,16,.95);
+  box-shadow:0 0 16px rgba(92,200,255,.14);animation:gpeekin .25s ease-out}
+#gtree .gother .gbox.grepo{border:0;background:none}
+#gtree .gpeek{padding:3px 0 5px;border-top:1px solid var(--l0)}
+#gtree .gpr{display:flex;align-items:center;gap:8px;min-width:0;padding:2px 11px}
+#gtree .gpr i{flex:none;width:7px;height:7px;border-radius:50%;background:var(--st)}
+#gtree .gpr.fresh i{background:var(--cy);box-shadow:0 0 8px var(--cy)}
+#gtree .gpr .gs{font-size:calc(11px*var(--fs));color:var(--i2)}
+#gtree .gpr.fresh .gs{color:var(--i0)}
+@keyframes gpeekin{from{opacity:0;transform:translateY(5px)}}
+
 @media (prefers-reduced-motion:reduce){
-  #gtree .gev.play,#gtree .gev.play .gei,#gtree.peek .gpanel,#gtree .gab.hit,#gtree .gab.f-busy .rdot{animation:none}
+  #gtree .gother,#gtree .gev.play,#gtree .gev.play .gei,#gtree.peek .gpanel,#gtree .gab.hit,#gtree .gab.f-busy .rdot{animation:none}
   #gtree .gev.play::after,#gtree .glanes .rip{display:none}
 }
