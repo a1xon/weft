@@ -13,7 +13,11 @@ impl Engine {
         let (quiet_d, ready_d) = (secs(quiet_s), secs(self.cfg.ready_s));
         {
             let Some(rt) = self.rt.get_mut(id) else { return };
-            if rt.dirty && rt.read_screen(self.cfg.agents.get(&agent), now) && rt.work {
+            let changed = rt.dirty && rt.read_screen(self.cfg.agents.get(&agent), now);
+            if changed {
+                rt.accumulate(&self.cfg.chrome);
+            }
+            if changed && rt.work {
                 // something still runs in the background: has the step already given its last word?
                 let Rt { cur, parser, .. } = rt;
                 if let Some(c) = cur.as_mut().filter(|c| c.rule) {
@@ -50,6 +54,10 @@ impl Engine {
             rt.status = next;
             rt.since = now_ms();
             rt.ui = true;
+        }
+        // a turn marker on a screen that has not moved for a while: is it on the pane too?
+        if rt.needs_check(now) {
+            self.verify_screen(id, now);
         }
 
         if typing {
@@ -139,7 +147,8 @@ impl Engine {
             Act::Fail(why) => {
                 let said = self.rt.get_mut(id).and_then(|r| {
                     let c = r.cur.as_ref()?;
-                    new_since(&mut r.parser, &c.before, &c.typed(), &chrome)
+                    let tail = new_since(&mut r.parser, &c.before, &c.typed(), &chrome);
+                    c.rebuilt(tail.as_deref()).or(tail)
                 });
                 let why = if why.is_empty() { "the agent said it could not do it".to_string() } else { why };
                 let out = match said.map(|t| words::strip_status(&t)).filter(|t| !t.is_empty()) {
@@ -163,6 +172,47 @@ impl Engine {
                 }
             }
         }
+    }
+
+    /// Ask tmux what the pane really shows (the answer comes back as `Ev::Snapshot`).
+    fn verify_screen(&mut self, id: &str, now: Instant) {
+        let Some(t) = self.tmux.clone() else { return };
+        let Some(rt) = self.rt.get_mut(id) else { return };
+        let Some(pane) = rt.pane.clone() else { return };
+        rt.verified = Some(now);
+        let (tx, id) = (self.tx.clone(), id.to_string());
+        tokio::spawn(async move {
+            let snap = snapshot(&t, &pane, false).await;
+            let _ = tx.send(Ev::Snapshot { id, snap });
+        });
+    }
+
+    /// tmux's copy of an agent's screen arrived. weft's own copy is rebuilt from the bytes tmux
+    /// sent, so it should be the same; when it is not (whatever the reason) tmux is right: the
+    /// screen is replaced, and a marker or a stale row it held on to is gone with it.
+    pub(super) fn on_snapshot(&mut self, id: String, snap: Option<Snap>) {
+        let Some(snap) = snap else { return };
+        let agent = self.node(&id).map(|n| n.agent.clone()).unwrap_or_default();
+        let now = Instant::now();
+        let Some(rt) = self.rt.get_mut(&id) else { return };
+        let fresh = snap.screen();
+        if fresh.screen().contents() == rt.parser.screen().contents() {
+            return;
+        }
+        rt.parser = fresh;
+        rt.hash = 0;
+        rt.dirty = true;
+        rt.read_screen(self.cfg.agents.get(&agent), now);
+        // the step's start was found on the old copy: look for it on this one
+        if let Some(c) = rt.cur.as_mut() {
+            let lines = term::lines(&mut rt.parser);
+            if c.echoed_in(&lines) {
+                c.rebase(lines);
+            }
+        }
+        rt.ui = true;
+        rt.scr = true;
+        self.state_dirty = true;
     }
 
     pub(super) fn set_status(&mut self, id: &str, s: Status) {
@@ -199,7 +249,11 @@ impl Engine {
                 None => {
                     // what weft typed into the session afterwards (a reminder, a question) is not part of the answer
                     let (before, typed) = cur.as_ref().map(|c| (c.before.clone(), c.typed())).unwrap_or_default();
-                    new_since(&mut rt.parser, &before, &typed, &chrome)
+                    let tail = new_since(&mut rt.parser, &before, &typed, &chrome);
+                    // the rows that scrolled out of the window on the way are in the frames, not on the screen
+                    let whole = cur.as_ref().and_then(|c| c.rebuilt(tail.as_deref()));
+                    whole
+                        .or(tail)
                         .map(|t| words::strip_status(&t))
                         .filter(|t| !t.is_empty())
                         .unwrap_or_else(|| term::transcript_clean(&mut rt.parser, 80, &chrome))
@@ -374,7 +428,7 @@ impl Engine {
         }
         // the Enter that submits is sent by `drive_typing`, which also sees to it that the program took it
         tm.send_bytes(&pane, &term::paste_payload(rt.parser.screen(), &item.text));
-        rt.typing = Some(Typing::new(&item.text, true, rt.parser.screen(), Instant::now()));
+        rt.typing = Some(Typing { turn: rt.turn, ..Typing::new(&item.text, true, rt.parser.screen(), Instant::now()) });
         let before = term::lines(&mut rt.parser);
         rt.cur = Some(Step { expect_signal, rule, ..Step::new(item.text.clone(), before) });
         rt.issue = None;
@@ -395,7 +449,7 @@ impl Engine {
     /// Does a flow take the result of this step without a person in between? A step of a running
     /// flow does if links leave the agent; a queued prompt does if its own node's links carry the
     /// answer; what you type to a flow's agent while the flow runs belongs to the flow too.
-    fn step_is_consumed(&self, id: &str, src: &Src) -> bool {
+    pub(super) fn step_is_consumed(&self, id: &str, src: &Src) -> bool {
         let from = match src {
             Src::Flow => id,
             Src::Reply(step) if self.node(step).is_some_and(|n| n.kind() == Kind::Step) => step.as_str(),
@@ -511,6 +565,10 @@ impl Engine {
     pub(super) fn cmd_done(&mut self, id: String, ok: bool, text: String, issue: bool) -> Value {
         if self.node(&id).is_none() {
             return json!({"ok": false, "error": "no such node"});
+        }
+        if let Some(r) = self.rt.get_mut(&id) {
+            // a report is the agent's own word that it has the message: no reason to paste it again
+            r.typing = None;
         }
         if issue {
             return self.raise_issue(&id, text);

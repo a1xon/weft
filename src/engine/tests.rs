@@ -774,6 +774,7 @@ fn agents_run_in_yolo_mode_unless_switched_off() {
         efforts: vec![],
         yolo_arg: String::new(),
         working: vec![],
+        busy: vec![],
         effort_models: vec![],
     };
     assert_eq!(agent_command(&aider, &n, true), "aider --yes");
@@ -1732,6 +1733,80 @@ fn a_pasted_prompt_is_checked_to_have_been_taken() {
     let mut lost2 = entered(mk(true, &empty), t0);
     lost2.pastes = 1;
     assert_eq!(lost2.next(empty.screen(), t0 + ms(100), t0 + ms(3200), submit), Typed::GaveUp);
+
+    // the agent shows it started a turn after the Enter: taken, even with no echo anywhere
+    assert!(lost.started_turn(true) && !lost.started_turn(false));
+    assert!(!mk(true, &empty).started_turn(true), "not before the Enter");
+    // one that was already in a turn when the message went out proves nothing by it
+    assert!(!Typing { turn: true, ..entered(mk(true, &empty), t0) }.started_turn(true));
+}
+
+#[test]
+fn a_report_from_the_agent_ends_the_check_on_its_message() {
+    let mut e = engine();
+    deferring_agent(&mut e, with_command());
+    {
+        // weft has not seen the request taken yet (its echo scrolled away), but the agent did the work
+        let r = e.rt.get_mut("a").unwrap();
+        r.typing = Some(Typing { entered: true, ..Typing::new("[weft] Request: Commit the work you just did.", true, r.parser.screen(), Instant::now()) });
+    }
+    e.cmd_done("a".into(), true, "00cacc8 Ignore build output".into(), false);
+    assert!(e.rt["a"].typing.is_none(), "it is not pasted again, nor reported as not taken");
+    assert!(e.rt["a"].finished && e.rt["a"].issue.is_none());
+}
+
+#[test]
+fn an_agent_in_the_middle_of_a_turn_is_not_finished_by_a_pause() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "fix");
+    e.flow.nodes[0].agent = "claude".into();
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.armed = true;
+        r.status = Status::Busy;
+        r.cur = Some(Step::new("go".into(), vec![]));
+        // a long think on a loaded machine: the spinner stops moving for a while
+        r.parser.process("\u{25cf} Plan is set.\r\n\r\n\u{273b} Scampering\u{2026} (7m 28s \u{b7} \u{2193} 31.6k tokens)\r\n\r\n\u{276f} \r\n  \u{23f5}\u{23f5} bypass permissions on (shift+tab to cycle) \u{b7} esc to interrupt \u{b7} \u{2190} for agents\r\n".as_bytes());
+        r.dirty = true;
+    }
+    let t0 = Instant::now();
+    e.eval("a", t0);
+    assert!(e.rt["a"].turn);
+    e.eval("a", t0 + Duration::from_secs(30));
+    assert!(!e.rt["a"].finished, "it is still in its turn");
+    assert_eq!(e.rt["a"].status, Status::Busy);
+    // the turn ends: the marker goes, the screen goes quiet, now it is done
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.parser.process("\x1b[2J\x1b[H\u{25cf} All fixed.\r\n\r\n\u{273b} Worked for 8m\r\n\r\n\u{276f} \r\n  \u{23f5}\u{23f5} bypass permissions on (shift+tab to cycle) \u{b7} \u{2190} for agents\r\n".as_bytes());
+        r.dirty = true;
+    }
+    e.eval("a", t0 + Duration::from_secs(31));
+    assert!(!e.rt["a"].turn);
+    e.eval("a", t0 + Duration::from_secs(40));
+    assert!(e.rt["a"].finished);
+    assert!(e.rt["a"].output.as_deref().unwrap_or("").contains("All fixed"), "{:?}", e.rt["a"].output);
+    // after its result it takes something up on its own: the card says so, and is done again after
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.parser.process("\x1b[2J\x1b[H\u{25cf} Background command finished.\r\n\r\n\u{276f} \r\n  bypass permissions on \u{b7} esc to interrupt\r\n".as_bytes());
+        r.dirty = true;
+    }
+    e.eval("a", t0 + Duration::from_secs(41));
+    assert_eq!(e.rt["a"].status, Status::Busy);
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.parser.process("\x1b[2J\x1b[H\u{25cf} Nothing else to do.\r\n\r\n\u{276f} \r\n  bypass permissions on\r\n".as_bytes());
+        r.dirty = true;
+    }
+    e.eval("a", t0 + Duration::from_secs(42));
+    assert_eq!(e.rt["a"].status, Status::Done);
+    assert!(e.rt["a"].finished && e.rt["a"].output.as_deref().unwrap_or("").contains("All fixed"), "its result stands");
+    // what an agent writes about the marker, above its status bar, holds nothing
+    let mut r = Rt::new(80, 24);
+    r.parser.process("The hint esc to interrupt shows while it works.\r\nline\r\nline\r\nline\r\nline\r\n\u{276f} \r\n  bypass permissions on\r\n".as_bytes());
+    r.read_screen(e.cfg.agents.get("claude"), t0);
+    assert!(!r.turn);
 }
 
 #[test]
@@ -1820,6 +1895,68 @@ fn a_message_to_an_agent_at_a_dialog_waits_until_the_dialog_is_closed() {
     e.cmd_send("a".into(), "and add tests".into(), SendMode::Auto, true);
     e.cmd_send("a".into(), "now".into(), SendMode::Now, true);
     assert_eq!(e.rt["a"].queue.len(), 2, "both wait in the queue");
+}
+
+#[test]
+fn the_step_an_agent_answers_survives_a_restart() {
+    let mut r = Rt::new(80, 24);
+    r.cur = Some(Step { rule: true, asked: true, ..Step::new("recheck it".into(), vec!["x".into()]) });
+    r.reply_to = Some("s".into());
+    let saved = serde_json::to_string(&r.to_saved()).unwrap();
+    let mut back = Rt::new(80, 24);
+    back.restore(serde_json::from_str(&saved).unwrap());
+    let c = back.cur.as_ref().expect("the step is kept");
+    assert!(c.rule && c.asked && c.prompt == "recheck it");
+    assert_eq!(back.reply_to.as_deref(), Some("s"));
+    // the state file of an older build has none of it, and still loads
+    let old: Saved = serde_json::from_str(r#"{"armed": true}"#).unwrap();
+    assert!(old.cur.is_none() && old.reply_to.is_none());
+}
+
+#[test]
+fn after_a_restart_from_an_older_build_the_answer_still_goes_to_its_step() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "So I am working");
+    let mut st = node("s", "prompt", "recheck this is working. increase the font size by 20%.");
+    st.agent = "step".into();
+    st.host = "a".into();
+    e.flow.nodes.push(st);
+    e.rt.insert("s".into(), Rt::new(80, 24));
+    link(&mut e, "e1", "a", "s", On::Done);
+    add(&mut e, "b", "prompt 3", "{{inputs}}");
+    link(&mut e, "e2", "s", "b", On::Ok);
+    {
+        // what an older daemon left: the agent mid-run, the step busy, no record of who answers what
+        let r = e.rt.get_mut("a").unwrap();
+        r.armed = true;
+        r.runs = 4;
+        r.asked = "recheck this is working. increase the font size by 20%.".into();
+        let echo = format!("\u{25cf} Committed cd82c97.\r\n\u{276f} recheck this is working. increase the font size by 20%.\r\n  {}\r\n", words::status_rule(false));
+        r.parser.process(format!("{echo}\u{25cf} Rechecked: the font is 20% bigger.\r\n").as_bytes());
+        e.rt.get_mut("s").unwrap().runs = 1;
+    }
+    e.resume_steps();
+    assert_eq!(e.rt["a"].reply_to.as_deref(), Some("s"));
+    assert_eq!(e.rt["s"].step_wait.as_deref(), Some("a"));
+    assert!(e.rt["a"].cur.as_ref().is_some_and(|c| c.rule), "a step of a chain: its STATUS line is read");
+    // it finishes its answer
+    says(&mut e, "  STATUS: DONE");
+    let t0 = Instant::now();
+    e.eval("a", t0);
+    e.eval("a", t0 + Duration::from_secs(5));
+    assert!(e.rt["s"].finished, "the step got its answer");
+    let out = e.rt["s"].output.clone().unwrap_or_default();
+    assert!(out.contains("20% bigger") && !out.contains("cd82c97") && !out.contains("STATUS"), "{out:?}");
+    assert_eq!(e.rt["s"].runs, 1, "not started all over again");
+    assert!(e.rt["a"].queue.is_empty());
+    assert!(e.rt["b"].queue.iter().any(|q| q.text.contains("20% bigger")), "the chain goes on");
+    // an agent that did not come back answers nothing
+    let mut e = engine();
+    add(&mut e, "a", "gone", "go");
+    e.rt.get_mut("a").unwrap().cur = Some(Step::new("go".into(), vec![]));
+    e.rt.get_mut("a").unwrap().reply_to = Some("s".into());
+    e.resume_steps();
+    assert!(e.rt["a"].cur.is_none() && e.rt["a"].reply_to.is_none());
 }
 
 #[test]
@@ -1917,3 +2054,120 @@ fn a_step_is_not_sent_what_its_own_agent_answered_in_that_session() {
     assert!(body.contains("NEWS-FROM-B"));
 }
 
+/// Draw `rows` as the whole screen of `id` and let the step see it, like one frame of a program
+/// that shows only the end of what it has said.
+fn show(e: &mut Engine, id: &str, rows: &[String]) {
+    let chrome = e.cfg.chrome.clone();
+    let r = e.rt.get_mut(id).unwrap();
+    r.parser.process(b"\x1b[2J\x1b[H");
+    r.parser.process(rows.join("\r\n").as_bytes());
+    r.accumulate(&chrome);
+}
+
+#[test]
+fn the_head_of_an_answer_longer_than_the_window_reaches_the_next_step() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "agent");
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.armed = true;
+        r.painted = true;
+        r.cur = Some(Step { rule: true, ..Step::new("do it".into(), vec!["an earlier line".into()]) });
+    }
+    let mut said: Vec<String> = (1..=14).map(|i| format!("answer line number {i}")).collect();
+    said.push("STATUS: DONE".into());
+    // a window of six rows following the end of it
+    for end in 6..=said.len() {
+        show(&mut e, "a", &said[end - 6..end]);
+    }
+    e.step_done("a", true, None, How::Quiet);
+    let out = e.rt["a"].output.clone().unwrap();
+    assert!(out.starts_with("answer line number 1\n"), "the head is there: {out:?}");
+    assert!(out.ends_with("answer line number 14"), "and the status line is not: {out:?}");
+    assert_eq!(out.lines().count(), 14);
+}
+
+#[test]
+fn a_step_whose_result_nobody_takes_is_read_from_the_last_screen_only() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "agent");
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.armed = true;
+        r.painted = true;
+        r.cur = Some(Step::new("do it".into(), Vec::new())); // not a link of a chain: no rule
+    }
+    let said: Vec<String> = (1..=10).map(|i| format!("answer line number {i}")).collect();
+    for end in 6..=said.len() {
+        show(&mut e, "a", &said[end - 6..end]);
+    }
+    assert!(e.rt["a"].cur.as_ref().unwrap().acc.is_empty(), "nothing is collected for it");
+    e.step_done("a", true, None, How::Quiet);
+    assert_eq!(e.rt["a"].output.clone().unwrap().lines().count(), 6);
+}
+
+#[test]
+fn a_turn_marker_on_a_screen_that_has_not_moved_ends_after_the_hold() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "agent");
+    let t0 = Instant::now();
+    let hold = Duration::from_secs(600);
+    let r = e.rt.get_mut("a").unwrap();
+    r.armed = true;
+    r.turn = true;
+    r.screen_changed = t0;
+    r.hold_for_background(true, hold, t0 + Duration::from_secs(599));
+    assert!(r.turn, "within the hold it is a turn that pauses");
+    r.hold_for_background(true, hold, t0 + Duration::from_secs(601));
+    assert!(!r.turn, "after it, it is a leftover");
+    // while the screen does move, the marker keeps holding however long the turn is
+    r.turn = true;
+    r.screen_changed = t0 + Duration::from_secs(3000);
+    r.hold_for_background(true, hold, t0 + Duration::from_secs(3100));
+    assert!(r.turn);
+}
+
+#[test]
+fn what_tmux_shows_wins_over_a_copy_that_kept_a_stale_marker() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "agent");
+    e.flow.nodes.iter_mut().find(|n| n.id == "a").unwrap().agent = "claude".into();
+    let cfg = e.cfg.agents.get("claude").cloned();
+    let t0 = Instant::now();
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.armed = true;
+        r.painted = true;
+        r.parser.process("all done\r\n\r\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt".as_bytes());
+        r.read_screen(cfg.as_ref(), t0);
+        assert!(r.turn, "the copy says it is in a turn");
+        assert!(!r.needs_check(t0 + Duration::from_secs(5)), "not yet: a turn redraws its clock");
+        assert!(r.needs_check(t0 + Duration::from_secs(25)));
+        r.verified = Some(t0);
+        assert!(!r.needs_check(t0 + Duration::from_secs(60)), "asked once per stall");
+    }
+    // tmux shows the status row without the marker (and the whole pane one row each)
+    let real = Snap {
+        text: "all done\n\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n".into(),
+        cursor: Some((0, 0)),
+        alt: false,
+        rows: 24,
+        cols: 80,
+    };
+    e.on_snapshot("a".into(), Some(real));
+    let r = &e.rt["a"];
+    assert!(!r.turn);
+    assert!(!r.parser.screen().contents().contains("esc to interrupt"));
+    assert!(!r.needs_check(t0 + Duration::from_secs(99)));
+    // a snapshot that is the same as the copy changes nothing
+    let before = e.rt["a"].hash;
+    let same = Snap {
+        text: "all done\n\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n".into(),
+        cursor: Some((0, 0)),
+        alt: false,
+        rows: 24,
+        cols: 80,
+    };
+    e.on_snapshot("a".into(), Some(same));
+    assert_eq!(e.rt["a"].hash, before);
+}

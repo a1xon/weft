@@ -362,6 +362,11 @@ pub struct AgentCfg {
     /// background" (a shell it launched, a build). Such an agent is not finished yet.
     #[serde(default)]
     pub working: Vec<String>,
+    /// Screen substrings in the agent's status bar that it shows only while a turn runs ("esc to
+    /// interrupt"): a pause in its output is then not the end of the turn, and a message just sent
+    /// has been taken.
+    #[serde(default)]
+    pub busy: Vec<String>,
     /// The reasoning level applies only to these models (substrings; "" = the CLI's default
     /// model). Empty = every model.
     #[serde(default)]
@@ -439,6 +444,9 @@ fn default_chrome() -> Vec<String> {
         "\u{2190} for agents",
         "Verbosity now defaults",
         "f2 to view",
+        "Update installed",
+        "/clear to save",
+        "Compacted while idle",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -468,6 +476,7 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             yolo_arg: "--dangerously-skip-permissions".into(),
             // "✻ Brewed for 3s · done 7:07 · 1 shell still running": it will wake up when it ends
             working: strings(&["shell still running", "shells still running"]),
+            busy: strings(&["esc to interrupt"]),
             ..AgentCfg::default()
         },
     );
@@ -489,6 +498,7 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             efforts: strings(&levels),
             yolo_arg: "--dangerously-bypass-approvals-and-sandbox".into(),
             working: strings(&["background terminal"]),
+            busy: strings(&["esc to interrupt"]),
             ..AgentCfg::default()
         },
     );

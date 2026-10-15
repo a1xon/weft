@@ -246,6 +246,11 @@ STATUS: FAILED <why>                 cannot be done
 | `FAILED` | the step fails with the reason: the "only if it fails" links fire |
 | `ISSUE` | the card says *asks you* and the question unfolds under it with an answer box; the chain waits; your answer (there, in the bar or in its terminal) continues the same run |
 | `WAITING` | the card says what it waits for; after `recheck_s` (60 s) weft types a short *check on it now* into the session, repeatedly, until it is DONE, or an ISSUE after `background_s` |
+
+The message is read from the screen. Claude Code keeps its own history on the alternate screen and
+shows only the last rows of it, so while a step of a chain runs weft lays each frame of the screen
+over the answer so far (rows the frames share are matched, a line that is still being written is
+taken in place): a long answer arrives whole, head included.
 | nothing | the agent is asked once for the line; if that does not help, silence is the end, so a flow never hangs |
 
 It is plain text on the screen, so it needs no tool, no shell, no permission and no particular CLI:
@@ -272,6 +277,11 @@ An agent that ended its turn but says it is still waiting for something it start
 background (Claude Code's status line reads `1 shell still running`) is **not** finished: the
 card stays busy ("waiting on background work") until that ends and the agent has answered, or
 `background_s` (10 minutes) have passed, in case a server was left running on purpose.
+
+A turn in progress (`esc to interrupt` on the status line) holds an agent the same way, however
+long its output pauses. weft's own copy of the screen is checked against tmux's when that marker
+sits on a screen that has not changed for 20 seconds: if the pane does not show it, the copy is
+replaced by what tmux shows. A marker on a screen that has not moved for `background_s` is dropped.
 
 ## CLI
 

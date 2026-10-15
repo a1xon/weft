@@ -94,6 +94,8 @@ impl From<Src> for String {
     }
 }
 
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub(super) struct Step {
     pub(super) prompt: String,
     pub(super) before: Vec<String>,
@@ -107,11 +109,71 @@ pub(super) struct Step {
     pub(super) closed: bool,
     /// what weft typed into the session after the prompt: part of the echo, not of the answer
     pub(super) extra: String,
+    /// The conversation as the screen showed it while this step ran, rebuilt row by row: a program
+    /// on the alternate screen shows only its last rows, so the head of a long answer is on no
+    /// screen at the end. Rows `base..` are the answer.
+    pub(super) acc: Vec<String>,
+    pub(super) base: usize,
 }
+
+/// Rows of an answer that are kept: far more than anything an agent writes, so that a program that
+/// redraws its whole history in a loop cannot grow the state without bound.
+const MAX_ACC: usize = 4000;
 
 impl Step {
     pub(super) fn new(prompt: String, before: Vec<String>) -> Step {
-        Step { prompt, before, expect_signal: false, rule: false, asked: false, closed: false, extra: String::new() }
+        Step {
+            prompt,
+            before,
+            expect_signal: false,
+            rule: false,
+            asked: false,
+            closed: false,
+            extra: String::new(),
+            acc: Vec::new(),
+            base: 0,
+        }
+    }
+
+    /// The screen changed: lay its rows over the answer so far (see `term::merge_frame`).
+    pub(super) fn see(&mut self, screen_rows: &[String], chrome: &[String]) {
+        let typed = self.typed();
+        if self.acc.is_empty() {
+            self.acc = term::response_rows(&self.before, &typed, chrome);
+            self.base = self.acc.len();
+        }
+        let frame = term::response_rows(screen_rows, &typed, chrome);
+        term::merge_frame(&mut self.acc, &frame);
+        if self.acc.len() > MAX_ACC {
+            let cut = self.acc.len() - MAX_ACC;
+            self.acc.drain(..cut);
+            self.base = self.base.saturating_sub(cut);
+        }
+    }
+
+    /// The answer as the frames built it, when it holds more than the last screen alone does and
+    /// ends the way the last screen ends (`tail`: what that screen shows of it). A frame that was
+    /// put in the wrong place must not win over what is on the screen.
+    pub(super) fn rebuilt(&self, tail: Option<&str>) -> Option<String> {
+        let rows = self.acc.get(self.base..).filter(|r| r.iter().any(|l| !l.is_empty()))?;
+        let text = rows.join("\n").trim().to_string();
+        let Some(tail) = tail else { return Some(text) };
+        let end = |s: &str| s.lines().map(str::trim).filter(|l| !l.is_empty()).rev().take(3).map(String::from).collect::<Vec<_>>();
+        (text.len() > tail.len() && end(&text) == end(tail)).then_some(text)
+    }
+
+    /// The screen history was rebuilt (a daemon restart): what the agent says from here on is read
+    /// after the echo of what weft typed, or, with no echo left on it, after what is there now.
+    pub(super) fn rebase(&mut self, mut lines: Vec<String>) {
+        if let Some(i) = term::echo_end(&lines, &term::probe_of(&self.typed())) {
+            lines.truncate(i + 1);
+        }
+        self.before = lines;
+    }
+
+    /// Is the echo of what weft typed on these lines? (Then `rebase` puts the step's start there.)
+    pub(super) fn echoed_in(&self, lines: &[String]) -> bool {
+        term::echo_end(lines, &term::probe_of(&self.typed())).is_some()
     }
 
     /// Everything weft typed for this step.
@@ -142,6 +204,8 @@ pub(super) struct Typing {
     pub(super) pastes: u8,
     /// a task prompt (checked, repeated) or a note to a working agent (sent once)
     pub(super) checked: bool,
+    /// the agent was in the middle of a turn when it went out (see `Rt::turn`)
+    pub(super) turn: bool,
 }
 
 /// What `Typing::next` asks the engine to do.
@@ -168,7 +232,13 @@ impl Typing {
     pub(super) fn new(text: &str, checked: bool, screen: &vt100::Screen, now: Instant) -> Typing {
         let probe = term::probe_of(text);
         let traces_before = term::traces(screen, &probe);
-        Typing { text: text.to_string(), probe, traces_before, at: now, entered: false, enters: 0, pastes: 0, checked }
+        Typing { text: text.to_string(), probe, traces_before, at: now, entered: false, enters: 0, pastes: 0, checked, turn: false }
+    }
+
+    /// The agent started a turn after the Enter (`turn`: it shows it is in one now): it has the
+    /// message, wherever its echo went (folded, or scrolled away by what it is doing).
+    pub(super) fn started_turn(&self, turn: bool) -> bool {
+        self.entered && turn && !self.turn
     }
 
     /// What to do now, given the screen and when it last changed.
@@ -259,6 +329,12 @@ pub(super) struct Rt {
     pub(super) work: bool,
     pub(super) work_since: Option<Instant>,
     pub(super) bg: bool,
+    /// the agent shows it is in the middle of a turn ("esc to interrupt")
+    pub(super) turn: bool,
+    /// when the text on the screen last changed (a hold on a busy agent does not count)
+    pub(super) screen_changed: Instant,
+    /// tmux was asked what the pane really shows while the screen sat unchanged under a turn marker
+    pub(super) verified: Option<Instant>,
 
     // ---- the run
     pub(super) status: Status,
@@ -576,6 +652,9 @@ impl Rt {
             work: false,
             work_since: None,
             bg: false,
+            turn: false,
+            screen_changed: Instant::now(),
+            verified: None,
             status: Status::New,
             since: now_ms(),
             armed: false,
@@ -638,11 +717,15 @@ impl Rt {
             git_log: self.git.log.clone(),
             git_carry: self.git.carry.clone(),
             git_facts: self.git.facts.clone(),
+            cur: self.cur.clone(),
+            reply_to: self.reply_to.clone(),
+            step_wait: self.step_wait.clone(),
         }
     }
 
-    /// Take back what `to_saved` wrote. What was in flight when the daemon stopped is not resumed:
-    /// a gate that was asking or running goes back to review, so a person decides.
+    /// Take back what `to_saved` wrote. A gate that was asking or running when the daemon stopped
+    /// goes back to review, so a person decides. The step an agent was answering goes on if the
+    /// agent comes back (`Engine::adopt`): its answer still goes where it was asked for.
     pub(super) fn restore(&mut self, s: Saved) {
         self.checks.feed = s.feed;
         self.checks.feed_seq = s.feed_seq;
@@ -677,6 +760,9 @@ impl Rt {
         self.git.log = s.git_log;
         self.git.carry = s.git_carry;
         self.git.facts = s.git_facts;
+        self.cur = s.cur;
+        self.reply_to = s.reply_to;
+        self.step_wait = s.step_wait;
         if self.finished {
             self.status = if self.ok == Some(false) { Status::Failed } else { Status::Done };
         }
@@ -701,21 +787,53 @@ impl Rt {
         }
         self.hash = h;
         self.last_change = now;
-        let (attention, working) = agent.map_or((&[][..], &[][..]), |a| (&a.attention[..], &a.working[..]));
+        self.screen_changed = now;
+        self.verified = None;
+        let (attention, working, busy) = agent.map_or((&[][..], &[][..], &[][..]), |a| (&a.attention[..], &a.working[..], &a.busy[..]));
         self.attn = term::dialog_on(&text, attention);
         // the status line lives just above the input box: look only at the bottom of the screen,
         // so a sentence that merely mentions it, scrolled up, does not hold anything back
         let bottom: String = text.lines().rev().filter(|l| !l.trim().is_empty()).take(10).collect::<Vec<_>>().join("\n");
         self.work = working.iter().any(|p| !p.is_empty() && bottom.contains(p.as_str()));
+        // the turn marker sits in the status bar, the last lines: not in what the agent wrote above them
+        let bar: String = bottom.lines().take(4).collect::<Vec<_>>().join("\n");
+        self.turn = busy.iter().any(|p| !p.is_empty() && bar.contains(p.as_str()));
         self.ui = true;
         self.scr = true;
         true
     }
 
-    /// An agent that ended its turn but announced work in the background ("1 shell still running",
-    /// it will answer when that ends) is not finished: keep it busy, for a while. A step that already
-    /// gave its last word is not held: what it left running (a server, a loop that never ends) is not the step.
+    /// The screen changed under a step whose result a flow takes: lay it over the answer so far.
+    pub(super) fn accumulate(&mut self, chrome: &[String]) {
+        if !self.cur.as_ref().is_some_and(|c| c.rule || c.expect_signal) {
+            return;
+        }
+        let (_, cols) = self.parser.screen().size();
+        let rows: Vec<String> = self.parser.screen().rows(0, cols).map(|r| r.trim_end().to_string()).collect();
+        if let Some(c) = self.cur.as_mut() {
+            c.see(&rows, chrome);
+        }
+    }
+
+    /// Has a turn marker sat on an unchanged screen long enough to ask tmux whether it is real?
+    pub(super) fn needs_check(&self, now: Instant) -> bool {
+        self.turn && self.alive && self.verified.is_none() && now.duration_since(self.screen_changed) >= VERIFY_AFTER
+    }
+
+    /// An agent in the middle of a turn is not finished, however long its output pauses. One that
+    /// ended its turn but announced work in the background ("1 shell still running", it will answer
+    /// when that ends) is not finished either: keep it busy, for a while. A step that already gave its
+    /// last word is not held: what it left running (a server, a loop that never ends) is not the step.
     pub(super) fn hold_for_background(&mut self, idle_finish: bool, hold: Duration, now: Instant) {
+        if self.turn && now.duration_since(self.screen_changed) >= hold {
+            // a turn redraws its clock every second: a marker on a screen that has not moved for this
+            // long is a leftover of a repaint that did not clear it, not an agent that is thinking
+            self.turn = false;
+        }
+        if self.turn && self.armed && !self.finished && idle_finish && !self.attn {
+            // in the middle of a turn: a pause in its output (a long think, a loaded machine) is not its end
+            self.last_change = now;
+        }
         let closed = self.cur.as_ref().is_some_and(|c| c.closed);
         let holding = self.work && self.armed && !self.finished && idle_finish && !self.attn && !closed;
         if holding {
@@ -747,7 +865,10 @@ impl Rt {
             // a question or a dialog after the result: once it is answered the result stands again
             if self.attn || self.issue.is_some() {
                 Status::Attention
-            } else if self.status == Status::Attention {
+            } else if self.turn {
+                // it took something up after its result (its background shell ended, a person typed into it)
+                Status::Busy
+            } else if matches!(self.status, Status::Attention | Status::Busy) {
                 if self.ok == Some(false) { Status::Failed } else { Status::Done }
             } else {
                 self.status
@@ -824,6 +945,9 @@ const START_PATIENCE: Duration = Duration::from_secs(8);
 /// a step produced; every line costs a full terminal row of cells, so it is also the memory bound.
 pub(super) const SCROLLBACK: usize = 1000;
 
+/// A turn marker on a screen that has not changed for this long is checked against tmux's own copy.
+pub(super) const VERIFY_AFTER: Duration = Duration::from_secs(20);
+
 #[derive(Serialize, Deserialize, Default)]
 pub(super) struct Saved {
     #[serde(default)]
@@ -885,6 +1009,14 @@ pub(super) struct Saved {
     pub(super) git_carry: Vec<Carry>,
     #[serde(default)]
     pub(super) git_facts: Facts,
+    /// the step the agent was answering, and the node its answer goes to (a step, a gate)
+    #[serde(default)]
+    pub(super) cur: Option<Step>,
+    #[serde(default)]
+    pub(super) reply_to: Option<String>,
+    /// a step: the agent that answers it
+    #[serde(default)]
+    pub(super) step_wait: Option<String>,
 }
 
 pub(super) struct Watch {

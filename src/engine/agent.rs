@@ -340,7 +340,7 @@ impl Engine {
             rt.typing = None;
             return;
         };
-        match t.next(rt.parser.screen(), rt.last_change, now, submit) {
+        match if t.started_turn(rt.turn) { Typed::Taken } else { t.next(rt.parser.screen(), rt.last_change, now, submit) } {
             Typed::Wait => {}
             Typed::Enter => {
                 tm.send_key(&pane, "Enter");

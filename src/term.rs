@@ -301,6 +301,21 @@ pub fn probe_of(text: &str) -> String {
     n[n.len().saturating_sub(24)..].iter().collect::<String>().trim().to_string()
 }
 
+/// Where a message was echoed in `lines`: the line its tail (see [`probe_of`]) ends on, the last
+/// such place. A terminal wraps long lines, so each line is read with the two above it.
+pub fn echo_end(lines: &[String], probe: &str) -> Option<usize> {
+    if probe.chars().count() < 6 {
+        return None;
+    }
+    let has = |i: usize| norm(&lines[i.saturating_sub(2)..=i].join(" ")).contains(probe);
+    let mut end = (0..lines.len()).rev().find(|&i| has(i))?;
+    // the same tail is still in reach a line or two further down: step back to where it ends
+    while end > 0 && has(end - 1) {
+        end -= 1;
+    }
+    Some(end)
+}
+
 /// How many places on the whole screen show a message: its tail (see [`probe_of`]), or a folded
 /// "[Pasted text ...]" placeholder. A message that was taken shows up once more than before.
 pub fn traces(screen: &Screen, probe: &str) -> usize {
@@ -363,9 +378,15 @@ pub fn extract_response(before: &[String], after: &[String], prompt: &str, chrom
     while k < before.len() && k < after.len() && before[k] == after[k] {
         k += 1;
     }
+    response_rows(&after[k..], prompt, chrome).join("\n")
+}
+
+/// The rows of `rows` that are the agent's words: no blank runs, echo of `prompt`, tool calls,
+/// input box or terminal chrome. Applying it twice changes nothing.
+pub fn response_rows(rows: &[String], prompt: &str, chrome: &[String]) -> Vec<String> {
     let want: Vec<String> = prompt.lines().map(norm).filter(|l| l.chars().count() >= 8).collect();
     let mut out: Vec<String> = Vec::new();
-    for l in &after[k..] {
+    for l in rows {
         let t = l.trim();
         if t.is_empty() {
             if out.last().is_some_and(|p| !p.is_empty()) {
@@ -389,7 +410,74 @@ pub fn extract_response(before: &[String], after: &[String], prompt: &str, chrom
     while out.last().is_some_and(|l| l.is_empty()) {
         out.pop();
     }
-    out.join("\n")
+    out
+}
+
+/// A program on the alternate screen (Claude Code) keeps its own history and shows the last rows of
+/// it: what scrolled out of the window is gone from the terminal. `acc` is that history, rebuilt:
+/// each `frame` (its content rows, see [`response_rows`]) is laid over the end of `acc` where the
+/// two share rows, and what is new is appended. A row that changed in place (a line still being
+/// written, a timer) takes the frame's version. A frame that cannot be placed is left out, never
+/// guessed at: a duplicate in a result is worse than a gap that the next frame closes.
+pub fn merge_frame(acc: &mut Vec<String>, frame: &[String]) {
+    let first = frame.iter().position(|r| !r.is_empty());
+    let last = frame.iter().rposition(|r| !r.is_empty());
+    let (Some(first), Some(last)) = (first, last) else { return };
+    let frame = &frame[first..=last];
+    if acc.is_empty() {
+        acc.extend(frame.iter().cloned());
+        return;
+    }
+    // the frame's first `m` rows are the last `m` rows of `acc`: the biggest `m` that agrees on
+    // enough content rows wins (bigger first: a longer overlap is the stronger evidence)
+    let tail = acc[acc.len() - 1].clone();
+    let overlap = (1..=frame.len().min(acc.len())).rev().find(|&m| {
+        let base = acc.len() - m;
+        let content = frame[..m].iter().filter(|r| !r.is_empty()).count();
+        let same = (0..m).filter(|&i| !frame[i].is_empty() && acc[base + i] == frame[i]).count();
+        // a line that is still being written counts: its earlier version is a prefix of it
+        let grows = !tail.is_empty() && frame[m - 1] != tail && frame[m - 1].starts_with(tail.as_str());
+        let need = if content <= 2 { content } else { content - content / 4 };
+        content > 0 && same + usize::from(grows) >= need
+    });
+    let Some(m) = overlap else {
+        // Nothing in common with the rows collected: the window moved on by more than its height
+        // (or the old rows were never on it). With no row in common nothing can be duplicated, so
+        // the frame goes on after a gap; one that shares some rows but cannot be placed is left out.
+        let known: std::collections::HashSet<&str> = acc.iter().rev().take(frame.len() * 3).map(String::as_str).collect();
+        if frame.iter().all(|r| r.is_empty() || !known.contains(r.as_str())) {
+            acc.push(String::new());
+            acc.extend(frame.iter().cloned());
+        }
+        return;
+    };
+    let base = acc.len() - m;
+    for i in 0..m {
+        if !frame[i].is_empty() {
+            acc[base + i] = frame[i].clone();
+        }
+    }
+    acc.extend(frame[m..].iter().cloned());
+}
+
+/// Put a `capture-pane` snapshot (`-e -p -J`) of a `rows`x`cols` pane on a fresh screen, row for
+/// row. A line feed after the last row would scroll the whole screen up by one, and a program that
+/// repaints by absolute position (Claude Code does) would never put that right.
+pub fn seed_screen(rows: u16, cols: u16, scrollback: usize, snap: &str, cursor: Option<(u16, u16)>, alt: bool) -> Parser {
+    let mut p = Parser::new(rows, cols, scrollback);
+    if alt {
+        p.process(b"\x1b[?1049h");
+    }
+    for (i, l) in snap.trim_end_matches('\n').split('\n').enumerate() {
+        if i > 0 {
+            p.process(b"\r\n");
+        }
+        p.process(l.as_bytes());
+    }
+    if let Some((y, x)) = cursor {
+        p.process(format!("\x1b[{};{}H", y + 1, x + 1).as_bytes());
+    }
+    p
 }
 
 /// Wrap `text` for delivery to a pane: strip control characters that could
@@ -452,6 +540,21 @@ mod tests {
         assert_eq!(traces(sent.screen(), &probe), 1);
         assert_eq!(traces(empty.screen(), &probe), 0);
         assert_eq!(traces(folded.screen(), &probe), 1);
+    }
+
+    #[test]
+    fn finds_where_a_wrapped_message_was_echoed() {
+        let typed = "recheck this is working. increase the font size by 20%.\n\n[weft] End with the STATUS line: <WORD> is DONE, ISSUE (add your question), WAITING (add what for) or FAILED (add why).";
+        let lines = v(&[
+            "older answer",
+            "\u{276f} recheck this is working. increase the font size by 20%.",
+            "  [weft] End with the STATUS line: <WORD> is DONE, ISSUE (add your question), WAITING (add what for) or",
+            "  FAILED (add why).",
+            "\u{25cf} Rechecked.",
+            "  STATUS: DONE",
+        ]);
+        assert_eq!(echo_end(&lines, &probe_of(typed)), Some(3));
+        assert_eq!(echo_end(&lines, &probe_of("something that was never typed here")), None);
     }
 
     #[test]
@@ -534,5 +637,85 @@ All five slug tests now pass."
         // a numbered list under the words in an agent's message, long scrolled up: no dialog either
         let old = format!("It asks \"Do you want to proceed?\" and offers:\n1. Yes\n2. No\n{}❯ \n", "more text\n".repeat(25));
         assert!(!dialog_on(&old, &claude));
+    }
+
+    fn rows_of(p: &Parser) -> Vec<String> {
+        let (_, cols) = p.screen().size();
+        p.screen().rows(0, cols).map(|r| r.trim_end().to_string()).collect()
+    }
+
+    #[test]
+    fn a_seeded_screen_has_every_row_where_the_pane_has_it() {
+        // a full-height snapshot: the line feed after its last row must not scroll anything
+        let snap: String = (0..8).map(|i| format!("row {i}\n")).collect();
+        let p = seed_screen(8, 20, 100, &snap, Some((7, 3)), true);
+        let got = rows_of(&p);
+        for i in 0..8 {
+            assert_eq!(got[i], format!("row {i}"), "row {i} stays on row {i}");
+        }
+        assert_eq!(p.screen().cursor_position(), (7, 3));
+        assert!(p.screen().alternate_screen());
+        // a snapshot with history above the visible rows: the last rows are the screen
+        let snap: String = (0..12).map(|i| format!("line {i}\n")).collect();
+        let p = seed_screen(8, 20, 100, &snap, None, false);
+        assert_eq!(rows_of(&p)[0], "line 4");
+        assert_eq!(rows_of(&p)[7], "line 11");
+    }
+
+    fn s(a: &[&str]) -> Vec<String> {
+        a.iter().map(|x| x.to_string()).collect()
+    }
+
+    #[test]
+    fn frames_of_a_window_that_scrolls_rebuild_the_whole_answer() {
+        let all: Vec<String> = (1..=12).map(|i| format!("answer line number {i}")).collect();
+        let mut acc = Vec::new();
+        // a window of 5 rows follows the end: 1-5, 2-6 (one row), 4-8 (two rows), ...
+        for (a, b) in [(0, 5), (1, 6), (3, 8), (4, 9), (7, 12)] {
+            merge_frame(&mut acc, &all[a..b]);
+        }
+        assert_eq!(acc, all, "the head is kept although it left the window");
+        // the same frame again changes nothing
+        merge_frame(&mut acc, &all[7..12]);
+        assert_eq!(acc, all);
+    }
+
+    #[test]
+    fn a_line_still_being_written_and_a_changed_row_are_taken_in_place() {
+        let mut acc = s(&["intro", "second line", "third line is ge"]);
+        merge_frame(&mut acc, &s(&["intro", "second line", "third line is getting longer", "fourth"]));
+        assert_eq!(acc, s(&["intro", "second line", "third line is getting longer", "fourth"]));
+        // a timer row in the middle changed and the window moved by one
+        let mut acc = s(&["a one", "b two", "Running (3s)", "d four", "e five"]);
+        merge_frame(&mut acc, &s(&["b two", "Running (4s)", "d four", "e five", "f six"]));
+        assert_eq!(acc, s(&["a one", "b two", "Running (4s)", "d four", "e five", "f six"]));
+    }
+
+    #[test]
+    fn a_frame_that_cannot_be_placed_is_left_out_unless_it_shares_nothing() {
+        let mut acc = s(&["one", "two", "three", "four", "five"]);
+        // it shares rows with the end, but not in an order that fits: left out, nothing guessed
+        merge_frame(&mut acc, &s(&["two", "four", "other", "rows"]));
+        assert_eq!(acc, s(&["one", "two", "three", "four", "five"]));
+        merge_frame(&mut acc, &[]);
+        merge_frame(&mut acc, &s(&["", ""]));
+        assert_eq!(acc.len(), 5);
+        // it shares nothing: the window jumped, nothing can be doubled, it goes on after a gap
+        merge_frame(&mut acc, &s(&["something else", "entirely different"]));
+        assert_eq!(acc, s(&["one", "two", "three", "four", "five", "", "something else", "entirely different"]));
+        // and the next frame of that window is placed on it again
+        merge_frame(&mut acc, &s(&["entirely different", "and more"]));
+        assert_eq!(acc.len(), 9);
+        assert_eq!(acc[8], "and more");
+    }
+
+    #[test]
+    fn response_rows_is_what_extract_response_keeps() {
+        let after = s(&["❯ do the thing", "", "● Read(a.rs)", "The thing is done.", "", "", "esc to interrupt", "It took two steps."]);
+        let chrome = s(&["esc to interrupt"]);
+        let rows = response_rows(&after, "do the thing", &chrome);
+        assert_eq!(rows, s(&["The thing is done.", "", "It took two steps."]));
+        assert_eq!(extract_response(&[], &after, "do the thing", &chrome), rows.join("\n"));
+        assert_eq!(response_rows(&rows, "do the thing", &chrome), rows, "applying it again changes nothing");
     }
 }

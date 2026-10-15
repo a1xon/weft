@@ -106,6 +106,12 @@ pub enum Ev {
         brief: Option<String>,
         facts: String,
     },
+    /// What tmux shows in an agent's pane right now: weft's own copy of the screen is checked
+    /// against it when it holds an agent busy for a long time without changing.
+    Snapshot {
+        id: String,
+        snap: Option<Snap>,
+    },
     /// What an agent's CLI says it can run.
     Models {
         agent: String,
@@ -124,6 +130,45 @@ pub enum Ev {
         reply: Option<oneshot::Sender<Value>>,
     },
 }
+/// A pane as tmux shows it: the rows (with history when asked for), the cursor, whether the
+/// program is on the alternate screen, and the pane's size.
+#[derive(Clone, Debug)]
+pub struct Snap {
+    pub text: String,
+    pub cursor: Option<(u16, u16)>,
+    pub alt: bool,
+    pub rows: u16,
+    pub cols: u16,
+}
+
+impl Snap {
+    /// A fresh emulated screen that shows exactly what the pane shows.
+    pub(super) fn screen(&self) -> vt100::Parser {
+        term::seed_screen(self.rows, self.cols, SCROLLBACK, &self.text, self.cursor, self.alt)
+    }
+}
+
+/// Ask tmux what a pane shows: `history` takes what scrolled out of it too (a restart rebuilds
+/// the scrollback from it; a check on a busy agent only needs the screen).
+pub(super) async fn snapshot(t: &Tmux, pane: &str, history: bool) -> Option<Snap> {
+    let mut args: Vec<String> = vec!["capture-pane".into(), "-e".into(), "-p".into(), "-J".into()];
+    if history {
+        args.extend(["-S".into(), "-".into()]);
+    }
+    args.extend(["-t".into(), pane.to_string()]);
+    let (ok, text) = tmux::run(&t.sock, &args).await;
+    if !ok {
+        return None;
+    }
+    let fmt = "#{cursor_y} #{cursor_x} #{alternate_on} #{pane_height} #{pane_width}";
+    let (ok, meta) = tmux::run(&t.sock, &["display-message".into(), "-p".into(), "-t".into(), pane.to_string(), fmt.into()]).await;
+    let m: Vec<u16> = meta.split_whitespace().filter_map(|v| v.parse().ok()).collect();
+    if !ok || m.len() < 5 || m[3] < 2 || m[4] < 2 {
+        return None;
+    }
+    Some(Snap { text, cursor: Some((m[0], m[1])), alt: m[2] == 1, rows: m[3], cols: m[4] })
+}
+
 pub struct Boot {
     /// where the user's settings are written back (`None`: nowhere, as in tests)
     pub config_file: Option<PathBuf>,
@@ -240,8 +285,14 @@ impl Engine {
         e
     }
 
-    /// Re-attach to agent windows that survived a daemon restart.
+    /// Re-attach to agent windows that survived a daemon restart, and go on with the steps they
+    /// were answering.
     pub async fn adopt(&mut self) {
+        self.adopt_windows().await;
+        self.resume_steps();
+    }
+
+    async fn adopt_windows(&mut self) {
         let Some(t) = self.tmux.clone() else { return };
         let (ok, out) = tmux::run(
             &t.sock,
@@ -264,22 +315,10 @@ impl Engine {
                 continue;
             }
             let (id, pane, win, dead) = (f[0].to_string(), f[1].to_string(), f[2].to_string(), f[3] == "1");
-            let (_, snap) = tmux::run(
-                &t.sock,
-                &["capture-pane".into(), "-e".into(), "-p".into(), "-J".into(), "-S".into(), "-".into(), "-t".into(), pane.clone()],
-            )
-            .await;
-            let (_, cur) =
-                tmux::run(&t.sock, &["display-message".into(), "-p".into(), "-t".into(), pane.clone(), "#{cursor_y} #{cursor_x}".into()])
-                    .await;
+            let snap = snapshot(&t, &pane, true).await;
             let Some(rt) = self.rt.get_mut(&id) else { return };
-            for l in snap.trim_end_matches('\n').split('\n') {
-                rt.parser.process(l.as_bytes());
-                rt.parser.process(b"\r\n");
-            }
-            let mut c = cur.split_whitespace().filter_map(|v| v.parse::<u16>().ok());
-            if let (Some(y), Some(x)) = (c.next(), c.next()) {
-                rt.parser.process(format!("\x1b[{};{}H", y + 1, x + 1).as_bytes());
+            if let Some(s) = snap {
+                rt.parser = s.screen();
             }
             rt.pane = Some(pane.clone());
             rt.win = Some(win.clone());
@@ -291,6 +330,49 @@ impl Engine {
             }
             self.panes.insert(pane, id.clone());
             self.wins.insert(win, id);
+        }
+    }
+
+    /// After a restart: an agent that came back goes on with the step it was answering, read from
+    /// its rebuilt screen; one that did not come back answers nothing. A daemon of an older build
+    /// kept no record of the step: a busy step that names the agent is the one it answers (else its
+    /// answer would count as its own result and start that step all over again).
+    pub(super) fn resume_steps(&mut self) {
+        let ids: Vec<String> = self.rt.keys().cloned().collect();
+        for id in ids {
+            let Some(r) = self.rt.get(&id) else { continue };
+            if !r.alive {
+                let r = self.rt.get_mut(&id).unwrap();
+                r.cur = None;
+                r.reply_to = None;
+                continue;
+            }
+            if r.cur.is_none() && r.reply_to.is_none() && r.armed && !r.finished && r.queue.is_empty() {
+                let asked = r.asked.clone();
+                let step = self.flow.nodes.iter().map(|n| n.id.clone()).find(|s| {
+                    self.node(s).is_some_and(|n| n.kind() == Kind::Step && n.host == id)
+                        && self.rt.get(s).is_some_and(|x| !x.finished && x.runs > 0)
+                });
+                if let Some(step) = step {
+                    let expect_signal = asked.contains(&format!("{} done", self.boot.exe));
+                    let rule = !expect_signal && self.cfg.chain_status && self.step_is_consumed(&id, &Src::Reply(step.clone()));
+                    if let Some(s) = self.rt.get_mut(&step) {
+                        s.step_wait = Some(id.clone());
+                    }
+                    let r = self.rt.get_mut(&id).unwrap();
+                    r.reply_to = Some(step);
+                    // (an agent that was briefed before this step was given the short rule)
+                    let extra = if rule { words::status_rule(false) } else { String::new() };
+                    r.cur = Some(Step { expect_signal, rule, extra, ..Step::new(asked, Vec::new()) });
+                }
+            }
+            let r = self.rt.get_mut(&id).unwrap();
+            if r.cur.is_some() {
+                let lines = term::lines(&mut r.parser);
+                if let Some(c) = r.cur.as_mut() {
+                    c.rebase(lines);
+                }
+            }
         }
     }
 
@@ -381,6 +463,7 @@ impl Engine {
             }
             Ev::Git { id, gen, job, res, facts } => self.on_git(id, gen, job, res, facts),
             Ev::Gate { id, gen, tests, ok, out } => self.on_gate(id, gen, tests, ok, out),
+            Ev::Snapshot { id, snap } => self.on_snapshot(id, snap),
             Ev::Proj(v) => {
                 self.proj = v.clone();
                 self.bcast(&json!({"t": "proj", "git": v}));
