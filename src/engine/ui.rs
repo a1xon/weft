@@ -202,6 +202,7 @@ impl Engine {
                 let s = rt.parser.screen();
                 let (cr, cc) = s.cursor_position();
                 let show_cursor = scroll == 0 && !s.hide_cursor();
+                let mouse = s.mouse_protocol_mode() != vt100::MouseProtocolMode::None;
                 let mut changed: Vec<Value> = Vec::new();
                 for r in 0..rows {
                     let cur = if show_cursor && r == cr { Some(cc.min(cols.saturating_sub(1))) } else { None };
@@ -220,7 +221,7 @@ impl Engine {
                     n
                 };
                 if !changed.is_empty() || scroll != 0 {
-                    let m = json!({"t": "scr", "id": w.node, "cols": cols, "rows": rows, "scroll": scroll, "hist": hist, "rowsd": changed});
+                    let m = json!({"t": "scr", "id": w.node, "cols": cols, "rows": rows, "scroll": scroll, "hist": hist, "mouse": mouse, "rowsd": changed});
                     let _ = c.tx.try_send(m.to_string());
                 }
             }
@@ -298,6 +299,24 @@ impl Engine {
             }
             self.push_screen(cid);
         }
+        json!({"ok": true})
+    }
+
+    /// The wheel goes to the program when it asked for the mouse (Claude Code scrolls its own
+    /// transcript: on the alternate screen there is no history to show), else it moves through
+    /// weft's history of the pane, two lines a notch.
+    pub(super) fn cmd_wheel(&mut self, client: Option<u64>, id: String, n: i32, row: u16, col: u16) -> Value {
+        if let (Some(rt), Some(t)) = (self.rt.get(&id), &self.tmux) {
+            if let (Some(p), Some(b)) = (&rt.pane, term::wheel_bytes(rt.parser.screen(), n, row, col)) {
+                t.send_bytes(p, &b);
+                return json!({"ok": true});
+            }
+        }
+        let Some(cid) = client else { return json!({"ok": true}) };
+        if let Some(w) = self.clients.get_mut(&cid).and_then(|c| c.watch.as_mut()).filter(|w| w.node == id) {
+            w.scroll = w.scroll.saturating_add_signed(-2 * n as isize);
+        }
+        self.push_screen(cid);
         json!({"ok": true})
     }
 

@@ -2378,6 +2378,7 @@ fn what_tmux_shows_wins_over_a_copy_that_kept_a_stale_marker() {
         text: "all done\n\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n".into(),
         cursor: Some((0, 0)),
         alt: false,
+        mouse: vec![],
         rows: 24,
         cols: 80,
     };
@@ -2392,6 +2393,7 @@ fn what_tmux_shows_wins_over_a_copy_that_kept_a_stale_marker() {
         text: "all done\n\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n".into(),
         cursor: Some((0, 0)),
         alt: false,
+        mouse: vec![],
         rows: 24,
         cols: 80,
     };

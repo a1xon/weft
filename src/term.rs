@@ -462,11 +462,13 @@ pub fn merge_frame(acc: &mut Vec<String>, frame: &[String]) {
 
 /// Put a `capture-pane` snapshot (`-e -p -J`) of a `rows`x`cols` pane on a fresh screen, row for
 /// row. A line feed after the last row would scroll the whole screen up by one, and a program that
-/// repaints by absolute position (Claude Code does) would never put that right.
-pub fn seed_screen(rows: u16, cols: u16, scrollback: usize, snap: &str, cursor: Option<(u16, u16)>, alt: bool) -> Parser {
+/// repaints by absolute position (Claude Code does) would never put that right. `modes` are the
+/// DEC private modes the program had set (1049 alternate screen, 1000-1006 mouse): a capture does
+/// not carry them.
+pub fn seed_screen(rows: u16, cols: u16, scrollback: usize, snap: &str, cursor: Option<(u16, u16)>, modes: &[u16]) -> Parser {
     let mut p = Parser::new(rows, cols, scrollback);
-    if alt {
-        p.process(b"\x1b[?1049h");
+    for m in modes {
+        p.process(format!("\x1b[?{m}h").as_bytes());
     }
     for (i, l) in snap.trim_end_matches('\n').split('\n').enumerate() {
         if i > 0 {
@@ -478,6 +480,24 @@ pub fn seed_screen(rows: u16, cols: u16, scrollback: usize, snap: &str, cursor: 
         p.process(format!("\x1b[{};{}H", y + 1, x + 1).as_bytes());
     }
     p
+}
+
+/// The wheel as the program asked to get it: `n` mouse wheel events (up when `n` < 0) at `row`,
+/// `col` (0-based), or None when it did not ask for the mouse and the wheel scrolls weft's own
+/// history. Claude Code draws on the alternate screen, where no history is kept: only it can
+/// scroll its transcript back.
+pub fn wheel_bytes(screen: &Screen, n: i32, row: u16, col: u16) -> Option<Vec<u8>> {
+    use vt100::{MouseProtocolEncoding, MouseProtocolMode};
+    if screen.mouse_protocol_mode() == MouseProtocolMode::None || n == 0 {
+        return None;
+    }
+    let b: u16 = if n < 0 { 64 } else { 65 };
+    let one = match screen.mouse_protocol_encoding() {
+        MouseProtocolEncoding::Sgr => format!("\x1b[<{b};{};{}M", col + 1, row + 1).into_bytes(),
+        // X10 style: one byte each, offset by 32, so nothing past column 222 can be told apart
+        _ => vec![0x1b, b'[', b'M', (32 + b) as u8, (33 + col.min(222)) as u8, (33 + row.min(222)) as u8],
+    };
+    Some(one.repeat(n.unsigned_abs().min(50) as usize))
 }
 
 /// Wrap `text` for delivery to a pane: strip control characters that could
@@ -645,10 +665,24 @@ All five slug tests now pass."
     }
 
     #[test]
+    fn the_wheel_goes_to_a_program_that_reads_the_mouse() {
+        let mut p = Parser::new(10, 40, 100);
+        assert_eq!(wheel_bytes(p.screen(), -1, 3, 5), None, "no mouse: the wheel scrolls weft's history");
+        p.process(b"\x1b[?1049h\x1b[?1003h\x1b[?1006h");
+        assert_eq!(wheel_bytes(p.screen(), -2, 3, 5).unwrap(), b"\x1b[<64;6;4M\x1b[<64;6;4M");
+        assert_eq!(wheel_bytes(p.screen(), 1, 0, 0).unwrap(), b"\x1b[<65;1;1M");
+        p.process(b"\x1b[?1006l");
+        assert_eq!(wheel_bytes(p.screen(), -1, 0, 0).unwrap(), [0x1b, b'[', b'M', 96, 33, 33]);
+        // a restart seeds the screen from tmux: the mouse modes come with it
+        let q = seed_screen(10, 40, 100, "x\n", None, &[1049, 1003, 1006]);
+        assert_eq!(wheel_bytes(q.screen(), 1, 0, 0).unwrap(), b"\x1b[<65;1;1M");
+    }
+
+    #[test]
     fn a_seeded_screen_has_every_row_where_the_pane_has_it() {
         // a full-height snapshot: the line feed after its last row must not scroll anything
         let snap: String = (0..8).map(|i| format!("row {i}\n")).collect();
-        let p = seed_screen(8, 20, 100, &snap, Some((7, 3)), true);
+        let p = seed_screen(8, 20, 100, &snap, Some((7, 3)), &[1049]);
         let got = rows_of(&p);
         for i in 0..8 {
             assert_eq!(got[i], format!("row {i}"), "row {i} stays on row {i}");
@@ -657,7 +691,7 @@ All five slug tests now pass."
         assert!(p.screen().alternate_screen());
         // a snapshot with history above the visible rows: the last rows are the screen
         let snap: String = (0..12).map(|i| format!("line {i}\n")).collect();
-        let p = seed_screen(8, 20, 100, &snap, None, false);
+        let p = seed_screen(8, 20, 100, &snap, None, &[]);
         assert_eq!(rows_of(&p)[0], "line 4");
         assert_eq!(rows_of(&p)[7], "line 11");
     }

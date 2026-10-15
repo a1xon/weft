@@ -263,6 +263,15 @@ pub enum Cmd {
         id: String,
         offset: usize,
     },
+    /// the wheel over the focused terminal: `n` notches, up when negative, over `row`/`col`
+    Wheel {
+        id: String,
+        n: i32,
+        #[serde(default)]
+        row: u16,
+        #[serde(default)]
+        col: u16,
+    },
     Preview {
         id: String,
     },
@@ -356,6 +365,7 @@ impl Engine {
             Cmd::Done { id, ok, text, issue } => self.cmd_done(id, ok, text, issue),
             Cmd::Watch { id } => self.cmd_watch(client, id),
             Cmd::Scroll { id, offset } => self.cmd_scroll(client, id, offset),
+            Cmd::Wheel { id, n, row, col } => self.cmd_wheel(client, id, n, row, col),
             Cmd::Preview { id } => self.cmd_preview(id),
             Cmd::Read { id, lines } => self.cmd_read(id, lines),
             Cmd::Result { id } => self.cmd_result(id),

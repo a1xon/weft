@@ -146,12 +146,14 @@ pub enum Ev {
     },
 }
 /// A pane as tmux shows it: the rows (with history when asked for), the cursor, whether the
-/// program is on the alternate screen, and the pane's size.
+/// program is on the alternate screen, the mouse modes it set, and the pane's size.
 #[derive(Clone, Debug)]
 pub struct Snap {
     pub text: String,
     pub cursor: Option<(u16, u16)>,
     pub alt: bool,
+    /// DEC private mouse modes on (1000, 1002, 1003, 1005, 1006)
+    pub mouse: Vec<u16>,
     pub rows: u16,
     pub cols: u16,
 }
@@ -159,7 +161,9 @@ pub struct Snap {
 impl Snap {
     /// A fresh emulated screen that shows exactly what the pane shows.
     pub(super) fn screen(&self) -> vt100::Parser {
-        term::seed_screen(self.rows, self.cols, SCROLLBACK, &self.text, self.cursor, self.alt)
+        let mut modes = if self.alt { vec![1049] } else { vec![] };
+        modes.extend(&self.mouse);
+        term::seed_screen(self.rows, self.cols, SCROLLBACK, &self.text, self.cursor, &modes)
     }
 }
 
@@ -175,13 +179,15 @@ pub(super) async fn snapshot(t: &Tmux, pane: &str, history: bool) -> Option<Snap
     if !ok {
         return None;
     }
-    let fmt = "#{cursor_y} #{cursor_x} #{alternate_on} #{pane_height} #{pane_width}";
+    let fmt = "#{cursor_y} #{cursor_x} #{alternate_on} #{pane_height} #{pane_width} \
+               #{mouse_standard_flag} #{mouse_button_flag} #{mouse_all_flag} #{mouse_utf8_flag} #{mouse_sgr_flag}";
     let (ok, meta) = tmux::run(&t.sock, &["display-message".into(), "-p".into(), "-t".into(), pane.to_string(), fmt.into()]).await;
     let m: Vec<u16> = meta.split_whitespace().filter_map(|v| v.parse().ok()).collect();
     if !ok || m.len() < 5 || m[3] < 2 || m[4] < 2 {
         return None;
     }
-    Some(Snap { text, cursor: Some((m[0], m[1])), alt: m[2] == 1, rows: m[3], cols: m[4] })
+    let mouse = [1000, 1002, 1003, 1005, 1006].into_iter().zip(m.iter().skip(5)).filter(|(_, on)| **on == 1).map(|(mode, _)| mode).collect();
+    Some(Snap { text, cursor: Some((m[0], m[1])), alt: m[2] == 1, mouse, rows: m[3], cols: m[4] })
 }
 
 pub struct Boot {

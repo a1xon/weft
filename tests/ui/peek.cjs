@@ -68,6 +68,66 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   const b2 = await card.boundingBox();
   ok(Math.round(b2.width / k) === 500 && Math.round(b2.height / k) === 260 && await p.locator('#focus').isHidden(), 'a double-click on the grip puts it back to the default size (' + Math.round(b2.width / k) + 'x' + Math.round(b2.height / k) + ')');
   ok(await waitFor(async () => !saved(), 5000), 'and the flow forgets the size');
+
+  // --- the wheel in the terminal: weft's history of a plain shell
+  await p.locator('.nw[data-id="n2"] .live').click();
+  ok(await waitFor(async () => await p.locator('#focus').isVisible(), 5000), 'the printer opens large');
+  const termText = () => p.locator('#term').innerText();
+  ok(!/^1$/m.test(await termText()), 'its first line has scrolled away');
+  const tb = await p.locator('#term').boundingBox();
+  await p.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2);
+  for (let i = 0; i < 12; i++) { await p.mouse.wheel(0, -120); await sleep(30); }
+  ok(await waitFor(async () => /^1$/m.test(await termText()), 5000), 'the wheel scrolls back to it');
+  ok(await p.locator('#scrollbadge').isVisible(), 'and offers the way back');
+  await p.locator('#scrollbadge').click();
+  ok(await waitFor(async () => /^60$/m.test(await termText()) && await p.locator('#scrollbadge').isHidden(), 5000), 'which shows the latest again');
+  await p.locator('#focus .btn', { hasText: 'back to canvas' }).click();
+  // a program that reads the mouse (Claude Code on its alternate screen) gets the wheel itself
+  await p.evaluate(() => send('node_add', { node: { name: 'mouser', agent: 'sh', x: 1350, y: 150,
+    cmd: "printf '\\033[?1049h\\033[?1003h\\033[?1006hmouse on\\n'; stty raw -echo; dd bs=1 count=12 2>/dev/null | od -An -c; sleep 120" }, run: true }));
+  ok(await waitFor(async () => /mouse on/.test(await p.evaluate(() => ((S.rt.get('n3') || {}).pv || []).join('\n'))), 20000), 'a program that asks for the mouse runs');
+  await p.locator('.nw[data-id="n3"] .live').click();
+  ok(await waitFor(async () => await p.locator('#focus').isVisible(), 5000), 'it opens large');
+  const mb = await p.locator('#term').boundingBox();
+  await p.mouse.move(mb.x + mb.width / 2, mb.y + mb.height / 2);
+  await p.mouse.wheel(0, -120);
+  ok(await waitFor(async () => /033\s+\[\s+<\s+6\s+4\s+;/.test(await termText()), 5000), 'the wheel reaches it as a mouse wheel event (' + (await termText()).replace(/\s+/g, ' ').trim().slice(0, 80) + ')');
+  ok(await p.locator('#scrollbadge').isVisible(), 'and "jump to latest" is offered (it sends ctrl+end)');
+  await p.locator('#focus .btn', { hasText: 'back to canvas' }).click();
+  // --- zoomed in, the cards are drawn at that size, not a stretched picture of them. Only a full
+  // screenshot shows it (an element screenshot makes Chrome draw afresh); the reference is the same
+  // view with the layer forced away, which always draws at the real size
+  const zoomed = async () => {
+    await p.evaluate(() => { S.v = { x: 0, y: 0, k: 0.4 }; applyView(); }); await sleep(600);
+    const nb = await p.locator('.nw[data-id="n1"] .nm').boundingBox();
+    await p.mouse.move(nb.x + 4, nb.y + nb.height / 2);
+    for (let i = 0; i < 30; i++) { await p.mouse.wheel(0, -100); await sleep(16); }
+    await sleep(900);
+    const r = await p.locator('.nw[data-id="n1"] .ask').boundingBox();
+    return { x: Math.max(0, Math.round(r.x)), y: Math.max(60, Math.round(r.y)), width: Math.min(700, Math.round(r.width)), height: Math.min(120, Math.round(r.height)) };
+  };
+  const crop = async c => {
+    const png = await p.screenshot();
+    return p.evaluate(async ([b64, c]) => {
+      const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+      const cv = document.createElement('canvas'); cv.width = c.width; cv.height = c.height;
+      const x = cv.getContext('2d'); x.drawImage(img, -c.x, -c.y); return Array.from(x.getImageData(0, 0, c.width, c.height).data);
+    }, [png.toString('base64'), c]);
+  };
+  const differ = (a, b) => { let d = 0; for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 24) d++; return d; };
+  const fresh = async c => { const t = await p.addStyleTag({ content: '#world{will-change:auto!important}' }); await sleep(600); const px = await crop(c); await t.evaluate(e => e.remove()); return px; };
+  // the old way (a layer all the time) is caught by this check
+  let old = await p.addStyleTag({ content: '#world{will-change:transform!important}' });
+  let c = await zoomed();
+  const stretched = await crop(c);
+  await old.evaluate(e => e.remove());
+  const dOld = differ(stretched, await fresh(c));
+  c = await zoomed();
+  ok(await p.evaluate(() => S.v.k) === 2 && !(await p.locator('#world').getAttribute('class') || '').includes('moving'), 'zoomed to 200%, the canvas is at rest');
+  const dNew = differ(await crop(c), await fresh(c));
+  ok(dOld > 200 && dNew < 40, 'its text is drawn at 200%, as sharp as drawn afresh (' + dNew + ' pixels differ; a layer kept at the old scale: ' + dOld + ')');
+  await p.evaluate(() => fit());
+
   ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
   await b.close();
   console.log(fails ? fails + ' FAILED' : 'ALL PASSED');

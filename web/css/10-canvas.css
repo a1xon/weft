@@ -5,7 +5,10 @@
 #grid .plus{stroke:#8fb0d8;stroke-opacity:.26;stroke-width:1}
 #canvas{position:absolute;inset:0;cursor:default;touch-action:none}
 #canvas.panning{cursor:grabbing}
-#world{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
+/* a layer only while the view moves: Chrome keeps a will-change layer at the scale it was drawn at,
+   so zoomed in it would be a stretched picture of the cards; at rest it draws them at the real size */
+#world{position:absolute;left:0;top:0;transform-origin:0 0}
+#world.moving{will-change:transform}
 #edges{position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none}
 #marquee{position:fixed;border:1px solid var(--cy);background:rgba(92,200,255,.06);z-index:20;pointer-events:none}
 

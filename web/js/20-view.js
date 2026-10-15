@@ -1,9 +1,12 @@
 /* ------------------------------------------------------------ view */
 const world = $('#world'), canvas = $('#canvas');
-let saveT = 0;
+let saveT = 0, restT = 0;
 function applyView() {
   const v = S.v;
   world.style.transform = `translate(${v.x}px,${v.y}px) scale(${v.k})`;
+  world.classList.add('moving');
+  clearTimeout(restT);
+  restT = setTimeout(() => world.classList.remove('moving'), 180);
   $('#pat').setAttribute('patternTransform', `translate(${v.x} ${v.y}) scale(${v.k})`);
   $('#app').classList.toggle('lod', v.k < 0.5);
   $('#zPct').textContent = Math.round(v.k * 100) + '%';

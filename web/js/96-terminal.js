@@ -39,13 +39,17 @@ function undo() { const f = S.undo.pop(); if (f) f(); else toast('info', 'nothin
 
 /* ------------------------------------------------------------ focused terminal */
 const focusEl = $('#focus');
-let termEl = null, rowEls = [], termCols = 0;
+let termEl = null, rowEls = [], termCols = 0, termMouse = false, wheelUp = 0;
 function openFocus(id) {
   const n = S.nodes.get(id); if (!n || kindOf(n) !== 'agent') return;
-  S.focus = id; S.scroll = 0; S.hist = 0; closeMenu();
+  S.focus = id; S.scroll = 0; S.hist = 0; termMouse = false; wheelUp = 0; closeMenu();
   const stx = h('span', { class: 'stx' }), st = h('span', { class: 'st' });
   termEl = h('div', { id: 'term', tabindex: '0', role: 'textbox', 'aria-label': `Terminal of ${n.name}`, 'aria-multiline': 'true' });
-  const badge = h('button', { class: 'btn sm pri', id: 'scrollbadge', hidden: true, onclick: () => send('scroll', { id, offset: 0 }) }, 'jump to latest');
+  /* back down: weft's history, or Ctrl+End for an agent that scrolls itself (Claude Code) */
+  const badge = h('button', { class: 'btn sm pri', id: 'scrollbadge', hidden: true, onclick: () => {
+    if (S.scroll) send('scroll', { id, offset: 0 });
+    else { send('key', { id, k: 'C-End' }); wheelUp = 0; badge.hidden = true; }
+  } }, 'jump to latest');
   focusEl.replaceChildren(h('div', { class: 'win chamf' },
     h('div', { class: 'fh2' }, st, h('span', { class: 'nm' }, n.name), stx,
       h('button', { class: 'btn sm', title: 'Esc goes to the agent while you type here. Click outside or use this button to leave.', onclick: closeFocus }, 'back to canvas')),
@@ -55,11 +59,20 @@ function openFocus(id) {
   focusEl.onpointerdown = e => { if (e.target === focusEl) closeFocus(); };
   termEl.addEventListener('keydown', onTermKey);
   termEl.addEventListener('paste', e => { e.preventDefault(); const t = e.clipboardData.getData('text'); if (t) send('text', { id: S.focus, text: t, paste: true }); });
+  /* the wheel in notches of 40px (a trackpad's small steps add up); the daemon hands them to the
+     agent when it reads the mouse (Claude Code scrolls its own transcript), else scrolls history */
+  let wheelAcc = 0;
   termEl.addEventListener('wheel', e => {
     e.preventDefault();
-    const step = Math.max(1, Math.round(Math.abs(e.deltaY) / 40)) * 2;
-    const off = Math.max(0, S.scroll + (e.deltaY < 0 ? step : -step));
-    send('scroll', { id: S.focus, offset: Math.min(off, S.hist || off) });
+    wheelAcc += e.deltaY * (e.deltaMode === 1 ? 40 / 3 : e.deltaMode === 2 ? 400 : 1);
+    const n = Math.trunc(wheelAcc / 40); if (!n) return;
+    wheelAcc -= n * 40;
+    if (termMouse) { wheelUp = Math.min(0, wheelUp + n); badge.hidden = !wheelUp; }
+    let row = rowEls.findIndex(r => r.getBoundingClientRect().bottom > e.clientY);
+    if (row < 0) row = Math.max(0, rowEls.length - 1);
+    const r0 = rowEls[0] && rowEls[0].getBoundingClientRect();
+    const col = r0 && termCols ? Math.min(termCols - 1, Math.max(0, Math.floor((e.clientX - r0.left) / (r0.width / termCols)))) : 0;
+    send('wheel', { id: S.focus, n, row, col });
   }, { passive: false });
   updateFocusHead();
   send('watch', { id });
@@ -93,8 +106,9 @@ function onScreen(m) {
     fitTerm();
   }
   for (const [i, html] of m.rowsd) if (rowEls[i]) rowEls[i].innerHTML = html || ' ';
-  S.scroll = m.scroll; S.hist = m.hist;
-  focusEl._refs.badge.hidden = !m.scroll;
+  S.scroll = m.scroll; S.hist = m.hist; termMouse = !!m.mouse;
+  if (!termMouse) wheelUp = 0;
+  focusEl._refs.badge.hidden = !m.scroll && !wheelUp;
 }
 function onTermKey(e) {
   if (e.isComposing) return;

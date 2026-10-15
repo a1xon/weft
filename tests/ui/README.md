@@ -27,7 +27,7 @@ socket and config) and runs, one fresh daemon each:
 | `tidy.cjs` | tidy on a scattered canvas: columns left to right, a fork and its join level with the middle branch, a link that skips columns straight on a lane of its own, no link through a card or across another (checked on the drawn paths), flows stacked, lone cards in a row under them; ctrl+z, the same result again, kept by the daemon, a second tidy moves nothing |
 | `quit.cjs` | quitting: the question names who is mid-work, cancel changes nothing, keep leaves the agents in tmux, end leaves no session, window or daemon |
 | `plea.cjs` | needs you: an agent's question unfolds under its card with an answer box (enter on the card focuses it), a dialog shows its options as buttons, the toast says which it is; a queued prompt rewired after another agent is asked of that one |
-| `peek.cjs` | the live output on a card: a click opens the terminal large, at a readable size |
+| `peek.cjs` | the live output on a card: a click opens the terminal large, at a readable size; the wheel there scrolls weft's history (jump to latest), or reaches a program that reads the mouse as wheel events; zoomed to 200% the cards are drawn sharp, not a stretched picture |
 | `dev.cjs` | dev only (`src/dev.rs`): the page follows edits to its files, styles in place, scripts by a reload that waits while you type (a tag says so; none otherwise) and puts back what was open, errors named by file and line |
 
 `TESTS="pad next" tests/ui/run.sh` runs a subset. The UI is copied into the sandbox when the run

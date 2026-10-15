@@ -62,6 +62,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 | drag a **check** from the tray onto a link / an agent | a gate / a watch (below) |
 | `Alt`-drag a card | clone it |
 | drag a card's bottom-right corner | resize it: a taller card shows more rows of its terminal; double-click the corner for the default size |
+| the wheel in an open terminal | scroll back: an agent that reads the mouse (Claude Code) scrolls its own transcript, anything else weft's history; *jump to latest* goes back down |
 | marquee or shift-click, then `G` | gather several results into one agent |
 | right-click anything | what it can do |
 | drag finished cards onto the **archive** (bottom left) | they are filed: off the canvas, their terminals end, their results kept (below) |
@@ -462,6 +463,10 @@ links and names upstream. A name you give yourself stays. `"titles": false` turn
   terminal never spawn `capture-pane` and nothing polls tmux.
 * Prompts are sent as a bracketed paste (if the app enabled it) followed by Enter, keystrokes as
   literal bytes, so UTF-8 and multi-line text arrive intact.
+* Claude Code draws on the alternate screen, where a terminal keeps no history: an answer longer
+  than the window is only in Claude Code. So the wheel goes to a program that turned on mouse
+  reporting as wheel events (it scrolls itself; Ctrl+End brings it back), and to weft's own history
+  of the pane otherwise. A restart re-seeds each screen with the mouse modes tmux reports.
 * **A prompt is seen taken before anything is judged.** The Enter follows the paste after
   `submit_ms`; weft then looks for the message in the input box next to the cursor. Still there
   after a second and a half: Enter again (twice at most, then the card asks you). No trace of it
