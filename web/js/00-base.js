@@ -5,7 +5,7 @@
    links are dragged, clicked and right-clicked. No side panels.
    ==================================================================== */
 /* a card's size: the default, or what the person dragged it to (n.w, n.h) */
-const NW = 420, NH = 232, PY = 21, JX = 82;
+const NW = 500, NH = 260, PY = 21, JX = 82;
 const nw = n => (n && n.w) || NW, nh = n => (n && n.h) || NH;
 const $ = (s, r = document) => r.querySelector(s);
 const nn = a => a.flat(9).filter(x => x != null && x !== false);

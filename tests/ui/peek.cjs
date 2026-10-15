@@ -20,7 +20,8 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await p.locator('.nw[data-id="n1"] .lt', { hasText: 'live' }).click();
   ok(await p.locator('.nw[data-id="n1"] .live').isVisible(), 'the live output is shown');
   const small = await p.locator('.nw[data-id="n1"] .pvin').evaluate(e => parseFloat(getComputedStyle(e).fontSize));
-  ok(small >= 12, 'its text is not tiny on the card (' + small + 'px)');
+  const fs1 = await p.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--fs')) || 1);
+  ok(small >= 10 * fs1 && small < 12 * fs1, 'its text is small but readable on the card (' + small + 'px)');
   ok((await p.locator('.nw[data-id="n1"] .live').evaluate(e => getComputedStyle(e).cursor)) === 'zoom-in', 'and says it opens bigger');
   // one click opens the whole terminal, large
   await p.locator('.nw[data-id="n1"] .live').click();
@@ -33,15 +34,22 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await p.screenshot({ path: W + '/peek-large.png' });
   await p.locator('#focus .btn', { hasText: 'back to canvas' }).click();
   ok(await p.locator('#focus').isHidden(), 'and it closes again');
+  // a busy agent repaints the peek between press and release: it still opens (a 'click' would not fire)
+  const lb = await p.locator('.nw[data-id="n1"] .live').boundingBox();
+  await p.mouse.move(lb.x + lb.width / 2, lb.y + lb.height - 12); await p.mouse.down(); await sleep(120);
+  await p.locator('.nw[data-id="n1"] .pvin').evaluate(e => { e.innerHTML = '<div>repainted</div>'.repeat(12); });
+  await p.mouse.up();
+  ok(await waitFor(async () => await p.locator('#focus').isVisible(), 3000), 'a press held while the peek repaints still opens the terminal');
+  await p.locator('#focus .btn', { hasText: 'back to canvas' }).click();
 
   // --- the card itself: wider by default, and resized by its corner for more of the terminal
-  await p.evaluate(() => send('node_add', { node: { name: 'printer', agent: 'sh', cmd: 'seq 1 60; sleep 120', x: 900, y: 150 }, run: true }));
+  await p.evaluate(() => send('node_add', { node: { name: 'printer', agent: 'sh', cmd: 'seq 1 60; sleep 120', x: 780, y: 150 }, run: true }));
   ok(await waitFor(async () => (await p.locator('.nw[data-id="n2"]').count()) === 1, 8000), 'a shell that prints sixty lines is on the canvas');
   const card = p.locator('.nw[data-id="n2"]'), grip = p.locator('.nw[data-id="n2"] .grip');
   const rows = () => p.evaluate(() => ((S.rt.get('n2') || {}).pv || []).length);
   ok(await waitFor(async () => (await rows()) === 12, 20000), 'a card of the default size shows 12 rows of its terminal (' + await rows() + ')');
   const k = await p.evaluate(() => S.v.k), b0 = await card.boundingBox();
-  ok(Math.round(b0.width / k) === 420, 'a card is 420 wide by default (' + Math.round(b0.width / k) + ')');
+  ok(Math.round(b0.width / k) === 500, 'a card is 500 wide by default (' + Math.round(b0.width / k) + ')');
   let g = await grip.boundingBox();
   await p.mouse.move(g.x + g.width / 2, g.y + g.height / 2); await sleep(250);
   ok(await grip.evaluate(e => getComputedStyle(e).opacity) === '1', 'pointing at its corner shows the grip');
@@ -58,7 +66,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   g = await grip.boundingBox();
   await p.mouse.dblclick(g.x + g.width / 2, g.y + g.height / 2); await sleep(400);
   const b2 = await card.boundingBox();
-  ok(Math.round(b2.width / k) === 420 && Math.round(b2.height / k) === 232 && await p.locator('#focus').isHidden(), 'a double-click on the grip puts it back to the default size');
+  ok(Math.round(b2.width / k) === 500 && Math.round(b2.height / k) === 260 && await p.locator('#focus').isHidden(), 'a double-click on the grip puts it back to the default size (' + Math.round(b2.width / k) + 'x' + Math.round(b2.height / k) + ')');
   ok(await waitFor(async () => !saved(), 5000), 'and the flow forgets the size');
   ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
   await b.close();

@@ -85,13 +85,14 @@ function mkNode(n) {
     if (kindOf(nd) === 'note') return editNote(id);
     if (!el.ans.classList.contains('hint') && !el.ans.classList.contains('kv')) { select([id]); openFly(id, 'result'); }
   });
-  // the live output is a peek: a click opens the whole terminal, large (selecting text to copy is not a click)
-  el.live.addEventListener('click', e => {
-    e.stopPropagation();
-    if (getSelection().toString()) return;
+  // the live output is a peek: a press and release on it without dragging opens the whole terminal, large.
+  // Not a 'click': a busy agent repaints the peek's rows under the pointer, and a click whose pressed row
+  // was replaced before the release is never fired (it opened only now and then)
+  const openLive = () => {
     const nd = S.nodes.get(id);
     openFocus(nd && nd.agent === 'step' ? hostOf(nd).id : id);
-  });
+  };
+  el.live.addEventListener('click', e => e.stopPropagation());
   el.ag.addEventListener('click', e => {
     e.stopPropagation();
     const r = el.ag.getBoundingClientRect();
@@ -116,7 +117,8 @@ function mkNode(n) {
     if (e.shiftKey) { const s = new Set(S.sel); s.has(id) ? s.delete(id) : s.add(id); select([...s]); return; }
     if (!S.sel.has(id)) select([id]);
     if (e.altKey) return cloneDrag(e, id);
-    dragNodes(e, [...S.sel]);
+    const onLive = el.live.contains(e.target);
+    dragNodes(e, [...S.sel], onLive ? moved => { if (!moved) openLive(); } : undefined);
   });
   el.pout.addEventListener('pointerdown', e => startConnect(e, id, 'out'));
   el.pin.addEventListener('pointerdown', e => startConnect(e, id, 'in'));
