@@ -133,8 +133,9 @@ addEventListener('keydown', e => { if (e.key === 'Escape' && AR.open) { e.stopIm
 
 /* ---- filing: cards dragged onto the archive, or picked from a menu */
 function archHit(x, y) {
-  const r = (archEl.box || archEl).getBoundingClientRect(), pad = 16;
-  return x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad;
+  // while dragging the box is a quarter circle centred on the bottom left corner
+  const r = (parseFloat(getComputedStyle(archEl).getPropertyValue('--qr')) || 170) + 16;
+  return Math.hypot(x, innerHeight - y) <= r;
 }
 /* while cards move the archive shows itself as a place to drop them */
 function archHover(ev, ids) {
