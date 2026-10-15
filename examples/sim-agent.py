@@ -193,7 +193,8 @@ def do_handover():
 
 
 def do_screenshot(prompt):
-    m = re.search(r"^(/\S+\.png)\s*$", prompt, re.M)
+    # the path is quoted inline (a bare path on its own line is turned into an image by Claude Code)
+    m = re.search(r"`(/[^`\n]+\.png)`", prompt) or re.search(r"^(/\S+\.png)\s*$", prompt, re.M)
     if not m:
         return False, "no path given"
     os.makedirs(os.path.dirname(m.group(1)), exist_ok=True)
