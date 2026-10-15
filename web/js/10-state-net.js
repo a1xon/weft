@@ -51,6 +51,7 @@ function onMsg(m) {
     }
     case 'toast': toast(m.k, m.m); break;
     case 'bye': farewell(m); break;
+    case 'archive': onArchive(m); break;
     case 'hand': bead(m.edge, m.ok); break;
     case 'ack': { const f = S.acks.get(m.rid); if (f) { S.acks.delete(m.rid); f(m.r); } break; }
   }
@@ -81,6 +82,7 @@ function loadState(m) {
   }
   applyFlow(m.flow.nodes, m.flow.edges);
   for (const id of S.nodes.keys()) renderRt(id);
+  onArchive({ groups: m.archive });
   applyView();
   renderTicker(); renderOmni(); renderWhere();
   if (S.focus) send('watch', { id: S.focus });

@@ -260,6 +260,26 @@ pub enum Cmd {
         #[serde(default)]
         end: bool,
     },
+    /// File cards away (they were dropped on the archive). What is still at work stays on the canvas.
+    Archive {
+        ids: Vec<String>,
+    },
+    /// Bring filed work back onto the canvas, moved by (dx, dy).
+    Revive {
+        group: String,
+        #[serde(default)]
+        dx: f64,
+        #[serde(default)]
+        dy: f64,
+    },
+    /// What filed work asked and said, in full.
+    ArchiveGet {
+        group: String,
+    },
+    /// Forget filed work for good.
+    ArchiveDel {
+        group: String,
+    },
 }
 
 impl Engine {
@@ -315,6 +335,10 @@ impl Engine {
             Cmd::Result { id } => self.cmd_result(id),
             Cmd::Ls {} => self.cmd_ls(),
             Cmd::Quit { end } => self.cmd_quit(end),
+            Cmd::Archive { ids } => self.cmd_archive(ids),
+            Cmd::Revive { group, dx, dy } => self.cmd_revive(group, dx, dy),
+            Cmd::ArchiveGet { group } => self.cmd_archive_get(group),
+            Cmd::ArchiveDel { group } => self.cmd_archive_del(group),
         }
     }
 }

@@ -75,7 +75,7 @@ impl Engine {
         rt.status
     }
 
-    fn rt_json(&self, id: &str, with_preview: bool, blocked: &HashMap<String, String>) -> Value {
+    fn rt_json(&self, id: &str, with_preview: bool, blocked: &HashMap<String, String>, filing: &HashMap<String, u64>) -> Value {
         let rt = &self.rt[id];
         let node = self.node(id);
         let incoming: Vec<&Edge> = self.flow.edges.iter().filter(|e| e.to == id).collect();
@@ -121,6 +121,7 @@ impl Engine {
             "step_now": rt.cur.is_some(), "pv": pv,
             "gate": rt.gate.held.as_deref().map(|g| head_chars(g, 700)), "git": git,
             "bg": rt.bg,
+            "archive_at": filing.get(id),
             "issue": rt.issue.as_deref().map(|i| head_chars(i, 4000)),
             "waiting": rt.waiting.as_ref().map(|w| json!({"what": head_chars(&w.what, 200), "checks": w.checks})),
             "step_wait": rt.step_wait.as_ref().and_then(|h| self.node(h)).map(|n| n.name.clone()),
@@ -151,16 +152,19 @@ impl Engine {
         }
         if self.rt.values().any(|r| r.ui) {
             let blocked = self.blocked_map();
-            // blocked-ness is derived across the graph, so a node can change without being touched
+            let filing = self.filing_map(&blocked);
+            // blocked-ness and the archive clock are derived across the graph, so a node can change
+            // without being touched
             for (id, rt) in self.rt.iter_mut() {
-                if rt.blocked_by.as_ref() != blocked.get(id) {
+                if rt.blocked_by.as_ref() != blocked.get(id) || rt.filing.as_ref() != filing.get(id) {
                     rt.blocked_by = blocked.get(id).cloned();
+                    rt.filing = filing.get(id).copied();
                     rt.ui = true;
                 }
             }
             let ids: Vec<String> = self.rt.iter().filter(|(_, r)| r.ui).map(|(i, _)| i.clone()).collect();
             for id in ids {
-                let m = self.rt_json(&id, true, &blocked).to_string();
+                let m = self.rt_json(&id, true, &blocked, &filing).to_string();
                 let Some(rt) = self.rt.get_mut(&id) else { continue };
                 rt.ui = false;
                 if m != rt.last_msg {
@@ -226,18 +230,21 @@ impl Engine {
 
     pub(super) fn full_state(&self) -> Value {
         let blocked = self.blocked_map();
-        let rts: Vec<Value> = self.flow.nodes.iter().map(|n| self.rt_json(&n.id, true, &blocked)).collect();
+        let filing = self.filing_map(&blocked);
+        let rts: Vec<Value> = self.flow.nodes.iter().map(|n| self.rt_json(&n.id, true, &blocked, &filing)).collect();
         json!({
             "t": "state",
             "build": crate::model::BUILD,
             "project": {"name": self.boot.name, "dir": self.boot.dir, "session": self.boot.session, "sock": self.boot.sock,
                         "home": home(), "git": self.proj},
             "cfg": {"agents": self.cfg.agents, "quiet_s": self.cfg.quiet_s, "cols": self.cfg.cols, "rows": self.cfg.rows,
-                    "prefs": self.cfg.prefs, "yolo": self.cfg.yolo},
+                    "prefs": self.cfg.prefs, "yolo": self.cfg.yolo,
+                    "archive_s": self.cfg.archive_s, "archive_flow_s": self.cfg.archive_flow_s},
             "models": self.models.iter().map(|(a, l)| (a.clone(), l.iter().map(|(id, label)| json!({"id": id, "label": label})).collect::<Vec<_>>())).collect::<HashMap<_, _>>(),
             "library": self.cfg.library,
             "flow": {"nodes": self.flow.nodes, "edges": self.flow.edges},
             "rt": rts,
+            "archive": self.archive_json(),
         })
     }
 

@@ -1,0 +1,69 @@
+/* ------------------------------------------------------------------ the archive: bottom left, unfolds upward */
+#arch{position:fixed;z-index:21;left:14px;bottom:16px;display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+body.hasarch #zoom{bottom:52px}
+body.padopen #arch{visibility:hidden}
+#arch .abox{display:flex;align-items:center;gap:8px;height:28px;padding:0 11px;border:1px solid var(--l1);background:rgba(7,10,16,.9);
+  font:600 calc(11.5px*var(--fs)) var(--display);letter-spacing:.06em;color:var(--i2);
+  transition:height .14s ease-out,padding .14s ease-out,border-color .12s,background .12s,box-shadow .12s,color .12s}
+#arch .abox:hover{border-color:var(--l3);color:var(--i0)}
+#arch .ai{display:grid;place-items:center;color:var(--i3)}
+#arch .ai svg{width:15px;height:15px;transition:width .14s,height .14s}
+#arch .an{font:600 calc(11px*var(--fs)) var(--mono);color:var(--cy)}
+#arch .an:empty{display:none}
+#arch.open{z-index:27}
+#arch.open .abox{border-color:var(--cy2);color:var(--i0)}
+/* cards on the move: the box is where they can go (solid: a card passing under it must not show through) */
+#arch.drag .abox{height:72px;min-width:200px;justify-content:center;padding:0 22px;border:1px dashed var(--cy2);color:var(--cy);
+  background:#071019;box-shadow:0 10px 30px rgba(0,0,0,.65)}
+#arch.drag .ai{color:var(--cy)}
+#arch.drag .ai svg{width:22px;height:22px}
+#arch.over .abox{border-style:solid;border-color:var(--cy);background:#0b1b28;color:var(--i0);box-shadow:0 0 26px rgba(92,200,255,.4)}
+#arch.drag~#zoom{visibility:hidden}
+#arch.pulse .abox{animation:filed .8s ease-out}
+@keyframes filed{25%{border-color:var(--cy);color:var(--i0);box-shadow:0 0 26px rgba(92,200,255,.5)}}
+.nw.tofile{opacity:.5}
+.nw.tofile .node{--bd:var(--cy)}
+.nw.filing{opacity:0;transition:opacity .18s ease-out;pointer-events:none}
+
+#arch .apanel{--bd:var(--l2);--fill:rgba(8,12,18,.97);--c:12px;width:min(480px,calc(100vw - 28px));max-height:min(64vh,calc(100vh - 150px));
+  display:flex;flex-direction:column;padding:10px 12px 9px;animation:rise .14s ease-out}
+#arch .ah{display:flex;align-items:center;gap:10px;padding:0 0 8px}
+#arch .ah b{font:700 calc(14px*var(--fs)) var(--display);letter-spacing:.03em;color:var(--i0)}
+#arch .ah .sub{font:500 calc(11px*var(--fs)) var(--mono);color:var(--i3)}
+#arch .ah .sp{flex:1}
+#arch .aq{width:100%;margin:0 0 8px;padding:5px 8px;background:var(--void);border:1px solid var(--l1);color:var(--i0);font:calc(12px*var(--fs)) var(--mono);outline:none}
+#arch .aq:focus{border-color:var(--cy2)}
+#arch .alist{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:3px}
+#arch .aempty{padding:14px 4px;color:var(--i3);font:calc(12px*var(--fs)) var(--mono)}
+#arch .arow{padding:6px 8px 6px 9px;border-left:2px solid var(--gr);background:var(--s1);cursor:pointer}
+#arch .arow:hover,#arch .arow.open{background:var(--s2)}
+#arch .arow.bad{border-left-color:var(--rd)}
+#arch .at{display:flex;align-items:center;gap:8px;min-width:0}
+#arch .ak{flex:none;display:grid;place-items:center;color:var(--gr)}
+#arch .ak svg{width:14px;height:14px}
+#arch .arow.bad .at .ak{color:var(--rd)}
+#arch .anm{flex:1;min-width:0;font:600 calc(12.5px*var(--fs)) var(--display);letter-spacing:.02em;color:var(--i0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#arch .aw{flex:none;font:500 calc(10.5px*var(--fs)) var(--mono);color:var(--i3);white-space:nowrap}
+#arch .arow .fb{height:20px;padding:0 7px;opacity:.55}
+#arch .arow:hover .fb,#arch .arow.open .fb,#arch .arow .fb:focus-visible{opacity:1}
+#arch .asay{margin:2px 0 0 22px;font:calc(11.5px*var(--fs)) var(--mono);color:var(--i2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#arch .adet{margin:8px 0 2px 22px;display:flex;flex-direction:column;gap:8px;cursor:default}
+#arch .acard{border-top:1px solid var(--l1);padding-top:6px}
+#arch .ach{display:flex;align-items:center;gap:8px}
+#arch .ach b{font:600 calc(12px*var(--fs)) var(--display);color:var(--i0)}
+#arch .atag{font:500 calc(10.5px*var(--fs)) var(--mono);color:var(--i3)}
+#arch .aask{margin:3px 0;padding-left:8px;border-left:2px solid var(--l2);font:calc(11.5px*var(--fs))/1.45 var(--mono);color:var(--i2);
+  white-space:pre-wrap;word-break:break-word;max-height:4.4em;overflow:hidden}
+#arch .aout{margin:4px 0 0;padding:6px 8px;max-height:220px;overflow:auto;background:var(--void);border-left:2px solid var(--gr);
+  font:calc(11.5px*var(--fs))/1.5 var(--mono);color:var(--i1);white-space:pre-wrap;word-break:break-word;user-select:text;cursor:text}
+#arch .aout.bad{border-left-color:var(--rd)}
+#arch .afoot{padding:8px 2px 0;font:calc(10.5px*var(--fs))/1.5 var(--mono);color:var(--i3)}
+#arch .kk svg{width:11px;height:11px;vertical-align:-1px;color:var(--cy)}
+
+/* on a finished card: when it goes there by itself; click to keep it */
+.fil{flex:none;display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 6px;border:1px solid transparent;
+  font:500 calc(10.5px*var(--fs)) var(--mono);color:var(--i3);white-space:nowrap}
+.fil svg{width:12px;height:12px}
+.fil:hover{color:var(--cy);border-color:var(--l2)}
+.fil.on{color:var(--cy);border-color:var(--cy2);background:rgba(92,200,255,.07)}
+.lod .fil{display:none}

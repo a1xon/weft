@@ -42,12 +42,12 @@ impl Engine {
         self.flow.nodes.iter().find(|n| n.name == name)
     }
 
-    fn next_id(&self, prefix: &str, taken: impl Iterator<Item = String>) -> String {
+    pub(super) fn next_id(&self, prefix: &str, taken: impl Iterator<Item = String>) -> String {
         let max = taken.filter_map(|i| i.strip_prefix(prefix).and_then(|n| n.parse::<u32>().ok())).max().unwrap_or(0);
         format!("{prefix}{}", max + 1)
     }
 
-    fn unique_name(&self, base: &str, except: Option<&str>) -> String {
+    pub(super) fn unique_name(&self, base: &str, except: Option<&str>) -> String {
         let taken = |n: &str| self.flow.nodes.iter().any(|m| m.name == n && Some(m.id.as_str()) != except);
         if !taken(base) {
             return base.to_string();
@@ -80,7 +80,7 @@ impl Engine {
             e.on = on;
             e.id.clone()
         } else {
-            let id = self.next_id("e", self.flow.edges.iter().map(|e| e.id.clone()));
+            let id = self.next_id("e", self.taken_ids(true).into_iter());
             self.flow.edges.push(Edge { id: id.clone(), from: from.into(), to: to.into(), on });
             id
         };
@@ -201,7 +201,7 @@ impl Engine {
     }
 
     pub(super) fn cmd_node_add(&mut self, node: Value, from: Option<String>, run: bool) -> Value {
-        let id = self.next_id("n", self.flow.nodes.iter().map(|n| n.id.clone()));
+        let id = self.next_id("n", self.taken_ids(false).into_iter());
         let mut v = node;
         if let Some(o) = v.as_object_mut() {
             o.insert("id".into(), json!(id));
@@ -333,37 +333,43 @@ impl Engine {
     }
 
     pub(super) fn cmd_node_del(&mut self, id: String) -> Value {
+        self.drop_node(&id, true);
+        self.flow_changed();
+        json!({"ok": true})
+    }
+
+    /// Take a card off the canvas: its process ends, nobody waits on it any more, its links go.
+    /// `worktree`: its git worktree goes too (filed work keeps it, so it can come back to it).
+    pub(super) fn drop_node(&mut self, id: &str, worktree: bool) {
         // an agent that took over works in this agent's worktree: it must not vanish under it
-        let shared = self.worktree_shared(&id);
+        let shared = self.worktree_shared(id);
         // a note somebody asked this agent for, or an agent waiting on it, must not hang
         for r in self.rt.values_mut() {
-            r.forget_requests_from(&id);
+            r.forget_requests_from(id);
         }
         let waiting: Vec<String> = self
             .rt
             .iter()
-            .filter(|(i, r)| **i != id && r.hand.phase != HandPhase::None && r.hand.from.as_deref() == Some(id.as_str()))
+            .filter(|(i, r)| *i != id && r.hand.phase != HandPhase::None && r.hand.from.as_deref() == Some(id))
             .map(|(i, _)| i.clone())
             .collect();
         for w in waiting {
             self.takeover_compose(&w, None);
         }
-        self.kill(&id);
-        if let Some(wt) = self.rt.get(&id).and_then(|r| r.worktree.clone()).filter(|_| !shared) {
+        self.kill(id);
+        if let Some(wt) = self.rt.get(id).and_then(|r| r.worktree.clone()).filter(|_| worktree && !shared) {
             let dir = self.boot.dir.clone();
             tokio::spawn(async move {
                 let _ = tokio::process::Command::new("git").args(["-C"]).arg(dir).args(["worktree", "remove", &wt]).output().await;
             });
         }
-        self.rt.remove(&id);
+        self.rt.remove(id);
         self.flow.nodes.retain(|n| n.id != id);
         self.flow.edges.retain(|e| e.from != id && e.to != id);
         let live: Vec<String> = self.flow.edges.iter().map(|e| e.id.clone()).collect();
         for rt in self.rt.values_mut() {
             rt.inputs.retain(|(eid, _)| live.contains(eid));
         }
-        self.flow_changed();
-        json!({"ok": true})
     }
 
     pub(super) fn cmd_edge_add(&mut self, from: String, to: String, on: On) -> Value {

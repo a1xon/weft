@@ -31,6 +31,7 @@ use std::{
 use tokio::sync::{mpsc, oneshot};
 
 mod agent;
+mod archive;
 mod checks;
 mod commands;
 mod flow;
@@ -53,6 +54,7 @@ pub use state::{Facts, GitJobKind, Status};
 pub use util::now_ms;
 
 use agent::*;
+use archive::*;
 use repo::*;
 use state::*;
 use util::*;
@@ -215,6 +217,11 @@ pub struct Engine {
     git_locks: HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>,
     /// when the state file was last written
     last_save: Instant,
+    /// finished work filed away (see archive.rs), where it is kept, and when the canvas is next
+    /// looked over for work that is due there
+    archive: Archive,
+    archive_path: PathBuf,
+    archive_look: u64,
 }
 
 /// How the daemon was asked to leave: the agents carry on in tmux (the next `weft` adopts them),
@@ -235,6 +242,7 @@ impl Engine {
     pub fn new(boot: Boot, cfg: Config, tx: mpsc::UnboundedSender<Ev>, tmux: Option<Tmux>) -> Engine {
         let flow_path = boot.dir.join(".weft").join("flow.json");
         let state_path = boot.dir.join(".weft").join("state.json");
+        let archive_path = boot.dir.join(".weft").join("archive.json");
         let flow: Flow = load_json(&flow_path).unwrap_or_default();
         let mut e = Engine {
             boot,
@@ -261,6 +269,9 @@ impl Engine {
             models_busy: std::collections::HashSet::new(),
             git_locks: HashMap::new(),
             last_save: Instant::now(),
+            archive: load_json(&archive_path).unwrap_or_default(),
+            archive_path,
+            archive_look: 0,
         };
         let mut saved: HashMap<String, Saved> = load_json(&e.state_path).unwrap_or_default();
         let mut max_q = 0;
@@ -595,6 +606,7 @@ impl Engine {
 
     fn tick(&mut self) {
         self.tick_checks();
+        self.tick_archive();
         let now = Instant::now();
         let alive: Vec<String> = self.rt.iter().filter(|(_, r)| r.alive).map(|(i, _)| i.clone()).collect();
         for id in alive {

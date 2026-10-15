@@ -1897,6 +1897,174 @@ fn a_message_to_an_agent_at_a_dialog_waits_until_the_dialog_is_closed() {
     assert_eq!(e.rt["a"].queue.len(), 2, "both wait in the queue");
 }
 
+/// `id` finished `ago_min` minutes ago, with `ok` and a result.
+fn finished(e: &mut Engine, id: &str, ok: bool, ago_min: u64) {
+    let rt = e.rt.get_mut(id).unwrap();
+    rt.finished = true;
+    rt.armed = true;
+    rt.ok = Some(ok);
+    rt.output = Some(format!("result of {id}"));
+    rt.status = if ok { Status::Done } else { Status::Failed };
+    rt.since = now_ms() - ago_min * 60_000;
+}
+
+fn due(e: &Engine) -> Vec<Vec<String>> {
+    let plan = e.filing_plan(&e.blocked_map());
+    let mut due: Vec<Vec<String>> = plan
+        .into_iter()
+        .filter(|(_, at)| *at <= now_ms())
+        .map(|(mut f, _)| {
+            f.sort();
+            f
+        })
+        .collect();
+    due.sort();
+    due
+}
+
+#[test]
+fn a_lone_finished_card_files_itself_after_half_an_hour_and_comes_back_as_it_was() {
+    let mut e = engine();
+    add(&mut e, "n1", "fix login", "fix the login");
+    add(&mut e, "n2", "still busy", "go");
+    finished(&mut e, "n1", true, 10);
+    // done ten minutes ago: it goes in twenty, and the card can say so
+    let at = e.filing_map(&e.blocked_map())["n1"];
+    assert!(at.abs_diff(e.rt["n1"].since + 1_800_000) < 1000);
+    assert!(!e.filing_map(&e.blocked_map()).contains_key("n2"), "a card that never ran is not finished");
+    e.tick_archive();
+    assert!(e.node("n1").is_some(), "not before its time");
+    // half an hour on: filed, process and all, with what it knew
+    finished(&mut e, "n1", true, 31);
+    e.archive_look = 0;
+    e.tick_archive();
+    assert!(e.node("n1").is_none() && !e.rt.contains_key("n1"));
+    assert!(e.node("n2").is_some());
+    let g = &e.archive.groups[0];
+    assert!(g.auto && g.nodes[0].name == "fix login");
+    assert_eq!(g.state["n1"].output.as_deref(), Some("result of n1"));
+    let gid = g.id.clone();
+    assert!(e.archive_path.exists(), "the archive is on disk");
+    // filed work keeps its id: a new card does not take it
+    let r = e.cmd_node_add(json!({"agent": "claude", "prompt": "next"}), None, false);
+    assert_eq!(r["id"], "n3");
+    // back on the canvas where it was asked to go, with its result, and a new half hour
+    let r = e.cmd_revive(gid, 40.0, 0.0);
+    assert_eq!(r["ids"], json!(["n1"]));
+    assert!(e.archive.groups.is_empty());
+    assert_eq!(e.node("n1").unwrap().x, 40.0);
+    assert_eq!(e.rt["n1"].output.as_deref(), Some("result of n1"));
+    assert_eq!(e.eff_status("n1", &HashMap::new()), Status::Done);
+    assert!(!e.rt["n1"].alive);
+    assert!(e.filing_map(&e.blocked_map())["n1"] >= now_ms() + 1_799_000, "its clock starts again");
+    // a restart keeps "done 31 min ago" (and the clock with it)
+    let mut back = Rt::new(80, 24);
+    back.restore(e.rt["n1"].to_saved());
+    assert_eq!(back.since, e.rt["n1"].since);
+    assert_eq!(back.revived, e.rt["n1"].revived);
+}
+
+#[test]
+fn a_flow_is_filed_as_one_an_hour_after_its_last_step_unless_something_holds_it() {
+    let mut e = engine();
+    add(&mut e, "n1", "plan", "plan it");
+    add(&mut e, "n2", "build", "build it");
+    add(&mut e, "n3", "review", "review it");
+    add(&mut e, "n6", "elsewhere", "other work");
+    add_kind(&mut e, "n4", "spec", "note", "the spec");
+    add_kind(&mut e, "n5", "style", "note", "house style");
+    add(&mut e, "n7", "on failure", "repair it");
+    link(&mut e, "e1", "n1", "n2", On::Done);
+    link(&mut e, "e2", "n2", "n3", On::Done);
+    link(&mut e, "e3", "n4", "n2", On::Done);
+    link(&mut e, "e4", "n5", "n2", On::Done);
+    link(&mut e, "e5", "n5", "n6", On::Done);
+    // a branch for a failure that did not happen: it never runs, and it does not hold the flow
+    link(&mut e, "e6", "n3", "n7", On::Fail);
+    // a note goes with the one flow it feeds; one that feeds two flows stays
+    let mut flows = e.flows();
+    flows.iter_mut().for_each(|f| f.sort());
+    assert!(flows.contains(&vec!["n1".into(), "n2".into(), "n3".into(), "n4".into(), "n7".into()]));
+    assert!(flows.contains(&vec!["n6".to_string()]));
+    assert!(!flows.iter().flatten().any(|i| i == "n5"));
+    finished(&mut e, "n1", true, 150);
+    finished(&mut e, "n2", true, 120);
+    assert_eq!(due(&e), Vec::<Vec<String>>::new(), "the review has not run yet: the flow is not finished");
+    finished(&mut e, "n3", true, 30);
+    assert_eq!(due(&e), Vec::<Vec<String>>::new(), "an hour after the LAST step, not the first");
+    finished(&mut e, "n3", true, 61);
+    assert_eq!(due(&e), vec![vec!["n1", "n2", "n3", "n4", "n7"]]);
+    // a kept card keeps its flow, a failure holds it for a person, a card at work holds it
+    e.flow.nodes.iter_mut().find(|n| n.id == "n2").unwrap().keep = true;
+    assert!(due(&e).is_empty());
+    e.flow.nodes.iter_mut().find(|n| n.id == "n2").unwrap().keep = false;
+    finished(&mut e, "n2", false, 120);
+    assert!(due(&e).is_empty());
+    finished(&mut e, "n2", true, 120);
+    e.rt.get_mut("n2").unwrap().queue.push_back(QItem { id: 1, text: "more".into(), shown: "more".into(), src: Src::You });
+    assert!(due(&e).is_empty());
+    e.rt.get_mut("n2").unwrap().queue.clear();
+    // filed as one drop: its links go with it, the shared note stays with what it still feeds
+    e.tick_archive();
+    assert_eq!(e.archive.groups.len(), 1);
+    assert_eq!(e.archive.groups[0].nodes.len(), 5);
+    let ids: Vec<&str> = e.flow.nodes.iter().map(|n| n.id.as_str()).collect();
+    assert_eq!(ids, vec!["n6", "n5"]);
+    assert_eq!(e.flow.edges.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), vec!["e5"]);
+    // back again: every link returns, the one from the shared note too, and nothing is delivered
+    let gid = e.archive.groups[0].id.clone();
+    e.cmd_revive(gid, 0.0, 0.0);
+    let mut eids: Vec<&str> = e.flow.edges.iter().map(|x| x.id.as_str()).collect();
+    eids.sort();
+    assert_eq!(eids, vec!["e1", "e2", "e3", "e4", "e5", "e6"]);
+    assert!(e.rt.values().all(|r| r.queue.is_empty()));
+    assert_eq!(e.rt["n4"].output.as_deref(), Some("the spec"));
+}
+
+#[test]
+fn what_is_still_at_work_stays_on_the_canvas_when_dropped_on_the_archive() {
+    let mut e = engine();
+    add(&mut e, "n1", "busy one", "go");
+    add(&mut e, "n2", "done one", "go");
+    add_kind(&mut e, "n3", "follow-up", "step", "and the tests?");
+    e.flow.nodes.iter_mut().find(|n| n.id == "n3").unwrap().host = "n2".into();
+    link(&mut e, "e1", "n2", "n3", On::Done);
+    e.rt.get_mut("n1").unwrap().cur = Some(Step::new("go".into(), Vec::new()));
+    finished(&mut e, "n2", true, 1);
+    let r = e.cmd_archive(vec!["n1".into()]);
+    assert_eq!(r["ok"], false);
+    assert!(r["error"].as_str().unwrap().contains("busy one is still at work"));
+    // the finished agent goes, with the prompt queued on it; the busy one stays
+    let r = e.cmd_archive(vec!["n1".into(), "n2".into()]);
+    assert_eq!(r["ok"], true);
+    assert_eq!(r["busy"], json!(["busy one"]));
+    assert!(e.node("n1").is_some() && e.node("n2").is_none() && e.node("n3").is_none());
+    let g = &e.archive.groups[0];
+    assert!(!g.auto);
+    assert_eq!(g.edges.len(), 1);
+    // and it can be forgotten for good
+    let gid = g.id.clone();
+    assert_eq!(e.cmd_archive_get(gid.clone())["nodes"][0]["out"], "result of n2");
+    e.cmd_archive_del(gid);
+    assert!(e.archive.groups.is_empty());
+    assert_eq!(e.cmd_node_add(json!({"agent": "claude"}), None, false)["id"], "n2", "a forgotten id is free again");
+}
+
+#[test]
+fn the_archive_file_stays_out_of_git() {
+    let dir = std::env::temp_dir().join(format!("weft-gitignore-{}", std::process::id()));
+    let p = dir.join(".weft").join(".gitignore");
+    let _ = std::fs::remove_dir_all(&dir);
+    ensure_weft_gitignore(&dir);
+    assert!(std::fs::read_to_string(&p).unwrap().lines().any(|l| l == "archive.json"));
+    // a folder from before the archive gets the line added, and what was there stays
+    write_atomic(&p, b"run/\nshots/\nstate.json").unwrap();
+    ensure_weft_gitignore(&dir);
+    ensure_weft_gitignore(&dir);
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "run/\nshots/\nstate.json\narchive.json\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn the_step_an_agent_answers_survives_a_restart() {
     let mut r = Rt::new(80, 24);

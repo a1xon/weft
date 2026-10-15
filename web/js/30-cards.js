@@ -175,9 +175,17 @@ function dragNodes(e, ids, then) {
       placeNode(c); redrawEdgesOf(i);
     }
     placeEdgeBar(); placeFly();
+    archHover(ev, ids);
   };
   const up = () => {
     removeEventListener('pointermove', mv);
+    if (moved && archDrop(ids)) {
+      // dropped on the archive: they are being filed; what is still at work stays where it was
+      for (const [i, p] of start) { const c = S.nodes.get(i); if (c) { c.x = p.x; c.y = p.y; placeNode(c); redrawEdgesOf(i); } }
+      placeEdgeBar(); placeFly();
+      if (then) then(moved);
+      return;
+    }
     if (moved) send('node_move', { moves: ids.filter(i => S.nodes.has(i)).map(i => ({ id: i, x: S.nodes.get(i).x, y: S.nodes.get(i).y })) });
     if (then) then(moved);
   };
@@ -278,6 +286,7 @@ function renderNode(id) {
   renderFilm(id, n, r);
   renderPlea(id, n, r);
   renderEta(id, n, r);
+  renderFiling(id, n, r);
   const k = kindOf(n);
   const st = r ? r.status : 'new';
   el.root.dataset.st = st;

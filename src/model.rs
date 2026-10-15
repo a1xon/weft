@@ -170,6 +170,9 @@ pub struct Node {
     /// Checks attached to this agent: they watch it work (never block anything).
     #[serde(default)]
     pub checks: Vec<Check>,
+    /// Kept on the canvas: never goes to the archive by itself, and neither does its flow.
+    #[serde(default)]
+    pub keep: bool,
 }
 
 /// What a watch collects.
@@ -399,6 +402,10 @@ pub struct Config {
     pub chain_status: bool,
     /// How long an agent that said it is waiting may be silent before weft wakes it to check (seconds).
     pub recheck_s: f64,
+    /// A finished card that is part of no flow goes to the archive after this long (seconds; 0 = never).
+    pub archive_s: f64,
+    /// A flow of several cards goes to the archive this long after its last step finished (0 = never).
+    pub archive_flow_s: f64,
 }
 
 impl Default for Config {
@@ -419,6 +426,8 @@ impl Default for Config {
             background_s: 600.0,
             chain_status: true,
             recheck_s: 60.0,
+            archive_s: 1800.0,
+            archive_flow_s: 3600.0,
         }
     }
 }
@@ -633,10 +642,18 @@ pub fn save_config_key(path: &Path, key: &str, value: serde_json::Value) {
     save_json(path, &cur);
 }
 
-/// Keep runtime files (prompt files, state) out of `git add .`; flow.json stays committable.
+/// Keep runtime files (prompt files, state, filed work) out of `git add .`; flow.json stays committable.
 pub fn ensure_weft_gitignore(dir: &Path) {
     let p = dir.join(".weft").join(".gitignore");
-    if !p.exists() {
-        let _ = write_atomic(&p, b"run/\nshots/\nstate.json\n");
+    match fs::read_to_string(&p) {
+        Err(_) => {
+            let _ = write_atomic(&p, b"run/\nshots/\nstate.json\narchive.json\n");
+        }
+        // a folder from before the archive existed
+        Ok(have) if !have.lines().any(|l| l.trim() == "archive.json") => {
+            let sep = if have.is_empty() || have.ends_with('\n') { "" } else { "\n" };
+            let _ = write_atomic(&p, format!("{have}{sep}archive.json\n").as_bytes());
+        }
+        Ok(_) => {}
     }
 }

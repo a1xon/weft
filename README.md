@@ -63,6 +63,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 | drag a card's bottom-right corner | resize it: a taller card shows more rows of its terminal; double-click the corner for the default size |
 | marquee or shift-click, then `G` | gather several results into one agent |
 | right-click anything | what it can do |
+| drag finished cards onto the **archive** (bottom left) | they are filed: off the canvas, their terminals end, their results kept (below) |
 
 Several links into one agent draw an **AND** ring (`Promise.all`): it starts when all have
 arrived; switch it to `≥1` for the first (`Promise.any`). A junction that can no longer be
@@ -188,6 +189,31 @@ for every agent that took part what it was asked, what it said and which commit 
 (budgeted to stay inside the 8 000 byte limit of piped results). Whatever you link after the
 chain, a tester, a reviewer, a deploy script, starts from that, not from a bare "done".
 
+### The archive
+
+Finished work leaves the canvas so what is still going on stays in sight. The archive is the box
+in the bottom left corner.
+
+* **Drop cards on it.** Drag a finished card (or a selection) onto it and let go: the cards are
+  filed. Their terminals end, their results, prompts, links and worktrees are kept. A card that is
+  still at work stays where it is (stop it or let it finish first). `ctrl+z` brings back what you
+  just filed; *archive* is in a card's right-click menu too.
+* **It files by itself.** A lone card goes **30 minutes** after it is done. A **flow** (cards tied
+  by links, a hand-over's baton line or a queued prompt's agent) goes as one, **60 minutes after its
+  last step**, once every card in it is finished: done, or a branch whose condition did not come
+  true. Nothing in a flow that is still under way, failed or waits for you is filed, and a card whose
+  terminal you have open waits until you close it. A note goes along with the one flow it feeds.
+* **Keep.** A finished card shows when it will go (`⊟ 24m` in its footer); a click on that keeps it
+  on the canvas (`kept`), and with it its whole flow. *Keep on the canvas* is in its menu too.
+* **Read and bring back.** A click on the archive unfolds what is filed, newest first: what each
+  card was asked and what it said, a search once there is more than a handful. *Bring back* puts
+  the cards where they were (or next to that, if something is there now) with their results and
+  links; nothing is handed on again and the next prompt starts a fresh terminal. Its clock starts
+  over. *×* forgets it for good (its worktree goes too, as when a card is deleted).
+
+`archive_s` (1800) and `archive_flow_s` (3600) in `config.json` set the two times in seconds; `0`
+means never. The archive keeps the latest 100 drops.
+
 ## Prompt library
 
 *Standard prompts* are copied in when you insert them (`/`). *Addenda* are referenced, so editing
@@ -308,6 +334,7 @@ Everything goes through one small local HTTP API, so scripts can drive a flow to
 | --- | --- |
 | `<project>/.weft/flow.json` | the graph; plain JSON, safe to commit and hand-edit |
 | `<project>/.weft/state.json`, `run/`, `shots/` | run state, prompt files, images; git-ignored |
+| `<project>/.weft/archive.json` | filed work: cards, links, results; git-ignored |
 | `~/.config/weft/config.json` | **your overrides only**, merged onto the defaults |
 
 ```json
@@ -393,6 +420,7 @@ src/engine/        the single actor that owns all state
     gates.rs       the gates on a link: approve, screenshot, tests
     git.rs         commit, push and open PR as steps; repo.rs is the git plumbing under them
     handover.rs    a fresh agent takes over another one's work
+    archive.rs     finished work filed away (by hand or by itself), kept, brought back
     commands.rs    the command set and its dispatcher (each command lives in its domain's module)
     ui.rs          what browsers are told, and the state file
     info.rs        the project folder and each CLI's model list

@@ -361,6 +361,8 @@ pub(super) struct Rt {
     pub(super) reply_to: Option<String>,
     /// when the current run began (ms since the epoch)
     pub(super) run_ms: u64,
+    /// when it came back from the archive (ms since the epoch): its archive clock starts again then
+    pub(super) revived: u64,
 
     // ---- what the browsers were last told
     pub(super) ui: bool,
@@ -368,6 +370,8 @@ pub(super) struct Rt {
     pub(super) last_msg: String,
     /// who the browsers were last told is in this node's way
     pub(super) blocked_by: Option<String>,
+    /// when the browsers were last told it goes to the archive by itself
+    pub(super) filing: Option<u64>,
 
     // ---- the node's role
     pub(super) gate: GateRound,
@@ -673,10 +677,12 @@ impl Rt {
             propagated: false,
             reply_to: None,
             run_ms: 0,
+            revived: 0,
             ui: true,
             scr: true,
             last_msg: String::new(),
             blocked_by: None,
+            filing: None,
             gate: GateRound::default(),
             hand: Takeover::default(),
             step_wait: None,
@@ -717,6 +723,8 @@ impl Rt {
             git_log: self.git.log.clone(),
             git_carry: self.git.carry.clone(),
             git_facts: self.git.facts.clone(),
+            since: self.since,
+            revived: self.revived,
             cur: self.cur.clone(),
             reply_to: self.reply_to.clone(),
             step_wait: self.step_wait.clone(),
@@ -763,8 +771,13 @@ impl Rt {
         self.cur = s.cur;
         self.reply_to = s.reply_to;
         self.step_wait = s.step_wait;
+        self.revived = s.revived;
         if self.finished {
             self.status = if self.ok == Some(false) { Status::Failed } else { Status::Done };
+            // "done 2h ago" stays true across a restart (and so does its archive clock)
+            if s.since > 0 {
+                self.since = s.since;
+            }
         }
         if self.gate.held.is_some() || (self.issue.is_some() && !self.finished) {
             self.status = Status::Attention;
@@ -1009,6 +1022,11 @@ pub(super) struct Saved {
     pub(super) git_carry: Vec<Carry>,
     #[serde(default)]
     pub(super) git_facts: Facts,
+    /// when its status last changed (ms since the epoch; kept for a finished node: "done 2h ago")
+    #[serde(default)]
+    pub(super) since: u64,
+    #[serde(default)]
+    pub(super) revived: u64,
     /// the step the agent was answering, and the node its answer goes to (a step, a gate)
     #[serde(default)]
     pub(super) cur: Option<Step>,
