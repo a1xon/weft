@@ -314,6 +314,8 @@ replaced by what tmux shows. A marker on a screen that has not moved for `backgr
 
 ```
 weft [dir]                    open the canvas
+weft app [dir] [--pick]       the same in a window of its own (no dir: the project opened last)
+weft desktop                  put weft in the app grid, to pin it to the dock
 weft ls                       nodes, status, runs, queued
 weft send [--queue|--now] <node> <text|->   a prompt into a node (starts it if needed)
 weft result <node>            its latest result
@@ -410,6 +412,7 @@ prompt the same; six processes printing ~7 000 lines a second ≈ 2.5 % of one c
 
 ```
 src/main.rs        the CLI (`weft`, `weft stop`, `weft done` ...) and how the daemon starts
+src/launch.rs      `weft app` / `weft desktop`: a window of its own, the dock entry, recent projects
 src/model.rs       the flow graph, node and config types, built-in defaults: plain JSON on disk
 src/server.rs      loopback HTTP + WebSocket, token and Host checks
 src/web.rs         puts the page together from web/ (embedded in the binary)
@@ -471,6 +474,21 @@ The UI and fonts are inside the binary, so that one file is everything. Every bu
 stamp. Typing `weft` in a folder whose daemon was started by an *older* build replaces that
 daemon with the new one (its agents keep running in tmux and are adopted again; port and token
 stay), and an open browser tab reloads itself to the matching page. Nothing else to restart.
+
+### From the dock
+
+```
+weft desktop                   # once: weft appears in the app grid; right-click it, Pin to Dash
+```
+
+The icon runs `weft app`: the canvas opens in a window of its own (a Chromium-family browser in
+app mode, with a profile of its own: the default browser if it is one, else Brave, Chrome, Edge
+or Chromium; `WEFT_BROWSER` picks another), on the project you opened last. Which folder each
+agent works in is chosen on the launch pad. Right-click the icon for the five projects opened
+last, or *Other folder…* to pick one; the first start ever asks too. On Wayland the window's id
+is `<browser>-127.0.0.1__-Default` for every port, which the entry names as its
+`StartupWMClass`, so all weft windows sit under the one icon. Without such a browser, weft opens a
+tab. Rerun `weft desktop` after changing the default browser or moving the binary.
 
 ## Build and test
 

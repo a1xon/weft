@@ -6,6 +6,7 @@
 mod client;
 mod dev; // dev: the page follows edits to web/ while weft's UI is worked on
 mod engine;
+mod launch;
 mod model;
 mod server;
 mod term;
@@ -28,6 +29,9 @@ weft - a canvas for coding agents (tmux is the only runtime)
 
 USAGE
   weft [dir]                 open the canvas for a project (starts the daemon)
+  weft app [dir] [--pick]    the same in a window of its own; no dir = the project
+                             opened last, --pick asks for a folder
+  weft desktop               put weft in the app grid (pin it to the dock from there)
   weft serve [dir] [--port N] [--no-open]
                              run the daemon in the foreground
   weft stop [dir] [--keep]   quit: ends the daemon and every agent of the project
@@ -142,6 +146,15 @@ async fn real_main(args: Vec<String>) -> Result<i32, String> {
         "shot" => shot(rest),
         "eta" => eta(rest),
         "open" => open(rest).await.map(|_| 0),
+        "app" => match launch::app_dir(rest).map_err(launch::tell)? {
+            Some(dir) => open_dir(dir, launch::Show::Window).await.map(|_| 0).map_err(launch::tell),
+            None => Ok(0),
+        },
+        "desktop" => {
+            let entry = launch::install()?;
+            println!("weft is in the app grid now ({}): pin it to the dock from there", entry.display());
+            Ok(0)
+        }
         // `weft`, `weft <dir>`, `weft --no-open`: open the canvas
         _ => open(&args).await.map(|_| 0),
     }
@@ -150,8 +163,12 @@ async fn real_main(args: Vec<String>) -> Result<i32, String> {
 // ------------------------------------------------------------------- open
 
 async fn open(args: &[String]) -> Result<(), String> {
-    let dir = dir_from(args)?;
-    let no_open = args.iter().any(|a| a == "--no-open");
+    let show = if args.iter().any(|a| a == "--no-open") { launch::Show::Nothing } else { launch::Show::Tab };
+    open_dir(dir_from(args)?, show).await
+}
+
+async fn open_dir(dir: PathBuf, show: launch::Show) -> Result<(), String> {
+    let no_open = show == launch::Show::Nothing;
     let running = client::find_running(&dir).filter(|i| i.dir == dir);
     let info = match running {
         Some(i) if i.build == model::BUILD => i,
@@ -197,8 +214,9 @@ async fn open(args: &[String]) -> Result<(), String> {
     let url = format!("http://127.0.0.1:{}/#t={}", info.port, info.token);
     println!("weft  {}\n      {url}", dir.display());
     if !no_open {
-        let _ = std::process::Command::new("xdg-open").arg(&url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+        launch::remember(&dir);
     }
+    launch::show(&url, show);
     Ok(())
 }
 
