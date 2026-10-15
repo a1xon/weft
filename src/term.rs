@@ -324,6 +324,31 @@ pub fn input_holds(screen: &Screen, probe: &str) -> bool {
     (probe.chars().count() >= 6 && t.contains(probe)) || t.contains("[pasted")
 }
 
+/// Is one of an agent's dialogs (`patterns`: its question or one of its options) up on the screen?
+/// A dialog takes over the bottom of the screen and offers choices: the phrase must be near the
+/// bottom with a choice at or under it ("❯ 1. Yes", "› 2. No", "> Yes, I trust this folder"), or be
+/// the last line, where a one-line question waits ("Add file? (Y)es/(N)o").
+/// The same words in what an agent shows or writes (its own source, a test, a diff) are no dialog,
+/// and neither is Claude Code's input box under them ("❯ " right below a rule).
+pub fn dialog_on(text: &str, patterns: &[String]) -> bool {
+    const BOTTOM: usize = 20;
+    let rows: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let rows = &rows[rows.len().saturating_sub(BOTTOM)..];
+    let choice = |i: usize| {
+        let t = rows[i].trim_start_matches(|c: char| "│┃ \u{a0}".contains(c));
+        let marked = t.strip_prefix(['❯', '›', '>']).map(|r| r.trim_start());
+        let numbered = |s: &str| {
+            let d = s.chars().take_while(char::is_ascii_digit).count();
+            d > 0 && s[d..].starts_with(['.', ')']) && s[d + 1..].starts_with(' ')
+        };
+        let under_rule = i > 0 && rows[i - 1].chars().all(|c| BORDER.contains(c));
+        numbered(t) || marked.is_some_and(|r| numbered(r) || (!r.is_empty() && !under_rule))
+    };
+    rows.iter()
+        .position(|l| patterns.iter().any(|p| !p.is_empty() && l.contains(p.as_str())))
+        .is_some_and(|at| at + 1 == rows.len() || (at..rows.len()).any(choice))
+}
+
 fn is_tool_call(t: &str) -> bool {
     const TOOLS: [&str; 12] = ["Read", "Bash", "Update", "Write", "Edit", "Search", "Grep", "Glob", "List", "Task", "Fetch", "WebFetch"];
     let t = t.trim_start_matches(|c: char| "●⏺•* \u{a0}".contains(c));
@@ -486,5 +511,28 @@ All five slug tests now pass."
         assert!(is_noise("✻ Brewed for 3s · done 7:07 · 1 shell still running", &chrome));
         assert!(!is_noise("██████ 80% of the tests pass", &chrome));
         assert!(!is_noise("The tests ran for 3s and all pass.", &chrome));
+    }
+
+    #[test]
+    fn a_dialog_is_told_from_its_words_in_what_an_agent_shows() {
+        let claude = v(&["Yes, I trust this folder", "Do you want to proceed?", "Yes, I accept"]);
+        let codex = v(&["Would you like to run the following command", "Update now"]);
+        let agy = v(&["Do you trust the contents of this project"]);
+        // the real dialogs, as Claude Code, Codex and agy draw them
+        let trust = "Quick safety check: do you trust this folder?\n\n ❯ 1. Yes, I trust this folder\n   2. No, exit\n\n Enter to confirm · Esc to cancel";
+        assert!(dialog_on(trust, &claude));
+        let perm = "● Bash(rm -rf build)\n\n Bash command\n   rm -rf build\n Do you want to proceed?\n ❯ 1. Yes\n   2. No, and tell Claude what to do differently (esc)";
+        assert!(dialog_on(perm, &claude));
+        let update = "✨ Update available! 0.155 -> 0.162\n\n› 1. Update now (runs `npm install -g @openai/codex`)\n  2. Skip\n  3. Skip until next version\n\n  Press enter to continue";
+        assert!(dialog_on(update, &codex));
+        let agy_trust = "Do you trust the contents of this project?\nAntigravity CLI requires permission to read, edit, and execute files here.\n> Yes, I trust this folder\n  No, exit\n  ↑/↓ Navigate · enter Confirm";
+        assert!(dialog_on(agy_trust, &agy));
+        assert!(dialog_on("Add src/a.py to the chat? (Y)es/(N)o [Yes]: ", &v(&["(Y)es/(N)o"])));
+        // weft's own source on an agent's screen, then its idle input box: no dialog
+        let source = "● Update(src/model.rs)\n  477 -  attention: strings(&[\"Yes, I trust this folder\", \"Do you want to proceed?\"]),\n\n● Done. The patterns are unchanged.\n\n✻ Baked for 4m 15s · done 19:07\n\n──────────────\n❯ install it\n──────────────\n  ⏵⏵ bypass permissions on (shift+tab to cycle)";
+        assert!(!dialog_on(source, &claude));
+        // a numbered list under the words in an agent's message, long scrolled up: no dialog either
+        let old = format!("It asks \"Do you want to proceed?\" and offers:\n1. Yes\n2. No\n{}❯ \n", "more text\n".repeat(25));
+        assert!(!dialog_on(&old, &claude));
     }
 }

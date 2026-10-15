@@ -49,12 +49,11 @@ function renderPlea(id, n, r) {
       const m = DIALOG_OPT.exec(d.textContent);
       if (m && !seen.has(m[1])) { seen.add(m[1]); picks.push(m); }
     }
-    const key_ = (label, k, tip) => h('button', { class: 'fbtn', title: tip, onclick: ev => { ev.stopPropagation(); send('key', { id, k }); } }, label);
-    p.opts.replaceChildren(
-      ...picks.map(([, num, label]) => h('button', { class: 'fbtn opt', title: `press ${num}`, onclick: ev => { ev.stopPropagation(); send('text', { id, text: num, paste: false }); } },
-        h('b', {}, num), label)),
-      key_('enter', 'Enter', 'confirm what is highlighted'), key_('esc', 'Escape', 'cancel the dialog'));
-    p.tip.textContent = picks.length ? 'pick an answer, or open the terminal' : 'answer it in the terminal';
+    const key_ = (label, k, tip) => h('button', { class: 'fbtn key', title: tip, onclick: ev => { ev.stopPropagation(); send('key', { id, k }); } }, label);
+    p.opts.replaceChildren(...picks.map(([, num, label]) => h('button', { class: 'fbtn opt', title: `press ${num}`,
+      onclick: ev => { ev.stopPropagation(); send('text', { id, text: num, paste: false }); } }, h('b', {}, num), label)));
+    p.tip.replaceChildren(h('span', {}, picks.length ? 'pick an answer, or open the terminal' : 'answer it in the terminal'),
+      h('span', { class: 'sp' }), key_('enter', 'Enter', 'confirm what is highlighted'), key_('esc', 'Escape', 'cancel the dialog'));
   }
 }
 function mkPlea(id) {
@@ -87,6 +86,11 @@ function mkPlea(id) {
   p.addEventListener('dblclick', e => e.stopPropagation());
   p.q.addEventListener('wheel', e => { if (p.q.scrollHeight > p.q.clientHeight) e.stopPropagation(); });
   return p;
+}
+/* jump to what needs you: the card, with the question under it and the cursor in the answer */
+function showPlea(id) {
+  select([id]); centerOn(id);
+  setTimeout(() => focusPlea(id), 80);
 }
 /* enter on a card that asks you goes to its answer box */
 function focusPlea(id) {

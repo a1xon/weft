@@ -17,9 +17,9 @@ function renderRt(id) {
     const was = prevStatus.get(id); prevStatus.set(id, r.status);
     if (was && was !== r.status && hasPing(n) && ['done', 'failed', 'attention', 'blocked'].includes(r.status) && !['done', 'failed'].includes(was)) notifyPing(n, r);
     if (r.status === 'attention' && was !== 'attention') {
-      const gate = isGate(kindOf(n));
-      toast('warn', gate ? `${n.name} is waiting for you.` : `${n.name} needs you: it is waiting at a dialog.`,
-        { ms: 12000, action: gate ? { label: 'review', run: () => { select([id]); centerOn(id); } } : { label: 'open terminal', run: () => openFocus(id) } });
+      const gate = isGate(kindOf(n)), q = (r.issue || '').trim().split('\n')[0];
+      toast('warn', gate ? `${n.name} is waiting for you.` : q ? `${n.name} asks you: ${q.length > 90 ? q.slice(0, 89) + '\u2026' : q}` : `${n.name} waits at a dialog.`,
+        { ms: 12000, action: gate ? { label: 'review', run: () => { select([id]); centerOn(id); } } : { label: q ? 'answer' : 'show', run: () => showPlea(id) } });
     }
   }
   renderNode(id);
@@ -42,7 +42,7 @@ function renderTicker() {
     c.waiting ? h('span', { class: 'tk' }, h('b', {}, c.waiting), ' waiting') : null,
     c.attention ? h('span', { class: 'tk vi', title: 'jump to what needs you', onclick: () => {
       const id = [...S.rt.entries()].find(([, r]) => r.status === 'attention')?.[0];
-      if (id) { select([id]); centerOn(id); if (kindOf(S.nodes.get(id)) === 'agent') openFocus(id); } } }, h('b', {}, c.attention), ' needs you') : null,
+      if (id) showPlea(id); } }, h('b', {}, c.attention), ' needs you') : null,
     c.blocked ? h('span', { class: 'tk rd' }, h('b', {}, c.blocked), ' blocked') : null,
     c.failed ? h('span', { class: 'tk rd' }, h('b', {}, c.failed), ' failed') : null,
     c.done ? h('span', { class: 'tk gr' }, h('b', {}, c.done), ' done') : null,

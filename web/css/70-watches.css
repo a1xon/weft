@@ -17,11 +17,13 @@
 .prow{display:flex;align-items:flex-start;gap:7px;margin-top:8px;padding:6px 6px 6px 9px;background:var(--void);border:1px solid var(--l2)}
 .prow:focus-within{border-color:var(--vi);box-shadow:0 0 12px rgba(183,140,255,.2)}
 .prow .prompt{flex:none;font:600 calc(12px*var(--fs))/calc(22px*var(--fs)) var(--mono);color:var(--vi)}
-.prow textarea{flex:1;min-width:0;height:22px;resize:none;background:transparent;border:0;outline:0;color:var(--i0);font:calc(13px*var(--fs))/calc(22px*var(--fs)) var(--mono);padding:0}
+.prow textarea{flex:1;min-width:0;height:calc(22px*var(--fs));resize:none;background:transparent;border:0;outline:0;color:var(--i0);font:calc(13px*var(--fs))/calc(22px*var(--fs)) var(--mono);padding:0}
 .prow textarea::placeholder{color:var(--i4)}
-.pgo{flex:none;width:28px;height:22px;border:1px solid var(--l2);color:var(--vi);font:700 calc(13px*var(--fs)) var(--mono)}
+.pgo{flex:none;width:28px;height:calc(22px*var(--fs));border:1px solid var(--l2);color:var(--vi);font:700 calc(13px*var(--fs)) var(--mono)}
 .pgo:hover{border-color:var(--vi);background:rgba(183,140,255,.12)}
-.ptip{margin-top:5px;font:500 calc(10.5px*var(--fs)) var(--mono);color:var(--i3)}
+.ptip{display:flex;align-items:center;gap:6px;margin-top:6px;font:500 calc(10.5px*var(--fs)) var(--mono);color:var(--i3)}
+.ptip .sp{flex:1}
+.ptip .key{height:20px;padding:0 7px;font:600 calc(10px*var(--fs)) var(--mono);color:var(--i2)}
 .fh2{display:flex;align-items:center;gap:6px;padding:0 1px 5px;font:600 calc(11px*var(--fs)) var(--display);letter-spacing:.05em;color:var(--i2)}
 .fh2 .sp{flex:1}
 .fbtn{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border:1px solid var(--l2);background:rgba(7,10,16,.92);font:600 calc(10.5px*var(--fs)) var(--display);letter-spacing:.04em;color:var(--i1)}

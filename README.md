@@ -219,7 +219,12 @@ it would not work.
 | Reports done | only an explicit `weft done [--fail]` counts | long, bursty agents |
 
 A card that shows a trust, update or approval dialog goes to *needs you* and nothing is typed into
-it (patterns per agent, configurable).
+it (patterns per agent, configurable; a pattern counts near the bottom of the screen with a choice
+under it, or on the last line, so an agent showing the same words in code or a diff is not taken
+for a dialog). What it needs unfolds **under the card**: the dialog, with its
+numbered options as buttons (plus enter / esc), or an agent's question (below), readable and
+scrollable, with an answer box under it. Enter on the selected card puts the cursor there. Answering
+in its terminal works too: once nothing is open any more the card shows what it did before.
 
 ### Silence is not an answer
 
@@ -239,7 +244,7 @@ STATUS: FAILED <why>                 cannot be done
 | --- | --- |
 | `DONE` | its message (without the line) is the result and goes on |
 | `FAILED` | the step fails with the reason: the "only if it fails" links fire |
-| `ISSUE` | the card says *asks you* with the question, the chain waits; your answer in the bar continues the same run |
+| `ISSUE` | the card says *asks you* and the question unfolds under it with an answer box; the chain waits; your answer (there, in the bar or in its terminal) continues the same run |
 | `WAITING` | the card says what it waits for; after `recheck_s` (60 s) weft types a short *check on it now* into the session, repeatedly, until it is DONE, or an ISSUE after `background_s` |
 | nothing | the agent is asked once for the line; if that does not help, silence is the end, so a flow never hangs |
 

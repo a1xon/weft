@@ -702,7 +702,7 @@ impl Rt {
         self.hash = h;
         self.last_change = now;
         let (attention, working) = agent.map_or((&[][..], &[][..]), |a| (&a.attention[..], &a.working[..]));
-        self.attn = attention.iter().any(|p| !p.is_empty() && text.contains(p.as_str()));
+        self.attn = term::dialog_on(&text, attention);
         // the status line lives just above the input box: look only at the bottom of the screen,
         // so a sentence that merely mentions it, scrolled up, does not hold anything back
         let bottom: String = text.lines().rev().filter(|l| !l.trim().is_empty()).take(10).collect::<Vec<_>>().join("\n");
