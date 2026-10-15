@@ -130,6 +130,35 @@ impl Engine {
         None
     }
 
+    /// A queued prompt is asked of the agent it is linked after, and so is the one behind it: when a
+    /// step moves to another agent the steps (and gates) after it go with it. `host` is a copy made
+    /// when a link was drawn; this is where it is kept true to the graph. A step with several links
+    /// in keeps its agent while one of them still leads to it (the link drawn last decides, see
+    /// `add_edge`); one with none keeps what it had. Returns how many steps moved.
+    pub(super) fn reconcile_hosts(&mut self) -> usize {
+        let mut moved = 0;
+        // a chain of steps is settled front to back: one pass per link of the longest chain
+        for _ in 0..self.flow.nodes.len().max(1) {
+            let steps: Vec<String> = self.flow.nodes.iter().filter(|n| n.kind() == Kind::Step).map(|n| n.id.clone()).collect();
+            let mut changed = false;
+            for step in steps {
+                let host = self.node(&step).map(|n| n.host.clone()).unwrap_or_default();
+                let behind: Vec<String> =
+                    self.flow.edges.iter().filter(|e| e.to == step).filter_map(|e| self.agent_behind(&e.from)).collect();
+                if let Some(agent) = behind.first().filter(|_| !behind.contains(&host)) {
+                    let agent = agent.clone();
+                    self.rehost(&step, &agent);
+                    changed = true;
+                    moved += 1;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+        moved
+    }
+
     /// A queued prompt is asked of the agent it is linked after: rewired, it follows.
     fn rehost(&mut self, step: &str, agent: &str) {
         let who = self.node(agent).map_or(agent.to_string(), |a| a.name.clone());
@@ -161,6 +190,7 @@ impl Engine {
     }
 
     pub(super) fn flow_changed(&mut self) {
+        self.reconcile_hosts();
         save_json(&self.flow_path, &self.flow);
         let m = json!({"t": "flow", "nodes": self.flow.nodes, "edges": self.flow.edges});
         self.bcast(&m);

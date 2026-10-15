@@ -1840,3 +1840,80 @@ fn a_resized_card_keeps_its_size_and_shows_more_of_its_terminal() {
     assert_eq!(crate::model::preview_rows(232.0), 12);
     assert!(crate::model::preview_rows(480.0) > 25, "a taller card shows more of the terminal");
 }
+
+// ---- the chain audit: hosts follow the graph, a session is not sent its own answer, long answers
+// ---- keep their head, a stale busy marker ends, and what tmux shows wins over weft's copy
+
+fn mk_step(e: &mut Engine, id: &str, name: &str, host: &str) {
+    let mut st = node(id, name, &format!("do {name}"));
+    st.agent = "step".into();
+    st.host = host.into();
+    e.flow.nodes.push(st);
+    e.rt.insert(id.into(), Rt::new(80, 24));
+}
+
+#[test]
+fn the_steps_behind_a_step_that_moves_to_another_agent_go_with_it() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "first");
+    alive_agent(&mut e, "b", "second");
+    mk_step(&mut e, "s9", "nine", "a");
+    add_kind(&mut e, "g", "screenshot", "shot", "");
+    mk_step(&mut e, "s3", "three", "a");
+    e.add_edge("s9", "g", On::Done).unwrap();
+    e.add_edge("g", "s3", On::Done).unwrap();
+    assert_eq!(e.node("s3").unwrap().host, "a");
+    // s9 is drawn after b: it follows b, and the prompt behind its screenshot gate with it
+    e.add_edge("b", "s9", On::Ok).unwrap();
+    assert_eq!(e.node("s9").unwrap().host, "b");
+    assert_eq!(e.node("s3").unwrap().host, "b");
+    assert_eq!(e.resolve_host("s3"), "b");
+    // a link into a step that keeps leading to its agent leaves it alone, and so does no link
+    assert_eq!(e.reconcile_hosts(), 0);
+    mk_step(&mut e, "lone", "lone", "a");
+    assert_eq!(e.reconcile_hosts(), 0);
+}
+
+#[test]
+fn a_board_with_a_stale_host_is_put_right() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "first");
+    alive_agent(&mut e, "b", "second");
+    mk_step(&mut e, "s1", "one", "b");
+    mk_step(&mut e, "s2", "two", "a"); // stale: it hangs on s1, which is b's
+    mk_step(&mut e, "s3", "three", "a"); // and so does this one, behind s2
+    link(&mut e, "e1", "b", "s1", On::Done);
+    link(&mut e, "e2", "s1", "s2", On::Ok);
+    link(&mut e, "e3", "s2", "s3", On::Ok);
+    assert_eq!(e.reconcile_hosts(), 2);
+    assert_eq!(e.node("s2").unwrap().host, "b");
+    assert_eq!(e.node("s3").unwrap().host, "b");
+    assert_eq!(e.reconcile_hosts(), 0);
+}
+
+#[test]
+fn a_step_is_not_sent_what_its_own_agent_answered_in_that_session() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "agent");
+    alive_agent(&mut e, "b", "other");
+    mk_step(&mut e, "s1", "one", "a");
+    mk_step(&mut e, "s2", "two", "a");
+    link(&mut e, "e1", "a", "s1", On::Done);
+    link(&mut e, "e2", "s1", "s2", On::Ok);
+    e.settle("s1", true, "THE-ANSWER-OF-S1".into());
+    let q: Vec<String> = e.rt["a"].queue.iter().map(|q| q.text.clone()).collect();
+    assert_eq!(q.len(), 1);
+    assert!(q[0].starts_with("do two"), "{q:?}");
+    assert!(!q[0].contains("THE-ANSWER-OF-S1"), "its own answer is not sent back: {q:?}");
+    // what another agent produced is news to it, and so is what a check found out
+    let mut e = engine();
+    alive_agent(&mut e, "a", "agent");
+    alive_agent(&mut e, "b", "other");
+    mk_step(&mut e, "s2", "two", "a");
+    let other = Input { from: "b".into(), name: "other".into(), ok: true, text: "NEWS-FROM-B".into(), kind: InputKind::Result };
+    assert!(!e.in_session_of("b", "a"));
+    assert!(e.in_session_of("a", "a"));
+    let (body, _) = e.render_parts(e.node("s2").unwrap(), &[other]);
+    assert!(body.contains("NEWS-FROM-B"));
+}
+

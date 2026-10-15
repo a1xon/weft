@@ -120,9 +120,10 @@ impl Engine {
             (rt.runs, taken.into_iter().map(|(_, i)| i).collect::<Vec<_>>())
         };
         if node.kind() == Kind::Step {
-            // the agent has what it already produced: only what comes from elsewhere is sent along
+            // the agent has what it already produced, in its own session: its own result and the
+            // answers it gave to other queued prompts of the same session are not sent back to it
             let host = node.host.clone();
-            let inputs: Vec<Input> = inputs.into_iter().filter(|i| i.from != host).collect();
+            let inputs: Vec<Input> = inputs.into_iter().filter(|i| !self.in_session_of(&i.from, &host)).collect();
             self.step_run(id, &node, &inputs);
             return;
         }
@@ -142,6 +143,13 @@ impl Engine {
         if self.rt.get(id).is_some_and(|r| !r.alive && !r.spawning) {
             self.start(id);
         }
+    }
+
+    /// Is what `from` produced something the agent `host` said in its own session? That is the
+    /// agent itself and a queued prompt it answers. (A gate hands on what a check found out as
+    /// well, so it counts as news.)
+    pub(super) fn in_session_of(&self, from: &str, host: &str) -> bool {
+        from == host || self.node(from).is_some_and(|n| n.kind() == Kind::Step && self.agent_behind(from).as_deref() == Some(host))
     }
 
     /// The agent a node speaks for: itself, or for a queued prompt the agent that answers it.

@@ -81,7 +81,7 @@ option (after a PR: the next agent), letting go adds it at once.
 
 | Slice | What | Context |
 | --- | --- | --- |
-| **right** | **queue a prompt.** A *same agent* card appears; its prompt is asked of the very same agent in its own session, and the **answer comes back into that card** (and goes on from there). The agent's own result is left as it was. | everything it knows |
+| **right** | **queue a prompt.** A *same agent* card appears; its prompt is asked of the very same agent in its own session, and the **answer comes back into that card** (and goes on from there). The agent's own result is left as it was. Rewire the card after another agent (or after a gate on one) and it is asked of that agent, and so are the cards behind it. An agent is not sent back what it said itself in that session, only what comes from elsewhere. | everything it knows |
 | **lower left** | **hand off.** A draft agent that will take over the work; on enter the old agent writes the handover note | a fresh session plus the note |
 | **upper left** | **git**: commit, push or open a PR (below) | |
 

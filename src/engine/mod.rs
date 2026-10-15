@@ -232,6 +232,11 @@ impl Engine {
         for id in notes {
             e.refresh_note(&id);
         }
+        // a queued prompt whose agent no longer matches the link it hangs on is put right before
+        // anything runs (the stored agent is a copy: see `reconcile_hosts`)
+        if e.reconcile_hosts() > 0 {
+            e.flow_changed();
+        }
         e
     }
 
