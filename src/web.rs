@@ -39,6 +39,7 @@ const JS: &[(&str, &str)] = &[
     part!("js/00-base.js"),
     part!("js/10-state-net.js"),
     part!("js/20-view.js"),
+    part!("js/25-tidy.js"),
     part!("js/30-cards.js"),
     part!("js/40-watches.js"),
     part!("js/45-archive.js"),

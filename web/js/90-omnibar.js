@@ -164,7 +164,7 @@ function closePalette() { if (paletteOpen()) { closeMenu(); return true; } retur
 function commands() {
   return [
     { label: 'run flow', hint: 'reset and run', run: () => send('run') },
-    { label: 'tidy', hint: 'arrange left to right', run: tidy },
+    { label: 'tidy', hint: 'line the cards up', run: tidy },
     { label: 'fit', hint: 'f', run: fit },
     { label: 'library', hint: 'prompts and addenda', run: openLibrary },
     { label: 'reset', hint: 'clear progress', run: () => send('reset') },

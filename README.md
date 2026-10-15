@@ -64,6 +64,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 | marquee or shift-click, then `G` | gather several results into one agent |
 | right-click anything | what it can do |
 | drag finished cards onto the **archive** (bottom left) | they are filed: off the canvas, their terminals end, their results kept (below) |
+| **tidy** (top bar) or `T` | lines the cards up: each flow left to right in columns, a card level with what it is linked to (a chain is one straight row, a fork fans out around its start), no link crossing another or running through a card; flows stack, lone cards sit in a row under them. `Ctrl+Z` puts it back |
 
 Several links into one agent draw an **AND** ring (`Promise.all`): it starts when all have
 arrived; switch it to `≥1` for the first (`Promise.any`). A junction that can no longer be

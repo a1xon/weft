@@ -23,15 +23,16 @@ function barTop() {
   const d = $('#dock'), r = d && d.getBoundingClientRect();
   return r && r.height ? Math.min(r.top, innerHeight - 70) : innerHeight - 117;
 }
-function fit() {
-  const ns = [...S.nodes.values()];
-  if (!ns.length) { S.v = { x: 90, y: 110, k: 1 }; return applyView(); }
+function fit() { S.v = fitView(); applyView(); }
+/* the view that shows every card; `at` (Map id -> {x, y}) is where cards are about to be */
+function fitView(at) {
+  const ns = [...S.nodes.values()].map(n => (at && at.has(n.id) ? { ...n, ...at.get(n.id) } : n));
+  if (!ns.length) return { x: 90, y: 110, k: 1 };
   const x0 = Math.min(...ns.map(n => n.x)) - JX, y0 = Math.min(...ns.map(n => n.y));
   const x1 = Math.max(...ns.map(n => n.x + nw(n))), y1 = Math.max(...ns.map(n => n.y + nh(n)));
   const W = innerWidth, Hh = Math.min(innerHeight - 200, barTop() - 10 - 70);
   const k = Math.min(1.1, Math.max(0.15, Math.min((W - 120) / (x1 - x0), (Hh - 40) / (y1 - y0))));
-  S.v = { k, x: (W - (x1 - x0) * k) / 2 - x0 * k, y: 70 + (Hh - (y1 - y0) * k) / 2 - y0 * k };
-  applyView();
+  return { k, x: (W - (x1 - x0) * k) / 2 - x0 * k, y: 70 + (Hh - (y1 - y0) * k) / 2 - y0 * k };
 }
 /* pan just enough that a node is fully visible between the bars */
 function reveal(id) {
@@ -48,38 +49,6 @@ function centerOn(id) {
   S.v.x = innerWidth / 2 - (n.x + nw(n) / 2) * S.v.k; S.v.y = Math.min((innerHeight - 160) / 2 + 40, (42 + barTop()) / 2) - (n.y + nh(n) / 2) * S.v.k;
   applyView();
 }
-/* layered left-to-right layout: depth = longest path from a start agent */
-function tidy() {
-  const ns = [...S.nodes.values()]; if (!ns.length) return;
-  const out = new Map(ns.map(n => [n.id, []]));
-  for (const e of S.edges.values()) if (out.has(e.from) && out.has(e.to)) out.get(e.from).push(e.to);
-  const depth = new Map(), visiting = new Set();
-  const dfs = (id, d) => {
-    if (visiting.has(id) || (depth.get(id) ?? -1) >= d) return;
-    depth.set(id, d); visiting.add(id);
-    for (const t of out.get(id)) dfs(t, d + 1);
-    visiting.delete(id);
-  };
-  const hasIn = new Set([...S.edges.values()].map(e => e.to));
-  for (const n of ns) if (!hasIn.has(n.id)) dfs(n.id, 0);
-  for (const n of ns) if (!depth.has(n.id)) dfs(n.id, 0);
-  const cols = new Map();
-  for (const n of ns) { const d = depth.get(n.id) || 0; if (!cols.has(d)) cols.set(d, []); cols.get(d).push(n); }
-  const x0 = Math.min(...ns.map(n => n.x)), y0 = Math.min(...ns.map(n => n.y));
-  const moves = [];
-  let x = x0; // a column is as wide as its widest card
-  for (const [, list] of [...cols.entries()].sort((a, b) => a[0] - b[0])) {
-    list.sort((a, b) => a.y - b.y);
-    let y = y0;
-    list.forEach(n => { moves.push({ id: n.id, x, y }); y += nh(n) + 40 + filmH(n.id); });
-    x += Math.max(...list.map(nw)) + 150;
-  }
-  for (const m of moves) { const n = S.nodes.get(m.id); n.x = m.x; n.y = m.y; placeNode(n); }
-  send('node_move', { moves });
-  drawAllEdges();
-  setTimeout(fit, 30);
-}
-
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
   const mouse = e.deltaMode === 1 || (e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 50);
