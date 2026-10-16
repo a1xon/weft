@@ -2895,3 +2895,74 @@ fn the_agents_wait_while_the_person_writes_the_topic() {
     assert!(wait(&e) < 2.0);
     assert_eq!(e.flow.talks[0].topic, "ports");
 }
+
+#[test]
+fn a_mark_from_the_browser_starts_an_agent_the_way_the_launch_pad_would() {
+    let mut e = engine();
+    let site = e.boot.dir.join("site");
+    std::fs::create_dir_all(&site).unwrap();
+    e.cfg.library = vec![
+        Snippet { id: "report-done".into(), kind: SnippetKind::Addendum, title: String::new(), text: String::new(), default_on: true },
+        Snippet { id: "concise".into(), kind: SnippetKind::Addendum, title: String::new(), text: String::new(), default_on: false },
+    ];
+    let dir = e.boot.dir.to_string_lossy().into_owned();
+    e.cfg.prefs = json!({"agent": "codex", "model": {"codex": "gpt-x"}, "effort": {"codex": "high"},
+                         "addenda": {"report-done": false, "concise": true}, "here": {dir: site}});
+    add(&mut e, "n1", "busy one", "x");
+    let r =
+        e.cmd(None, Cmd::Mark { text: "the button is too big".into(), to: String::new(), agent: String::new(), cwd: None, draft: true });
+    let id = r["id"].as_str().expect("a card").to_string();
+    let n = e.node(&id).unwrap().clone();
+    assert_eq!(
+        (n.agent.as_str(), n.model.as_str(), n.effort.as_str()),
+        ("codex", "gpt-x", "high"),
+        "the person's last agent, model, reasoning"
+    );
+    assert_eq!(n.addenda, vec!["concise".to_string()], "the addenda the pad has on");
+    assert_eq!(PathBuf::from(&n.cwd), site, "the folder new agents start in");
+    assert!(n.draft && n.prompt == "the button is too big");
+    let first = e.node("n1").unwrap().clone();
+    assert!(n.x >= first.x + 600.0 || n.y >= first.y + 260.0, "placed beside the last card, not on it ({}, {})", n.x, n.y);
+    // the page's server runs elsewhere: the agent works there; an agent named by the extension wins
+    let other = e.boot.dir.join("api");
+    std::fs::create_dir_all(&other).unwrap();
+    let r = e.cmd(
+        None,
+        Cmd::Mark { text: "t".into(), to: String::new(), agent: "claude".into(), cwd: Some(other.to_string_lossy().into()), draft: true },
+    );
+    let n2 = e.node(r["id"].as_str().unwrap()).unwrap().clone();
+    assert_eq!((n2.agent.as_str(), PathBuf::from(&n2.cwd)), ("claude", other));
+    assert!((n2.x - n.x).abs() >= 600.0 || (n2.y - n.y).abs() >= 260.0, "and the next one is not on top of it");
+    assert_eq!(e.cmd(None, Cmd::Mark { text: " ".into(), to: String::new(), agent: String::new(), cwd: None, draft: true })["ok"], false);
+}
+
+#[test]
+fn a_mark_for_a_busy_agent_waits_as_a_card_after_what_it_still_has_to_do() {
+    let mut e = engine();
+    add(&mut e, "a", "fixer", "fix it");
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.alive = true;
+        r.armed = true;
+        r.status = Status::Busy;
+    }
+    let s1 = e.cmd(None, Cmd::Mark { text: "first".into(), to: "a".into(), agent: String::new(), cwd: None, draft: false });
+    assert_eq!((s1["queued"].as_bool(), s1["host"].as_str()), (Some(true), Some("a")));
+    let s1 = s1["id"].as_str().unwrap().to_string();
+    let s2 = e.cmd(None, Cmd::Mark { text: "second".into(), to: "a".into(), agent: String::new(), cwd: None, draft: false })["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let links: Vec<(String, String)> = e.flow.edges.iter().map(|x| (x.from.clone(), x.to.clone())).collect();
+    assert_eq!(links, vec![("a".to_string(), s1.clone()), (s1.clone(), s2.clone())], "one after the other, in sight");
+    for s in [&s1, &s2] {
+        let n = e.node(s).unwrap();
+        assert_eq!((n.kind(), n.host.as_str(), n.draft), (Kind::Step, "a", false), "a queued prompt of a, armed");
+    }
+    // free: told at once, no card
+    e.rt.get_mut("a").unwrap().status = Status::Done;
+    let r = e.cmd(None, Cmd::Mark { text: "third".into(), to: "a".into(), agent: String::new(), cwd: None, draft: false });
+    assert_eq!((r["typed"].as_bool(), r["id"].as_str()), (Some(true), Some("a")));
+    assert_eq!(e.flow.nodes.len(), 3);
+    assert_eq!(e.cmd(None, Cmd::Mark { text: "x".into(), to: "n99".into(), agent: String::new(), cwd: None, draft: false })["ok"], false);
+}

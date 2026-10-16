@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "weft marks",
+  "version": "1.0",
+  "description": "Mark something on a web page and say what is wrong: a weft agent gets it with the page, the element, its component and a screenshot.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAosM4HJexmMVjLpJ3L06FOrV9v0ppqOHFfUwcuIHq3Fh9JCFTMWXydLTQ9ZNZD9pIpHh8uQug8bGUwii2ph7QkHvZSrg0JGZs6/xfujcxXuch4jsFpx/h2Yza4sW588ctVIk5PYmp3/V2O1v3dPyL8DWaBcak1fvaGlWd9dNwAJXPXdQYQ6o4G1jdYZ6pZQ2ILeuTnzlJ0rxSnNsAh+6IEEoc4WU+s6eRi6DTMEE6QmLt3Q5Jf7MQXO41SjTSfOLpSeme8AWEuAX7lGvXPLWdT6p7fU7Q2ZF9EF6onVd9iiX3jml4P7FrGgAF5bKjw92ucl1hw5d4kfIJdvnwhK5upQIDAQAB",
+  "icons": { "16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "action": {
+    "default_title": "Mark something for weft (Alt+Shift+W)",
+    "default_icon": { "16": "icons/16.png", "32": "icons/32.png" }
+  },
+  "commands": {
+    "_execute_action": { "suggested_key": { "default": "Alt+Shift+W" }, "description": "Mark something on the page for weft" }
+  },
+  "background": { "service_worker": "background.js" },
+  "permissions": ["activeTab", "scripting", "nativeMessaging", "storage"],
+  "content_scripts": [
+    {
+      "matches": ["http://localhost/*", "https://localhost/*", "http://127.0.0.1/*", "http://0.0.0.0/*", "http://*.localhost/*", "https://*.localhost/*"],
+      "js": ["probe.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    }
+  ]
+}

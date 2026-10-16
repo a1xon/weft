@@ -368,6 +368,20 @@ pub enum Cmd {
     },
     /// Someone is at the canvas (a browser says so while they use it): the archive clock runs.
     Here {},
+    /// Something the person marked on a web page (the browser extension, see marks.rs): a new
+    /// agent starts on `text` (in `cwd`, `agent` or the person's last one; `draft`: only placed),
+    /// or the agent `to` is asked.
+    Mark {
+        text: String,
+        #[serde(default)]
+        to: String,
+        #[serde(default)]
+        agent: String,
+        #[serde(default)]
+        cwd: Option<String>,
+        #[serde(default)]
+        draft: bool,
+    },
 }
 
 impl Cmd {
@@ -467,6 +481,7 @@ impl Engine {
             Cmd::ArchiveGet { group } => self.cmd_archive_get(group),
             Cmd::ArchiveDel { group } => self.cmd_archive_del(group),
             Cmd::Here {} => json!({"ok": true}),
+            Cmd::Mark { text, to, agent, cwd, draft } => self.cmd_mark(text, to, agent, cwd, draft),
         }
     }
 }

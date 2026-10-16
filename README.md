@@ -362,6 +362,36 @@ Boards never call each other: each daemon writes what it is doing (agents, worki
 cards, its agents' folders) to `<id>.live.json` beside its record in `~/.local/state/weft/`, and
 a board with a page open reads the others' every few seconds.
 
+### Marks from the browser
+
+Show the agent what you mean instead of describing it. A browser extension (Brave, Chrome,
+Chromium, Edge, Vivaldi) marks things on any web page and makes a card of it:
+
+```
+weft extension                 # once: then "Load unpacked" the folder it names in brave://extensions
+```
+
+* **`Alt+Shift+W`** (or the weft button): hover shows what is under the cursor (`button.cta 180×48
+  <Hero> src/Hero.tsx:12`), a click marks it, a drag marks an area, `↑`/`↓` make the mark
+  bigger/smaller. The page never sees that click.
+* A box under the mark takes your note. *+ mark another* (or `Alt+Shift+W` again) adds numbered
+  marks, each with its own note. `Ctrl+Enter` sends; *card only* places the card without starting it.
+* **Which board**: the one whose folder the page's server runs in (the process listening on the
+  page's port, its repository), a weft canvas its own board, else the one you picked for that page
+  last time; a folder without a board is offered as a new one. **To whom**: a new agent, set up the
+  way the launch pad would (last agent, model, reasoning, addenda), in the server's folder; or an
+  agent on the board (the next mark on a page goes to the agent the last one made): typed now when
+  it is free, a queued-prompt card after its work while it is busy.
+* **What the agent gets**, after your words: the page (URL, title, viewport), and per mark where
+  the element is written and the components around it (React, Vue, Svelte, Angular dev builds;
+  Astro and inspector plugins' source attributes), selector, text, box and the styles that shape it,
+  its HTML, a close-up and a whole-view screenshot with the mark outlined (saved in
+  `.weft/shots/`), then the page's console errors and failed requests. On `localhost`,
+  `127.0.0.1` and `*.localhost` the errors are collected from the page's start.
+
+The extension never learns a daemon's address or token: the browser starts `weft` itself as the
+extension's native messaging host (only this extension may), and `weft` talks to the board.
+
 ## Networks
 
 A network is a whole flow in one gesture: cards, their links, gates, git steps and watches. The two
@@ -524,6 +554,7 @@ weft [dir]                    open the canvas (a folder of a board: that board, 
 weft new [dir]                a board of its own for the folder, even inside another board's
 weft app [dir] [--pick]       the same in a window of its own (no dir: the project opened last)
 weft desktop                  put weft in the app grid, to pin it to the dock
+weft extension                the browser extension (marks on a web page become cards) and its link to weft
 weft ls                       nodes, status, runs, queued
 weft send [--queue|--now] <node> <text|->   a prompt into a node (starts it if needed)
 weft result <node>            its latest result
@@ -636,6 +667,7 @@ src/tmux.rs        the control-mode client: events in, validated keystrokes out
 src/term.rs        screen helpers: HTML rows, previews, telling an answer from terminal furniture
 src/words.rs       everything weft says to an agent, and how it reads the status line back
 src/client.rs      the small HTTP client the CLI commands use
+src/browser.rs     marks from the browser: the native messaging host, which board a page's server belongs to, `weft extension`
 src/engine/        the single actor that owns all state
     mod.rs         the Engine, its events, the loop and its heartbeat
     state.rs       what is known per node while it runs (Rt), and what survives a restart
@@ -654,7 +686,10 @@ src/engine/        the single actor that owns all state
     ui.rs          what browsers are told, and the state file
     info.rs        the folders agents work in (branch, uncommitted files, sibling folders), each CLI's model list
     boards.rs      this board's live file, the other boards for the pages, open / rename / forget, shared settings
+    marks.rs       a mark from the browser becomes a card: a new agent set up like the launch pad's, or a queued prompt
 web/               index.html (the shell), css/*.css and js/*.js (joined in file order); dev.js (dev only)
+extension/         the browser extension: background.js (button, screenshots, native messaging), mark.js (the
+                   picker and the note box), probe.js (in the page's own world: components, console)
 tests/             e2e.py (real tmux, simulated agent), ui/ (browser), engine/tests.rs (unit)
 ```
 

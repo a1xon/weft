@@ -57,6 +57,8 @@ function onMsg(m) {
       break;
     }
     case 'toast': if (!(netBuilding && m.k === 'info' && / is now asked of /.test(m.m))) toast(m.k, m.m); break;
+    // a card made from the browser (weft marks): in view when the person comes back, unless they are here working
+    case 'reveal': whenNode(m.id).then(() => { if (!document.hasFocus()) reveal(m.id); }); break;
     case 'bye': farewell(m); break;
     case 'archive': onArchive(m); break;
     case 'boards': onBoards(m.list); break;

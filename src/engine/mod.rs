@@ -42,6 +42,7 @@ mod graph;
 mod handover;
 mod history;
 mod info;
+mod marks;
 mod repo;
 mod run;
 mod state;

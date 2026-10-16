@@ -4,6 +4,7 @@
 //! through tmux control mode and serves the canvas UI on loopback.
 
 mod boards;
+mod browser;
 mod client;
 mod dev; // dev: the page follows edits to web/ while weft's UI is worked on
 mod engine;
@@ -34,6 +35,8 @@ USAGE
   weft app [dir] [--pick]    the same in a window of its own; no dir = the project
                              opened last, --pick asks for a folder
   weft desktop               put weft in the app grid (pin it to the dock from there)
+  weft extension             the browser extension: mark something on a web page, say
+                             what is wrong, and it becomes a card on your board
   weft serve [dir] [--port N] [--no-open]
                              run the daemon in the foreground
   weft stop [dir] [--keep]   quit: ends the daemon and every agent of the project
@@ -164,6 +167,9 @@ async fn real_main(args: Vec<String>) -> Result<i32, String> {
             let show = if rest.iter().any(|a| a == "--no-open") { launch::Show::Nothing } else { launch::Show::Tab };
             open_dir(dir_from(rest)?, None, show).await.map(|_| 0)
         }
+        "extension" => extension(),
+        // the browser starts weft as the extension's native messaging host (see browser.rs)
+        s if s.starts_with("chrome-extension://") => Ok(browser::host().await),
         "desktop" => {
             let entry = launch::install()?;
             println!("weft is in the app grid now ({}): pin it to the dock from there", entry.display());
@@ -172,6 +178,28 @@ async fn real_main(args: Vec<String>) -> Result<i32, String> {
         // `weft`, `weft <dir>`, `weft --no-open`: open the canvas
         _ => open(&args).await.map(|_| 0),
     }
+}
+
+// -------------------------------------------------------------- extension
+
+/// `weft extension`: the extension's files where a browser can load them, and the browsers told
+/// where weft is.
+fn extension() -> Result<i32, String> {
+    let (dir, browsers) = browser::install()?;
+    let shown = dir.display();
+    if browsers.is_empty() {
+        println!("weft: the extension is in {shown}, but no Brave, Chrome, Chromium, Edge or Vivaldi profile was found to connect it to");
+        return Ok(1);
+    }
+    println!("weft marks: connected to {}.
+", browsers.join(", "));
+    println!("Load it once (after a new weft, run this again and press the extension's reload arrow):");
+    println!("  1. open brave://extensions (chrome://extensions in Chrome)");
+    println!("  2. switch on \"Developer mode\" (top right)");
+    println!("  3. \"Load unpacked\" and choose  {shown}\n");
+    println!("Then on any page: Alt+Shift+W (or the weft button), click what is wrong (drag for an area),");
+    println!("say what you want, ctrl+enter. The card lands on the board whose folder the page's server runs in.");
+    Ok(0)
 }
 
 // ------------------------------------------------------------------- open
