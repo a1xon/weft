@@ -33,7 +33,7 @@ function renderNext(text) {
     h('button', { 'aria-pressed': String(NX.mode === v), title: tip, onclick: () => { NX.mode = v; renderNext(ta.value); } }, label)));
   const busy = r.status === 'busy' || r.status === 'starting';
   const explain = {
-    then: busy ? `${n.name} is working. This waits in its queue; its links fire after the last queued step.`
+    then: busy ? `${n.name} is working. This waits as its own card after it and is asked when ${n.name} is done.`
       : `${n.name} keeps its context and runs this next. Use it for follow-ups on the same work.`,
     hand: `A fresh ${NX.agent} takes over. ${n.name} writes a short handover note first; the files stay as they are.${busy ? ` It starts when ${n.name} has finished its step.` : ''}`,
     branch: `A new ${NX.agent} starts alongside and receives ${n.name}'s result (a link).`,
@@ -88,9 +88,10 @@ function submitNext() {
   closeNext();
   if (mode === 'then') {
     select([id]);
-    send('send', { id, text, mode: 'auto' });
-    const r = S.rt.get(id);
-    if (r && (r.status === 'busy' || r.status === 'starting')) toast('info', `queued on ${n.name}: it goes out after the current step`, { ms: 3500 });
+    // (a busy agent gets it as a queued-prompt card after its work, as from the bar)
+    const host = hostOf(n);
+    if (busyAgent(host)) queueStep(host, text);
+    else send('send', { id, text, mode: 'auto' });
   } else if (mode === 'hand') {
     takeoverFrom(id, agent, text);
   } else {

@@ -24,6 +24,9 @@ function renderOmni() {
   const flip = () => { S.omniMode = S.omniMode === 'hand' ? 'then' : 'hand'; omni._key = null; renderOmni(); omniTa.focus(); };
   const agents = agentList();
   const redo = () => { omni._key = null; renderOmni(); };
+  // a card the bar talks to says so on the chip, which also lets go of it (✕)
+  const aim = el => h('span', { class: 'aimw' }, el,
+    h('button', { class: 'tgx', title: 'let go: the bar starts a new agent again (it lets go by itself after 30 s untouched)', 'aria-label': 'let go of the selection', onclick: () => { select([]); omniTa.focus(); } }, '✕'));
   // the choices for a new agent are the saved ones, the same as on the launch pad
   const forNew = () => {
     const a = S.lastAgent;
@@ -44,10 +47,10 @@ function renderOmni() {
     controls = forNew();
     ckey = JSON.stringify([S.lastAgent, tuned(S.lastAgent, 'model'), tuned(S.lastAgent, 'effort'), yoloDefault(), (S.models[S.lastAgent] || []).length]);
   } else if (ids.length > 1) {
-    chip = h('span', { class: 'tgt', style: 'cursor:default' }, `→ ${ids.length} agents`);
+    chip = aim(h('span', { class: 'tgt', style: 'cursor:default' }, `→ ${ids.length} agents`));
   } else if (canHand) {
-    chip = h('button', { class: 'tgt', title: handing ? 'tab: continue this agent instead' : 'tab: hand the work over to a fresh agent instead', onclick: flip },
-      handing ? '⇢ hand over from ' + single.name : '↻ ' + single.name);
+    chip = aim(h('button', { class: 'tgt', title: handing ? 'tab: continue this agent instead' : 'tab: hand the work over to a fresh agent instead', onclick: flip },
+      handing ? '⇢ hand over from ' + single.name : '↻ ' + single.name));
     if (handing) {
       forNewAgent = true;
       controls = forNew();
@@ -57,12 +60,12 @@ function renderOmni() {
       ckey = JSON.stringify(['node', single.agent, single.model, single.effort, yoloOf(single), (S.models[single.agent] || []).length]);
     }
   } else if (single && kindOf(single) !== 'agent') {
-    chip = h('span', { class: 'tgt', style: 'cursor:default' }, '→ ' + single.name);
+    chip = aim(h('span', { class: 'tgt', style: 'cursor:default' }, '→ ' + single.name));
     forNewAgent = true;
     controls = forNew();
     ckey = JSON.stringify(['new', S.lastAgent, tuned(S.lastAgent, 'model'), tuned(S.lastAgent, 'effort'), yoloDefault(), (S.models[S.lastAgent] || []).length]);
   } else {
-    chip = h('span', { class: 'tgt', style: 'cursor:default' }, '→ ' + (single ? single.name : '?'));
+    chip = aim(h('span', { class: 'tgt', style: 'cursor:default' }, '→ ' + (single ? single.name : '?')));
   }
   // the same keys as on the launch pad (enter, shift+enter, tab, /), plus the ones a running agent adds
   let hint, ph, label;
@@ -76,8 +79,9 @@ function renderOmni() {
     ph = 'start a new agent that receives this result…';
     hint = [['ctrl+enter', 'create & link'], ['enter', 'new line']]; label = 'create & link';
   } else {
-    const busy = ids.some(i => { const r = S.rt.get(i); return r && r.status === 'busy'; });
-    ph = busy ? 'queue a prompt…' : 'message the agent…';
+    const busy = ids.some(i => { const n = hostOf(S.nodes.get(i)), r = n && S.rt.get(n.id); return !!(r && (r.status === 'busy' || r.status === 'starting')); });
+    const who = single ? single.name : 'the agents';
+    ph = busy ? (single && single.agent === 'sh' ? 'queue a command…' : `${who} is working: a prompt typed here waits as its own card after it…`) : `message ${who}…`;
     hint = [['ctrl+enter', busy ? 'queue' : 'send'], ['alt+enter', 'steer now'], ['enter', 'new line'], ...(canHand ? [['tab', 'hand over']] : [])];
     label = busy ? 'queue' : 'send';
   }
@@ -85,6 +89,7 @@ function renderOmni() {
   const addenda = forNewAgent && S.lastAgent !== 'sh' && !pad.open;   // (the pad shows them itself while it is open)
   const addKey = addenda ? JSON.stringify([S.lib.filter(x => x.kind === 'addendum').map(x => [x.id, x.title, addendumOn(x)]), !!pad.ed, S.lib.filter(x => x.kind === 'prompt').length]) : '';
   // only touch the DOM when something visible changed, and never steal focus from a user who is typing
+  markAim();
   const key = [ids.join(','), single ? single.name : '', ph, label, S.lastAgent, S.omniMode, ckey, agents.map(x => x[0]).join(','), addKey].join('|');
   if (key === omni._key) return;
   omni._key = key;
@@ -132,7 +137,35 @@ async function submitOmni(mode) {
     await takeoverFrom(single.id, S.lastAgent, text);
   } else if (single && kindOf(single) !== 'agent') {
     await spawnLinked(single.id, 'next', S.lastAgent).then(async id => { if (id) { patchNode(id, { prompt: text, draft: false }, 0); setTimeout(() => send('arm', { id }), 120); } });
-  } else for (const id of ids) send('send', { id, text, mode });
+  } else for (const id of ids) {
+    // a busy agent gets the prompt as a card queued after its work; steering goes in right away
+    const n = hostOf(S.nodes.get(id));
+    if (mode !== 'now' && busyAgent(n)) queueStep(n, text);
+    else send('send', { id, text, mode });
+  }
+}
+const busyAgent = n => { const r = n && S.rt.get(n.id); return !!(r && kindOf(n) === 'agent' && n.agent !== 'sh' && (r.status === 'busy' || r.status === 'starting')); };
+/* a prompt for a busy agent is a card of its own: a queued prompt (step) linked after what that
+   agent still has to do, so what comes next stays in sight and can be edited, moved or deleted
+   until it runs. (A link from an agent that is already done hands its result on at once.) */
+async function queueStep(host, text) {
+  let tail = host;
+  for (const seen = new Set([host.id]); ;) {
+    const next = outgoing(tail.id).map(e => S.nodes.get(e.to))
+      .find(n => n && n.agent === 'step' && n.host === host.id && !seen.has(n.id) && !['done', 'failed'].includes((S.rt.get(n.id) || {}).status));
+    if (!next) break;
+    seen.add(next.id); tail = next;
+  }
+  const p = freeSpot(tail.x + nw(tail) + 150, tail.y);
+  const node = { agent: 'step', host: host.id, x: p.x, y: p.y, draft: true, prompt: text, addenda: host.addenda || [] };
+  const r = await req('node_add', { node });
+  if (!r.ok) { toast('err', r.error || 'could not queue that'); return null; }
+  send('edge_add', { from: tail.id, to: r.id });
+  send('arm', { id: r.id });
+  await whenNode(r.id);
+  reveal(r.id);
+  tip('qstep', `${host.name} is working: your prompt waits as its own card and is asked of ${host.name} when it is done. Edit, move or delete it until then.`);
+  return r.id;
 }
 function onOmniKey(e) {
   if (e.key === 'Enter' && !e.isComposing) {
@@ -250,3 +283,46 @@ function renderQueue() {
       return row;
     }));
 }
+
+/* ------------------------------------------------------------ what the bar is aimed at */
+/* The cards the bar talks to (the selection) carry a tag that says so, and the bar lets go of them
+   after AIM_IDLE without anyone touching them or typing to them: a prompt typed later starts a new
+   agent instead of landing on an old card by surprise. Work in progress holds it: text in the bar,
+   an open flyout, terminal, reader, menu or composer, a field of the card being typed in. */
+const AIM_IDLE = 30000, AIM_WARN = 10000;
+let aimAt = Date.now();
+function aimHeld() {
+  if ((omniTa && omniTa.value.trim()) || S.fly || S.focus || menuEl || NX.id || !dial.hidden) return true;
+  if (typeof RD !== 'undefined' && RD.id) return true;
+  const a = document.activeElement;
+  return !!(a && a !== document.body && a.closest && [...S.sel].some(id => { const el = nodeEls.get(id); return el && el.root.contains(a); }));
+}
+function markAim() {
+  const left = AIM_IDLE - (Date.now() - aimAt);
+  const soon = S.sel.size && left <= AIM_WARN ? Math.max(1, Math.ceil(left / 1000)) : 0;
+  $('#omniw').classList.toggle('aimed', S.sel.size > 0);
+  $('#omniw').classList.toggle('lapse', !!soon);
+  for (const [id, el] of nodeEls) {
+    const on = S.sel.has(id);
+    if (!on && !el.aim) continue;
+    if (!el.aim) { el.aim = h('div', { class: 'aimtag' }); el.root.append(el.aim); }
+    el.aim.hidden = !on;
+    const t = soon ? `⌨ prompt bar → here · lets go in ${soon} s` : '⌨ prompt bar → here';
+    if (on && el.aim.textContent !== t) el.aim.textContent = t;
+  }
+}
+function aimTouch() { const late = Date.now() - aimAt > AIM_IDLE - AIM_WARN; aimAt = Date.now(); if (late) markAim(); }
+// touching a card the bar is aimed at, or the bar, the flyout or the terminal, counts as working with it
+for (const t of ['pointerdown', 'keydown', 'wheel', 'input']) addEventListener(t, ev => {
+  if (!S.sel.size) return;
+  const x = ev.target && ev.target.closest ? ev.target : null;
+  const card = x && x.closest('.nw');
+  if (card ? S.sel.has(card.dataset.id) : t === 'keydown' || (x && x.closest('#dock, #fly, #focus, #reader'))) aimTouch();
+}, true);
+addEventListener('pointermove', ev => { const c = S.sel.size && ev.target.closest && ev.target.closest('.nw'); if (c && S.sel.has(c.dataset.id)) aimTouch(); }, { passive: true });
+setInterval(() => {
+  if (!S.sel.size) { aimAt = Date.now(); return; }
+  if (aimHeld()) aimAt = Date.now();
+  if (Date.now() - aimAt >= AIM_IDLE) { select([]); return; }
+  markAim();
+}, 1000);

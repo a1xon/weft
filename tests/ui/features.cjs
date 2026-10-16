@@ -138,14 +138,15 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok((await nodes()) === nG + 1 && (await edges()) === eG + 2, 'g gathers the selection into one new agent (two links in)');
   await p.keyboard.press('Escape'); await sleep(300);
 
-  // --- L: queue: message a busy agent twice, see the queue, reorder/remove
+  // --- L: queue: message a busy agent twice, each waiting prompt is a card of its own
   await p.mouse.click(1100, 40);
   await p.locator('.nw[data-id="n1"] .hd').click();
   await p.locator('#omni textarea').click();
+  const stepCards = () => p.locator('.nw[data-step=true]').count(), q0 = await stepCards();
   await p.keyboard.type('Now answer with only the file name.'); await p.keyboard.press('Control+Enter'); await sleep(500);
-  await p.keyboard.type('Then say done.'); await p.keyboard.press('Control+Enter'); await sleep(500);
-  const queued = await p.locator('#qpanel .qi').count();
-  ok(queued >= 1, 'messages to a busy agent queue up and show as a list (' + queued + ')');
+  await p.keyboard.type('Then say done.'); await p.keyboard.press('Control+Enter'); await sleep(900);
+  const queued = (await stepCards()) - q0;
+  ok(queued >= 1, 'messages to a busy agent wait as queued-prompt cards on the canvas (' + queued + ')');
   await p.screenshot({ path: W + '/f-7-queue.png' });
 
   // --- M: library modal

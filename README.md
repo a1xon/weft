@@ -53,7 +53,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 
 | Gesture | What happens |
 | --- | --- |
-| type in the bar at the bottom | a new agent, or a message to the selected one (queued if busy) |
+| type in the bar at the bottom | a new agent, or a message to the selected one (a busy one gets a queued-prompt card after its work) |
 | double-click the canvas | a draft agent there, prompt focused. Enter runs it |
 | click a card's ◇ | **what next?** then · hand over · branch (below) |
 | drag a ◇ onto an agent | link them: the result is handed on |
@@ -111,9 +111,11 @@ A new LLM session is not free: it must re-read everything. So the choice is expl
 * **Queue**: every agent has one FIFO. Prompts go out one after another; links fire when the
   queue is drained, so a script of several steps hands over only its final result. A message you
   type on a settled agent is a conversation: it does not re-fire the links (hand it over
-  explicitly). `Ctrl+Enter` sends (it queues by itself while the agent is busy), `Alt+Enter`
-  steers a busy agent immediately. The queue panel reorders, removes
-  and promotes.
+  explicitly). `Ctrl+Enter` sends; to a busy agent (from the bar or *then*) the prompt becomes a
+  *same agent* card linked after the last one still waiting on it, so what comes next is on the
+  canvas and can be edited, moved or deleted until it runs. `Alt+Enter` steers a busy agent
+  immediately. The queue panel shows what an agent has queued inside (prompts from the flow) and
+  reorders, removes and promotes.
 * **Hand over** asks the old agent for a note (goal, state, open items, gotchas) because it knows
   best, then starts the new one with: your instruction, the original task, that note, and what
   git says (branch, uncommitted files, latest commits). The new agent works in the old one's
@@ -426,9 +428,14 @@ always carries the choices that make an agent, one click each: **agent**, **reas
 and, on a second row, the **model**. With nothing selected they are for the next new agent (the
 same remembered choices as the launch pad, and its addenda sit under the box). With an agent
 selected they are *that agent's* own settings and apply the next time it starts. The keys are the
-pad's: `Ctrl+Enter` sends (starts the agent, or messages the selected one and queues it while it
-is busy), a plain `Enter` is a new line, `Tab`, `/` and `Alt+↑/↓` for reasoning; `Alt+Enter`
-steers the selected agent now. The footer under the text lists the ones that apply. Not every agent takes every choice: `agy` accepts
+pad's: `Ctrl+Enter` sends (starts the agent, or messages the selected one; while it is busy the
+prompt becomes a queued-prompt card linked after it), a plain `Enter` is a new line, `Tab`, `/` and `Alt+↑/↓` for reasoning; `Alt+Enter`
+steers the selected agent now. The footer under the text lists the ones that apply. What the bar
+talks to is plain to see: its chip turns solid and names the card (✕ lets go), the box is outlined,
+and every selected card carries a *prompt bar → here* tag. Nobody touching the selection (or typing
+to it) for 30 s lets go of it, so a prompt typed later starts a new agent instead of landing on an
+old card; the tag counts down the last 10 s. Text in the bar, an open flyout, terminal, reader or
+menu holds it. Not every agent takes every choice: `agy` accepts
 low / medium / high, and only with its default model (its other models carry the level in the
 name, and agy drops the whole model choice when the two disagree), so the control is hidden where
 it would not work.

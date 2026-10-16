@@ -26,3 +26,14 @@
   #fly{width:calc(100vw - 20px)}
   #top .proj,#tick{display:none}
 }
+/* the bar is aimed at the selected cards: the chip says at which (✕ lets go), the cards carry a tag */
+#omni .aimw{display:inline-flex;align-items:stretch;flex:none;min-width:0}
+#omniw.aimed #omni .tgt{border-color:var(--cy);background:var(--cy);color:var(--void);transition:opacity .3s}
+#omniw.aimed #omni .tgt:hover{background:var(--i0);border-color:var(--i0)}
+#omni .tgx{flex:none;padding:0 7px;border:1px solid var(--cy);border-left:0;color:var(--cy);font:600 calc(11px*var(--fs)) var(--mono)}
+#omni .tgx:hover{background:var(--cy);color:var(--void)}
+#omniw.aimed #omni .pbox.compact{--bd:var(--cy2)}
+#omniw.aimed #omni .pbox.compact.focus{--bd:var(--cy)}
+#omniw.lapse #omni .tgt{opacity:.55}
+.nw .aimtag{position:absolute;left:0;bottom:100%;margin-bottom:9px;z-index:6;pointer-events:none;white-space:nowrap;padding:1px 7px;background:var(--cy);color:var(--void);font:600 calc(11px*var(--fs))/calc(18px*var(--fs)) var(--display);letter-spacing:.04em}
+.nw .aimtag[hidden]{display:none}

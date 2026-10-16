@@ -21,6 +21,7 @@ socket and config) and runs, one fresh daemon each:
 | `next.cjs` | then / hand over / branch from the ◇, the message bar's tab, the baton line |
 | `watch.cjs` | checks: tray, watch on an agent, grid, steer, approve, zoom, paste, tests watch, gate on a link |
 | `eta.cjs` | the countdown: asked once, large on the card, in the top bar, asked again when it runs out |
+| `aim.cjs` | what the bar talks to: solid chip + tag on the card, a prompt for a busy agent becomes a queued-prompt card (the next one after it), letting go after 30 s untouched (countdown, held by hovering / text in the bar), ✕ |
 | `bar.cjs` | the message bar's own controls: agent, model, reasoning, yolo, bound to the selected agent |
 | `dial.cjs` | the dial (a ring of equal slices that opens where a link is let go, never while drawing; keys, Esc): queue a prompt (the same agent answers), hand off, git; two commits meeting in one push, an open PR, an agent after it that starts from everything carried |
 | `archive.cjs` | the archive: a drop zone in the bottom left while cards move, filing by drop and by menu, ctrl+z, the list with what each card said, bring back where it was, forget; a card at work stays; keep; a lone card and a whole flow filing themselves (short times in the config) |
