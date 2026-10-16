@@ -126,13 +126,13 @@ impl Engine {
                 "a commit takes the work of one agent: give the other agent its own commit and link both commits to one push".into()
             );
         }
-        let eid = if let Some(e) = self.flow.edges.iter_mut().find(|e| e.from == from && e.to == to) {
+        let (eid, new) = if let Some(e) = self.flow.edges.iter_mut().find(|e| e.from == from && e.to == to) {
             e.on = on;
-            e.id.clone()
+            (e.id.clone(), false)
         } else {
             let id = self.next_id("e", self.taken_ids(true).into_iter());
             self.flow.edges.push(Edge { id: id.clone(), from: from.into(), to: to.into(), on });
-            id
+            (id, true)
         };
         // a queued prompt continues the session of whatever it was just linked after
         if let Some(agent) = self.agent_behind(from) {
@@ -158,7 +158,16 @@ impl Engine {
                     r.propagated = true;
                 }
                 self.deliver_input(&e, from, &name, ok, &out);
+                return Ok(());
             }
+        }
+        // linked while busy: the result it is working on goes down this link when it comes,
+        // also if it answers what the person typed after its links had fired
+        if new && !arrived {
+            if let Some(r) = self.rt.get_mut(from) {
+                r.unsent.push(eid);
+            }
+            self.state_dirty = true;
         }
         Ok(())
     }
@@ -477,6 +486,7 @@ impl Engine {
         }
         for rt in self.rt.values_mut() {
             rt.inputs.retain(|(eid, _)| *eid != id);
+            rt.unsent.retain(|eid| *eid != id);
             rt.ui = true;
         }
         self.flow_changed();

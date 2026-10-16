@@ -190,6 +190,38 @@ fn a_result_from_chatting_waits_for_a_hand_over() {
 }
 
 #[test]
+fn a_link_made_while_the_agent_answers_a_chat_gets_that_answer() {
+    // the user's rubbermetrics n38: done, asked a follow-up, a commit linked while it worked on it
+    let mut e = engine();
+    add(&mut e, "n1", "a", "go");
+    add(&mut e, "n2", "b", "next {{inputs}}");
+    add(&mut e, "n3", "c", "commit {{inputs}}");
+    link(&mut e, "e1", "n1", "n2", On::Done);
+    e.settle("n1", true, "first".into());
+    e.rt.get_mut("n2").unwrap().queue.clear();
+    {
+        let r = e.rt.get_mut("n1").unwrap();
+        r.finished = false;
+        r.cause = Cause::User;
+    }
+    e.add_edge("n1", "n3", On::Done).unwrap();
+    assert!(e.rt["n3"].queue.is_empty(), "nothing to hand on while it works");
+    e.settle("n1", true, "second".into());
+    assert_eq!(e.rt["n3"].queue.len(), 1, "the new link gets the answer");
+    assert!(e.rt["n3"].queue[0].text.contains("second"));
+    assert!(e.rt["n2"].queue.is_empty(), "the link that had its result does not get the chat");
+    assert!(e.rt["n1"].fresh);
+    // the next chat stays where it is, as on any link
+    {
+        let r = e.rt.get_mut("n1").unwrap();
+        r.finished = false;
+    }
+    e.rt.get_mut("n3").unwrap().queue.clear();
+    e.settle("n1", true, "third".into());
+    assert!(e.rt["n3"].queue.is_empty());
+}
+
+#[test]
 fn script_continues_until_the_queue_drains() {
     let mut e = engine();
     add(&mut e, "n1", "a", "go");

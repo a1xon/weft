@@ -363,6 +363,8 @@ pub(super) struct Rt {
     pub(super) fresh: bool,
     /// This agent has fired its links since the last reset.
     pub(super) propagated: bool,
+    /// links made while it was busy: its next result goes down them even when it is not `propagated`
+    pub(super) unsent: Vec<String>,
     /// this run answers a gate's (or a step's) request: its result goes there, not down the links
     pub(super) reply_to: Option<String>,
     /// when the current run began (ms since the epoch)
@@ -695,6 +697,7 @@ impl Rt {
             cause: Cause::Flow,
             fresh: false,
             propagated: false,
+            unsent: Vec::new(),
             reply_to: None,
             run_ms: 0,
             revived: 0,
@@ -735,6 +738,7 @@ impl Rt {
             cause: self.cause,
             fresh: self.fresh,
             propagated: self.propagated,
+            unsent: self.unsent.clone(),
             gate: self.gate.held.clone(),
             gate_phase: self.gate.phase,
             gate_round: self.gate.round,
@@ -781,6 +785,7 @@ impl Rt {
         self.cause = s.cause;
         self.fresh = s.fresh;
         self.propagated = s.propagated;
+        self.unsent = s.unsent;
         self.gate.held = s.gate;
         self.gate.phase = s.gate_phase;
         self.gate.round = s.gate_round;
@@ -973,6 +978,7 @@ impl Rt {
         self.asked.clear();
         self.fresh = false;
         self.propagated = false;
+        self.unsent.clear();
         self.cause = Cause::Flow;
         self.reply_to = None;
         self.gate.reset();
@@ -1034,6 +1040,8 @@ pub(super) struct Saved {
     pub(super) fresh: bool,
     #[serde(default)]
     pub(super) propagated: bool,
+    #[serde(default)]
+    pub(super) unsent: Vec<String>,
     #[serde(default)]
     pub(super) gate: Option<String>,
     #[serde(default)]

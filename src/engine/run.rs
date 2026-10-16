@@ -308,7 +308,7 @@ impl Engine {
             }
             return;
         }
-        let propagate = {
+        let (propagate, unsent) = {
             let Some(rt) = self.rt.get_mut(id) else { return };
             rt.finished = true;
             rt.armed = true;
@@ -323,7 +323,7 @@ impl Engine {
             } else {
                 rt.fresh = true;
             }
-            go
+            (go, std::mem::take(&mut rt.unsent))
         };
         self.set_status(id, if ok { Status::Done } else { Status::Failed });
         self.state_dirty = true;
@@ -341,6 +341,20 @@ impl Engine {
         }
         if propagate {
             self.propagate(id, ok, &out);
+        } else {
+            // links made while it worked have had nothing yet: they get this result
+            let name = self.node(id).map(|n| n.name.clone()).unwrap_or_default();
+            let edges: Vec<Edge> =
+                self.flow.edges.iter().filter(|e| e.from == id && e.on.matches(ok) && unsent.contains(&e.id)).cloned().collect();
+            let all = !edges.is_empty() && self.flow.edges.iter().filter(|e| e.from == id && e.on.matches(ok)).count() == edges.len();
+            for e in edges {
+                self.deliver_input(&e, id, &name, ok, &out);
+            }
+            if all {
+                if let Some(rt) = self.rt.get_mut(id) {
+                    rt.fresh = false;
+                }
+            }
         }
         // agents that were waiting for this one to finish can have their handover note now
         let waiting: Vec<String> = self
