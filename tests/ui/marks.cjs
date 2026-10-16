@@ -63,6 +63,15 @@ const received = id => { try { return fs.readFileSync(`${W}/proj/.weft/run/recei
   console.error('Warning: Each child in a list should have a unique %s prop.', 'key');
   fetch('/api/prices').catch(() => {});
 </script>`);
+  // (MARKS_OLD_DAEMON=<an older weft>: the board runs a daemon that does not know marks yet; the
+  // first mark has it replaced by this build, started from the host the browser ran)
+  if (process.env.MARKS_OLD_DAEMON) {
+    spawnSync(BIN, ['stop', W + '/proj'], { env: process.env });
+    await sleep(500);
+    spawnSync(process.env.MARKS_OLD_DAEMON, ['open', W + '/proj', '--no-open'], { env: process.env, encoding: 'utf8' });
+    const rec = fs.readdirSync(W + '/state/weft').find(f => /^[0-9a-f]{8}\.json$/.test(f));
+    ok(!!rec, 'an older daemon runs the board: ' + (spawnSync(process.env.MARKS_OLD_DAEMON, ['--version'], { encoding: 'utf8' }).stdout || '').trim());
+  }
   const port = 20000 + Math.floor(Math.random() * 20000);
   const srv = spawn('python3', ['-m', 'http.server', String(port), '--bind', '127.0.0.1'], { cwd: W + '/proj/web', stdio: 'ignore' });
   await sleep(800);
@@ -131,11 +140,16 @@ const received = id => { try { return fs.readFileSync(`${W}/proj/.weft/run/recei
     }
     await p.screenshot({ path: W + '/marks-3-sent.png' });
     if (card) {
-      const seen = await canvas.evaluate(id => {
-        const el = document.querySelector('.nw[data-id="' + id + '"]'); if (!el) return 'no card';
-        const r = el.getBoundingClientRect();
-        return r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight ? 'in view' : 'off screen';
-      }, card.id);
+      // (a canvas whose daemon was just replaced reloads first)
+      let seen = '';
+      for (let i = 0; i < 40 && seen !== 'in view'; i++) {
+        seen = await canvas.evaluate(id => {
+          const el = document.querySelector('.nw[data-id="' + id + '"]'); if (!el) return 'no card';
+          const r = el.getBoundingClientRect();
+          return r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight ? 'in view' : 'off screen';
+        }, card.id).catch(() => 'reloading');
+        if (seen !== 'in view') await sleep(250);
+      }
       ok(seen === 'in view', 'the canvas behind shows the new card (' + seen + ')');
     }
 

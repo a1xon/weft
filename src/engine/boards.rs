@@ -165,6 +165,16 @@ impl Engine {
         json!({"ok": true})
     }
 
+    /// Make way for a daemon of another build (`boards::ensure`, after an install): the agents keep
+    /// running for it to adopt, and the pages are told, so they come back to it (and reload to its
+    /// page) instead of saying weft has stopped.
+    pub(super) fn cmd_make_way(&mut self) -> Value {
+        let agents = self.rt.values().filter(|r| r.alive || r.spawning).count();
+        self.exit = Some(Exit::Keep);
+        self.bcast(&json!({"t": "bye", "end": false, "replace": true, "agents": agents}));
+        json!({"ok": true, "end": false, "agents": agents})
+    }
+
     /// Give the board a name ("" = its folder's again).
     pub(super) fn cmd_board_name(&mut self, name: String) -> Value {
         let name: String = name.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(NAME_MAX).collect();

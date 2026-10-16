@@ -20,6 +20,13 @@ const windows = () => tmux('list-windows', '-a', '-F', '#{window_name}').split(/
   await p.goto(url); await p.waitForSelector('#pad:not([hidden]) textarea'); await sleep(400);
   await p.keyboard.press('Escape'); await sleep(200);
 
+  // --- a daemon making way for a new build (an install): no goodbye, the page comes back to the new one
+  await p.evaluate(() => send('quit', { end: false, replace: true }));
+  await sleep(800);
+  ok(await p.locator('#bye').isHidden(), 'a daemon making way for another build says no goodbye');
+  spawnSync(BIN, ['open', W + '/proj', '--no-open'], { env: process.env });
+  ok(await waitFor(async () => (await p.locator('#liveDot').innerText()) === 'live', 15000), 'the page is back, on the new daemon');
+
   // --- nothing running: the question is short, and cancelling changes nothing
   await p.click('#bQuit');
   const dlg = p.locator('#modal .win.quit');

@@ -2966,3 +2966,17 @@ fn a_mark_for_a_busy_agent_waits_as_a_card_after_what_it_still_has_to_do() {
     assert_eq!(e.flow.nodes.len(), 3);
     assert_eq!(e.cmd(None, Cmd::Mark { text: "x".into(), to: "n99".into(), agent: String::new(), cwd: None, draft: false })["ok"], false);
 }
+
+#[test]
+fn a_daemon_making_way_for_a_new_build_keeps_the_agents_and_tells_the_pages() {
+    let mut e = engine();
+    add(&mut e, "a", "fixer", "x");
+    e.rt.get_mut("a").unwrap().alive = true;
+    let r = e.cmd(None, serde_json::from_value(json!({"op": "quit", "replace": true})).unwrap());
+    assert_eq!((r["ok"].as_bool(), r["end"].as_bool(), r["agents"].as_u64()), (Some(true), Some(false), Some(1)));
+    assert!(matches!(e.exit, Some(Exit::Keep)), "the agents keep running for the new daemon");
+    assert!(e.rt["a"].alive);
+    // a plain quit is what it was
+    let r = e.cmd(None, serde_json::from_value(json!({"op": "quit"})).unwrap());
+    assert_eq!(r["end"], false);
+}

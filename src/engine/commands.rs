@@ -345,6 +345,9 @@ pub enum Cmd {
         /// also end every agent (default: they keep running in tmux)
         #[serde(default)]
         end: bool,
+        /// a daemon of another build takes over (`boards::ensure`): the pages come back to it
+        #[serde(default)]
+        replace: bool,
     },
     /// File cards away (they were dropped on the archive). What is still at work stays on the canvas.
     Archive {
@@ -475,7 +478,13 @@ impl Engine {
             Cmd::Read { id, lines } => self.cmd_read(id, lines),
             Cmd::Result { id } => self.cmd_result(id),
             Cmd::Ls {} => self.cmd_ls(),
-            Cmd::Quit { end } => self.cmd_quit(end),
+            Cmd::Quit { end, replace } => {
+                if replace {
+                    self.cmd_make_way()
+                } else {
+                    self.cmd_quit(end)
+                }
+            }
             Cmd::Archive { ids } => self.cmd_archive(ids),
             Cmd::Revive { group, dx, dy } => self.cmd_revive(group, dx, dy),
             Cmd::ArchiveGet { group } => self.cmd_archive_get(group),

@@ -196,7 +196,9 @@ pub async fn ensure(dir: &Path, exe: &Path, replace: bool) -> Result<Info, Strin
         Some(old) => {
             let was = if old.build.is_empty() { "an older build".to_string() } else { format!("build {}", old.build) };
             eprintln!("weft: this folder's daemon is {was}; restarting it with this one. Your agents keep running.");
-            let _ = client::call_at(old.port, &old.token, json!({"op": "quit"}));
+            // (its pages come back to the new daemon; a daemon from before that knew no `replace`
+            // says goodbye to them instead)
+            let _ = client::call_at(old.port, &old.token, json!({"op": "quit", "replace": true}));
             for _ in 0..80 {
                 if !client::pid_alive(old.pid) {
                     break;
