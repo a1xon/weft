@@ -140,7 +140,9 @@ const received = id => { try { return fs.readFileSync(`${W}/proj/.weft/run/recei
     }
     await p.screenshot({ path: W + '/marks-3-sent.png' });
     if (card) {
-      // (a canvas whose daemon was just replaced reloads first)
+      // (a canvas whose daemon was just replaced reloads first; a page from a build before that said
+      // goodbye instead, and the person reloads it once)
+      if (process.env.MARKS_OLD_DAEMON) { await sleep(1500); await canvas.reload(); }
       let seen = '';
       for (let i = 0; i < 40 && seen !== 'in view'; i++) {
         seen = await canvas.evaluate(id => {
