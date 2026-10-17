@@ -198,7 +198,7 @@ mod flow_tests {
     use super::*;
 
     #[test]
-    fn a_deploy_after_a_push_collects_its_result_and_starts_when_armed() {
+    fn a_deploy_after_a_push_collects_its_result_and_starts_with_it() {
         let mut e = engine();
         add_kind(&mut e, "p", "push", "git", "");
         {
@@ -217,10 +217,9 @@ mod flow_tests {
         );
         let d = r["id"].as_str().unwrap().to_string();
         assert!(e.flow.edges.iter().any(|x| x.from == "p" && x.to == d), "linked after the push: {r}");
-        assert_eq!(e.rt[&d].inputs.len(), 1, "the push's result waits in it");
-        assert!(e.rt[&d].queue.is_empty(), "a draft (one that waits for its command) does not run");
-        e.cmd_arm(d.clone());
-        assert!(!e.rt[&d].queue.is_empty() || e.rt[&d].status != Status::New, "armed, it runs: {:?}", e.rt[&d].status);
+        // nothing to arm: a deploy that has its command goes as soon as the push's result is in it
+        assert!(!e.node(&d).unwrap().draft);
+        assert!(!e.rt[&d].queue.is_empty() || e.rt[&d].status != Status::New, "it runs: {:?}", e.rt[&d].status);
         let plan = e.deploy_plan(e.node(&d).unwrap()).unwrap();
         assert_eq!(plan.at, DeployAt::Pushed);
         assert_eq!(plan.rev, "HEAD", "the push carried no branch here");
@@ -234,5 +233,35 @@ mod flow_tests {
         e.cmd_arm(d.clone());
         assert!(e.rt[&d].finished && e.rt[&d].ok == Some(false), "{:?}", e.rt[&d].status);
         assert!(e.rt[&d].output.as_deref().is_some_and(|o| o.contains("no command")));
+    }
+
+    #[test]
+    fn a_deploy_handed_to_an_agent_starts_when_the_push_is_in() {
+        // (rubbermetrics n72: made with no command, then given to claude with a prompt; the push went
+        // through and the deploy sat there as a draft)
+        let mut e = engine();
+        add_kind(&mut e, "p", "push", "git", "");
+        e.flow.nodes.iter_mut().find(|n| n.id == "p").unwrap().git_op = GitOp::Push;
+        let r = e.cmd_node_add(
+            json!({"agent": "sh", "name": "deploy", "cmd": "", "finish": "exit", "deploy": "pushed", "draft": true}),
+            Some("p".into()),
+            false,
+        );
+        let d = r["id"].as_str().unwrap().to_string();
+        let r = e.cmd_node_add(
+            json!({"agent": "sh", "name": "deploy 2", "cmd": "", "finish": "exit", "deploy": "pushed", "draft": true}),
+            Some("p".into()),
+            false,
+        );
+        let bare = r["id"].as_str().unwrap().to_string();
+        e.cmd_node_set(d.clone(), json!({"agent": "claude", "finish": "idle", "prompt": "run ./manual-deploy.sh and watch it"}));
+        assert!(e.node(&d).unwrap().draft && !e.node(&d).unwrap().deploy_unset(), "it has something to run now");
+        e.propagate("p", true, "Pushed `main` to `origin`.");
+        assert!(!e.node(&d).unwrap().draft, "the push coming in started it");
+        assert!(!e.rt[&d].queue.is_empty() || e.rt[&d].status != Status::New, "{:?}", e.rt[&d].status);
+        assert!(!e.rt[&d].finished, "an agent deploy is not failed for having no command: {:?}", e.rt[&d].output);
+        // a shell deploy with no command still waits for it, holding the push's result
+        assert!(e.node(&bare).unwrap().draft && e.rt[&bare].queue.is_empty());
+        assert_eq!(e.rt[&bare].inputs.len(), 1);
     }
 }

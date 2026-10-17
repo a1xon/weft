@@ -27,7 +27,8 @@ async function spawnDeploy(fromId, at) {
   tip('deploy', 'Deploy: runs its command on a checkout of exactly what the push before it pushed, never on unfinished work in the folder, as soon as the push is in. To look first, put an approve check on the link into it. Red goes to "failed", where a fixer can take it.');
   return r.id;
 }
-/* the command typed into a deploy card is the folder's from now on, and a card that waited for it goes */
+/* the command typed into a deploy card is the folder's from now on, and a card that waited for it goes
+   (one that has its command, or an agent it is handed to, before the push is in starts with the push) */
 addEventListener('change', e => {
   const t = e.target, id = S.fly && S.fly.id, n = id && S.nodes.get(id);
   if (!(n && n.deploy && t && t.getAttribute && t.getAttribute('aria-label') === 'Command')) return;
@@ -39,7 +40,8 @@ addEventListener('change', e => {
 /* a deploy card says what it does in its own words */
 function deployText(n, r) {
   const st = r.status;
-  if (st === 'draft') return (n.cmd || '').trim() ? 'waits \u00b7 arm to deploy' : 'type its command (options) to deploy';
+  const unset = !(n.cmd || '').trim() && (!n.agent || n.agent === 'sh');
+  if (st === 'draft') return unset ? 'type its command (options) to deploy' : 'waits \u00b7 arm to deploy';
   if (st === 'busy' || st === 'starting') return `deploying` + (r.since ? ` ${clock(r.since)}` : '');
   if (st === 'done') return `deployed ${age(r.since)} ago`;
   if (st === 'failed') return `deploy failed ${age(r.since)} ago`;

@@ -307,6 +307,12 @@ impl Node {
         }
     }
 
+    /// A deploy step with nothing to run yet: a shell card whose command is still empty. A deploy
+    /// handed to an agent (claude, codex, ...) runs that agent with its prompt, so it always has one.
+    pub fn deploy_unset(&self) -> bool {
+        self.deploy.is_some() && self.cmd.trim().is_empty() && (self.agent == "sh" || self.agent.is_empty())
+    }
+
     pub fn kind(&self) -> Kind {
         match self.agent.as_str() {
             "note" => Kind::Note,

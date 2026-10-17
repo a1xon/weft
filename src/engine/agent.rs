@@ -174,7 +174,7 @@ impl Engine {
         if node.kind() != Kind::Agent || self.exit.is_some() {
             return;
         }
-        if node.deploy.is_some() && node.cmd.trim().is_empty() {
+        if node.deploy_unset() {
             // (an empty command would open a bare shell that never ends)
             if let Some(rt) = self.rt.get_mut(id) {
                 rt.queue.clear();

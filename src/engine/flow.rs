@@ -27,6 +27,12 @@ impl Engine {
         if self.node(&e.to).is_some_and(|n| n.kind() == Kind::Git) {
             self.git_arrival(&e.to, &e.id, from, name, ok, out);
         } else {
+            // a deploy waits only for something to run (its command, or an agent it is handed to):
+            // with that, the push coming in starts it
+            if let Some(n) = self.flow.nodes.iter_mut().find(|n| n.id == e.to && n.draft && n.deploy.is_some() && !n.deploy_unset()) {
+                n.draft = false;
+                self.flow_changed();
+            }
             self.check_join(&e.to);
         }
     }

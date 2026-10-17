@@ -170,7 +170,7 @@ impl Engine {
             let why = match self.node(&h) {
                 Some(n) if n.kind() == Kind::Git && n.git_op == GitOp::Pr => "pull request not armed",
                 Some(n) if n.kind() == Kind::Git && n.pushes() => "push not armed",
-                Some(n) if n.deploy.is_some() && n.cmd.trim().is_empty() => "deploy has no command yet",
+                Some(n) if n.deploy_unset() => "deploy has no command yet",
                 Some(n) if n.deploy.is_some() => "deploy not armed",
                 _ => "not armed",
             };
