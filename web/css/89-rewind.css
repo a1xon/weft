@@ -1,13 +1,27 @@
-/* rewind: a dot per step that changed files, above the card's footer; a step's diff in the reader */
-.cps{display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:3px 10px 2px;border-top:1px solid var(--l1);min-height:18px}
-.cps .cpl{font:600 calc(9px*var(--fs)) var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--i3);margin-right:3px}
-.cpd{width:11px;height:11px;padding:0;border:1.5px solid var(--cy2);background:var(--cy2);transform:rotate(45deg);cursor:pointer;font:700 9px/8px var(--mono);color:var(--vi)}
-.cpd:hover{background:var(--cy);border-color:var(--cy)}
-.cpd.open{background:transparent;border-color:var(--am);animation:cppulse 1.4s ease-in-out infinite}
-.cpd.undone{background:transparent;border-color:var(--i4)}
-.cpd.rw{transform:none;width:auto;height:auto;border:none;background:none;font-size:calc(12px*var(--fs));line-height:1}
-.cpd.rw.undone{color:var(--i4)}
-@keyframes cppulse{50%{opacity:.35}}
+/* rewind: the card's steps as a progress bar above its footer (on the card's darkest colour); a step's diff in the reader */
+.cps{flex:none;display:flex;align-items:stretch;gap:2px;margin:6px 12px 0;padding:2px;height:calc(17px*var(--fs) + 6px);
+  background:var(--void);border:1px solid var(--l0);overflow:hidden}
+.cps .cpl{flex:none;align-self:center;font:600 calc(8.5px*var(--fs)) var(--display);letter-spacing:.14em;text-transform:uppercase;color:var(--i4);padding:0 5px 0 3px}
+.cpd{position:relative;flex:1 1 0;min-width:14px;max-width:50%;display:flex;align-items:center;gap:6px;padding:0 6px;cursor:pointer;container-type:inline-size;
+  --sc:var(--gr);--sb:rgba(61,220,151,.38);--sf:rgba(61,220,151,.08);
+  border:1px solid var(--sb);background:var(--sf);color:var(--i1);font:500 calc(10px*var(--fs))/1 var(--mono);text-align:left;transition:background .15s,border-color .15s}
+.cpd::before{content:"";position:absolute;left:-1px;top:-1px;bottom:-1px;width:2px;background:var(--sc)}
+.cpd:hover{--sb:var(--sc);--sf:rgba(61,220,151,.16);color:var(--i0)}
+.cpd .cpn{flex:none;font-weight:700;color:var(--sc)}
+.cpd .cpw{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.cpd .cpf{flex:none;color:var(--i3)}
+.cpd.open{--sc:var(--am);--sb:rgba(255,180,84,.5);--sf:rgba(255,180,84,.1);animation:cpwork 1.1s ease-in-out infinite}
+.cpd.open:hover{--sf:rgba(255,180,84,.18)}
+.cpd.rw{--sc:var(--cy);--sb:rgba(92,200,255,.35);--sf:rgba(92,200,255,.07)}
+.cpd.rw:hover{--sf:rgba(92,200,255,.15)}
+.cpd.undone{--sc:var(--i4);--sb:var(--l1);--sf:transparent;color:var(--i3)}
+.cpd.undone .cpw{text-decoration:line-through;text-decoration-color:var(--i4)}
+/* a new step comes in white and settles into the dark */
+.cpd.cpnew::after{content:"";position:absolute;inset:-1px;background:var(--i0);pointer-events:none;animation:cpflash .9s ease-out forwards}
+@container (max-width:150px){.cpd .cpf{display:none}}
+@container (max-width:44px){.cpd .cpw{display:none}}
+@keyframes cpwork{50%{border-color:rgba(255,180,84,.15);background:rgba(255,180,84,.02)}}
+@keyframes cpflash{to{opacity:0}}
 #reader .fh2 .cpf{font:500 calc(11px*var(--fs)) var(--mono);color:var(--i2);white-space:nowrap}
 #reader .rbody.diff{white-space:pre}
 .dv{font:calc(13px*var(--fs)*var(--rz,1))/1.45 var(--mono);color:var(--i1)}

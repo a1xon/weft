@@ -67,7 +67,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 | drag a card's bottom-right corner | resize it: a taller card shows more rows of its terminal; double-click the corner for the default size |
 | the wheel in an open terminal | scroll back: an agent that reads the mouse (Claude Code) scrolls its own transcript, anything else weft's history; *jump to latest* goes back down |
 | click a card's answer, or `R` | the whole **result**, full size and laid out as the agent's terminal showed it: indents and tables kept (a markdown table from `weft done` is drawn as a table), long lines wrapped under their own indent; `+`/`-` text size, `Esc` back. `weft result <node>` prints the same text in your terminal |
-| click a dot in a card's *steps* row | what that step changed, as a diff; **undo this step** or **rewind to before it** puts its files back (below) |
+| click a step in a card's *steps* bar | what that step changed, as a diff; **undo this step** or **rewind to before it** puts its files back (below) |
 | marquee or shift-click, then `G` | gather several results into one agent |
 | right-click anything | what it can do |
 | click **N failed** in the top bar | a fresh agent finds out why, fixes the cause and runs the failed cards again (below) |
@@ -293,9 +293,11 @@ chain, a tester, a reviewer, a deploy script, starts from that, not from a bare 
 ### Rewind: what a step changed, and undo
 
 Every step an agent takes (a prompt, an answer to a gate, what you typed in its terminal) is
-bracketed by two snapshots of its folder. A step that changed files is a dot above the card's
-footer (*steps*); the one still running pulses. Hover a dot to see the files; a click shows the
-step's diff full size, coloured as a terminal shows it.
+bracketed by two snapshots of its folder. The steps that changed files are a progress bar above the
+card's footer (*steps*): a segment per step, up to half the card wide, with what it was asked and how
+many files it changed; green once it is in, yellow and blinking while it runs, struck through when
+undone. A new step flashes white. Hover a step to see its files; a click shows its diff full size,
+coloured as a terminal shows it.
 
 * **Undo this step** puts the files that step changed back as they were before it: edited files
   get their old content, files it made are removed, files it deleted come back. A file that changed
@@ -311,7 +313,7 @@ edits). The snapshots live in a shadow repository per repository under `.weft/cp
 that borrows the real repository's objects. Nothing in the real repository changes: not the
 folder, not its index, not its branches or refs. Only content the repository does not have yet is
 stored. Ignored files, weft's own `.weft/` and untracked files over 8 MB are left out. A card keeps
-its last 24 steps; a step that changed nothing leaves no dot. Deleting a card drops its snapshots.
+its last 24 steps; a step that changed nothing leaves no segment. Deleting a card drops its snapshots.
 An agent that is working cannot be rewound: wait for it, or stop it first.
 
 ### The archive

@@ -1,6 +1,6 @@
-// Rewind: a step that changed files is a dot on its card; a click shows its diff; "undo this step" puts
-// just its files back (the repository's index, branches and refs stay as they are); the undo is a dot
-// too and can be taken back; the agent hears about it with its next prompt.
+// Rewind: a step that changed files is a segment of the steps bar on its card (its prompt, its files); a click shows its diff; "undo this step" puts
+// just its files back (the repository's index, branches and refs stay as they are); the undo is a
+// segment too and can be taken back; the agent hears about it with its next prompt.
 const { chromium } = require(process.env.PLAYWRIGHT);
 const fs = require('fs');
 const { execFileSync } = require('child_process');
@@ -34,7 +34,9 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(await waitSt(a, ['done'], 90000), 'the agent works and finishes (' + await st(a) + ')');
   const fixed = fs.readFileSync(SLUG, 'utf8');
   ok(fixed !== orig, 'it changed textkit/slug.py');
-  ok(await waitFor(async () => (await dots(a).count()) === 1, 15000), 'its step is a dot above the footer (' + await dots(a).count() + ')');
+  ok(await waitFor(async () => (await dots(a).count()) === 1, 15000), 'its step is a segment of the steps bar above the footer (' + await dots(a).count() + ')');
+  ok(/Fix the slugify/.test(await dots(a).first().innerText()) && /1 file/.test(await dots(a).first().innerText()), 'which says what it was asked and how many files: "' + (await dots(a).first().innerText()).replace(/\n/g, ' ') + '"');
+  ok(await dots(a).first().evaluate(e => getComputedStyle(e.parentElement).backgroundColor === getComputedStyle(document.documentElement).getPropertyValue('--void').trim().replace(/^#(..)(..)(..)$/, (_, r, g, b) => `rgb(${parseInt(r, 16)}, ${parseInt(g, 16)}, ${parseInt(b, 16)})`)), 'on the card\'s darkest colour');
   ok(/textkit\/slug\.py/.test(await dots(a).first().getAttribute('title') || ''), 'that names the file it changed: "' + (await dots(a).first().getAttribute('title') || '').replace(/\n/g, ' | ') + '"');
 
   // --- its diff, full size
@@ -47,7 +49,8 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   // --- undo it: only its file goes back, the repository itself is untouched
   await p.locator('#reader button', { hasText: 'undo this step' }).click();
   ok(await waitFor(async () => fs.readFileSync(SLUG, 'utf8') === orig, 15000), 'undo puts textkit/slug.py back as it was before the step');
-  ok(await waitFor(async () => (await p.locator('.nw[data-id="' + a + '"] .cpd.rw').count()) === 1, 8000), 'the undo is a dot of its own (↺)');
+  ok(await waitFor(async () => (await p.locator('.nw[data-id="' + a + '"] .cpd.rw').count()) === 1, 8000), 'the undo is a segment of its own (↺)');
+  ok((await p.locator('.nw[data-id="' + a + '"] .cpd.rw.cpnew').count()) === 1, 'and it comes in with a flash');
   ok((await p.locator('.nw[data-id="' + a + '"] .cpd.undone').count()) === 1, 'and the step shows as undone');
   ok(git('for-each-ref') === refs0, 'no branch, tag or ref appeared in the repository');
   ok(!git('status', '--porcelain', '--', '.', ':(exclude).weft').trim(), 'and the folder is clean again: "' + git('status', '--porcelain', '--', '.', ':(exclude).weft').trim() + '"');
@@ -73,9 +76,10 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   const got = fs.readFileSync(PROJ + '/.weft/run/received-' + a + '.log', 'utf8').split('=== prompt ===').pop();
   ok(/the person undid what you did for "Fix the slugify/.test(got) && /textkit\/slug\.py/.test(got), 'and that prompt told it what was undone');
 
-  // --- a step still running can be looked at too; one that changed nothing is no dot
+  // --- one that changed nothing is no segment
   // (the step, the undo, the undo taken back, the second undo)
-  ok((await dots(a).count()) === 4, 'the prompt that changed nothing added no dot (' + await dots(a).count() + ')');
+  ok((await dots(a).count()) === 4, 'the prompt that changed nothing added no segment (' + await dots(a).count() + ')');
+  await p.locator('.nw[data-id="' + a + '"]').screenshot({ path: W + '/rewind-2-bar.png' });
   ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));
   await b.close();
   console.log(fails ? `${fails} FAILED` : 'all passed');

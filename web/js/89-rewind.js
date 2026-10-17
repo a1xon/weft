@@ -1,28 +1,36 @@
 /* ------------------------------------------------------------ rewind: what each step changed, and undo (engine/rewind.rs)
    Every step an agent takes is snapshotted before and after (in a shadow repository under .weft/cp/:
-   the folder, its index and its branches never change). A step that changed files is a dot above the
-   card's footer; a click shows its diff full size, with "undo this step" and "rewind to before it".
-   Undo puts back only the files that step changed; a file changed after it is left and named. A
-   rewind is a dot itself, so it can be undone too. */
+   the folder, its index and its branches never change). The steps that changed files are a progress bar
+   above the card's footer: a segment per step (what it was asked, how many files), yellow while it runs,
+   green once it is in; a new one flashes white. A click shows its diff full size, with "undo this step"
+   and "rewind to before it". Undo puts back only the files that step changed; a file changed after it is
+   left and named. A rewind is a segment itself, so it can be undone too. */
 const cpsOf = r => (r && Array.isArray(r.cps) ? r.cps : []);
+const nFiles = k => `${k} file${k === 1 ? '' : 's'}`;
 function renderCps(id, n, r) {
   const el = nodeEls.get(id); if (!el) return;
   // (a first step still running is no row yet: every working card would carry one)
   const cps = cpsOf(r).some(c => !c.open) ? cpsOf(r) : [];
   if (!cps.length) { if (el.cps) { el.cps.remove(); el.cps = null; } return; }
   if (!el.cps) {
-    el.cps = h('div', { class: 'cps', title: 'what each step changed: click a dot for its diff and to undo it' });
+    el.cps = h('div', { class: 'cps', title: 'what each step changed: click a step for its diff and to undo it' });
     el.root.querySelector('.node').insertBefore(el.cps, el.root.querySelector('.node .ft'));
   }
   const key = JSON.stringify(cps);
   if (el.cps._key === key) return;
+  // a step that was not there before flashes (not the ones already there when the card is drawn)
+  const seen = el.cps._seen;
   el.cps._key = key;
+  el.cps._seen = new Set(cps.map(c => c.n));
   el.cps.replaceChildren(h('span', { class: 'cpl' }, 'steps'), ...cps.map(c => {
-    const tip = c.rewind ? `${c.what}: ${c.files} file${c.files === 1 ? '' : 's'} put back${c.undone ? ' (undone)' : ''}`
+    const tip = c.rewind ? `${c.what}: ${nFiles(c.files)} put back${c.undone ? ' (undone)' : ''}`
       : c.open ? `step ${c.n}, running: ${c.what || 'its prompt'}`
-        : `step ${c.n}: ${c.what || 'its prompt'}\n${c.files} file${c.files === 1 ? '' : 's'}: ${c.names.join(', ')}${c.files > c.names.length ? ', …' : ''}${c.undone ? '\n(undone)' : ''}`;
-    return h('button', { class: 'cpd' + (c.open ? ' open' : '') + (c.undone ? ' undone' : '') + (c.rewind ? ' rw' : ''), 'data-n': String(c.n), title: tip,
-      onclick: ev => { ev.stopPropagation(); openStep(id, c.n); } }, c.rewind ? '↺' : '');
+        : `step ${c.n}: ${c.what || 'its prompt'}\n${nFiles(c.files)}: ${c.names.join(', ')}${c.files > c.names.length ? ', …' : ''}${c.undone ? '\n(undone)' : ''}`;
+    const cls = 'cpd' + (c.open ? ' open' : '') + (c.undone ? ' undone' : '') + (c.rewind ? ' rw' : '') + (seen && !seen.has(c.n) ? ' cpnew' : '');
+    return h('button', { class: cls, 'data-n': String(c.n), title: tip, onclick: ev => { ev.stopPropagation(); openStep(id, c.n); } },
+      h('span', { class: 'cpn' }, c.rewind ? '↺' : String(c.n)),
+      h('span', { class: 'cpw' }, c.what || 'its prompt'),
+      c.open ? h('span', { class: 'cpf' }, 'running') : c.files ? h('span', { class: 'cpf' }, nFiles(c.files)) : null);
   }));
 }
 /* a step's diff, full size, in the reader's window */
