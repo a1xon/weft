@@ -1012,6 +1012,28 @@ fn messages_typed_to_an_agent_carry_its_addenda_unless_they_are_commands() {
 }
 
 #[test]
+fn a_queued_prompt_carries_its_agents_addenda_and_asks_for_the_weft_commands() {
+    let mut e = engine();
+    let a = e.cmd_node_add(json!({"agent": "claude", "prompt": "build ui"}), None, false)["id"].as_str().unwrap().to_string();
+    assert_eq!(e.node(&a).unwrap().addenda, vec!["report-done".to_string()], "a new agent reports with commands");
+    let s = e.cmd_node_add(json!({"agent": "step", "host": a, "prompt": "now add tests"}), None, false)["id"].as_str().unwrap().to_string();
+    let step = e.node(&s).unwrap().clone();
+    assert_eq!(step.addenda, vec!["report-done".to_string()], "the queued prompt is asked like its agent's prompts");
+    let (body, full) = e.render_parts(&step, &[]);
+    assert_eq!(body, "now add tests");
+    assert!(full.contains("/bin/weft done <<'EOF'"), "{full}");
+    // its agent's own choice goes along (here: no addenda), and one it is given stays
+    e.flow.nodes.iter_mut().find(|n| n.id == a).unwrap().addenda = vec!["concise".into()];
+    let s2 = e.cmd_node_add(json!({"agent": "step", "host": a, "prompt": "p"}), None, false)["id"].as_str().unwrap().to_string();
+    assert_eq!(e.node(&s2).unwrap().addenda, vec!["concise".to_string()]);
+    let s3 = e.cmd_node_add(json!({"agent": "step", "host": a, "prompt": "p", "addenda": []}), None, false)["id"].as_str().unwrap().to_string();
+    assert!(e.node(&s3).unwrap().addenda.is_empty());
+    // with no agent known yet it starts with the library's defaults
+    let s4 = e.cmd_node_add(json!({"agent": "step", "prompt": "p"}), None, false)["id"].as_str().unwrap().to_string();
+    assert_eq!(e.node(&s4).unwrap().addenda, vec!["report-done".to_string()]);
+}
+
+#[test]
 fn agy_takes_a_reasoning_level_only_with_its_default_model() {
     let e = engine();
     let agy = &e.cfg.agents["agy"];

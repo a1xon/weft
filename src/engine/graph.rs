@@ -289,10 +289,16 @@ impl Engine {
             }
         }
         if !has_add {
-            n.addenda = if n.finish == Finish::Exit || kind != Kind::Agent {
-                Vec::new()
-            } else {
-                self.cfg.library.iter().filter(|s| s.kind == SnippetKind::Addendum && s.default_on).map(|s| s.id.clone()).collect()
+            let defaults =
+                || self.cfg.library.iter().filter(|s| s.kind == SnippetKind::Addendum && s.default_on).map(|s| s.id.clone()).collect();
+            n.addenda = match kind {
+                // a queued prompt is asked of its agent: it carries what that agent's prompts carry
+                Kind::Step => match self.node(&self.resolve_host(&n.host)).filter(|h| h.kind() == Kind::Agent) {
+                    Some(h) => h.addenda.clone(),
+                    None => defaults(),
+                },
+                Kind::Agent if n.finish != Finish::Exit => defaults(),
+                _ => Vec::new(),
             };
         }
         if kind == Kind::Git && n_json.get("draft").is_none() {

@@ -694,7 +694,7 @@ function netNode(t, o, entry, hasTask, dir, ids) {
   if (agent === 'step') {
     const host = S.nodes.get(ids.get(t.host));
     node.host = host ? hostOf(host).id : '';
-    if (t.addenda == null) node.addenda = (host && hostOf(host).addenda) || [];
+    // no addenda of its own: the daemon gives it its agent's (this page may not have that agent yet)
   }
   // a push and a pull request are outward-facing: they wait to be armed unless you said otherwise
   if (k === 'git') node.draft = (t.git_op || '') !== 'commit' && !o.arm;
