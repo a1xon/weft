@@ -467,6 +467,44 @@ impl Engine {
         for flow in due {
             self.file_away(&flow, true);
         }
+        self.rest_idle(&watched);
+    }
+
+    /// An agent that finished and has sat idle for `rest_s` ends its process: an idle agent CLI
+    /// holds hundreds of MB, and one left on the canvas overnight would hold them till morning. Its
+    /// card stays as it was, with its result; a prompt to it starts a new process. Not one that waits
+    /// for the person (an issue, a dialog), one that is kept (or in a kept flow), or one whose terminal
+    /// is open.
+    pub(super) fn rest_idle(&mut self, watched: &[String]) {
+        if self.cfg.rest_s <= 0.0 {
+            return;
+        }
+        let rest = (self.cfg.rest_s * 1000.0) as u64;
+        let now = now_ms();
+        let kept: Vec<String> =
+            self.flows().into_iter().filter(|f| f.iter().any(|id| self.node(id).is_some_and(|n| n.keep))).flatten().collect();
+        let tired: Vec<String> = self
+            .flow
+            .nodes
+            .iter()
+            .filter(|n| n.kind() == Kind::Agent && !n.keep && !kept.contains(&n.id) && !watched.contains(&n.id))
+            .filter(|n| {
+                self.rt.get(&n.id).is_some_and(|r| {
+                    r.alive
+                        && r.finished
+                        && r.at_rest()
+                        && r.issue.is_none()
+                        && r.waiting.is_none()
+                        && !r.attn
+                        && now.saturating_sub(r.since) >= rest
+                        && r.screen_changed.elapsed() >= Duration::from_millis(rest)
+                })
+            })
+            .map(|n| n.id.clone())
+            .collect();
+        for id in tired {
+            self.kill(&id);
+        }
     }
 
     /// File cards away: their processes end, their links go with them, and what they knew is kept so

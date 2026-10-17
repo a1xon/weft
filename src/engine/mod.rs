@@ -360,6 +360,10 @@ impl Engine {
     }
 
     async fn adopt_windows(&mut self) {
+        /// A window weft named after a card (`n12`), not one of its own or a person's.
+        fn is_card_id(name: &str) -> bool {
+            name.strip_prefix('n').is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()))
+        }
         let Some(t) = self.tmux.clone() else { return };
         let (ok, out) = tmux::run(
             &t.sock,
@@ -378,7 +382,14 @@ impl Engine {
         }
         for line in out.lines() {
             let f: Vec<&str> = line.split(' ').collect();
-            if f.len() < 5 || !self.rt.contains_key(f[0]) {
+            if f.len() < 5 {
+                continue;
+            }
+            // an agent whose card went (deleted or filed) while no daemon was here: nothing reads it
+            if !self.rt.contains_key(f[0]) {
+                if is_card_id(f[0]) {
+                    t.kill_window(f[2]);
+                }
                 continue;
             }
             let (id, pane, win, dead) = (f[0].to_string(), f[1].to_string(), f[2].to_string(), f[3] == "1");

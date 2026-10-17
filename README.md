@@ -267,6 +267,13 @@ means never. The archive keeps the latest 100 drops. On disk it is a small index
 the cards, links and everything they knew), read only when you open or bring back that drop; an
 archive from an older weft is moved into packs on the first start.
 
+**Idle agents rest.** An agent CLI sitting at its prompt holds a few hundred MB. Once an agent has
+finished and its terminal has sat unchanged for `rest_s` (1800 s, wall clock; `0` = never), weft
+ends its process. The card stays as it is, done with its result; the next prompt to it starts a fresh
+terminal. Not an agent that waits for you (an issue, a dialog), a kept one (or one in a kept flow),
+or one whose terminal is open. On start weft also ends agent windows left in its tmux session whose
+card is gone.
+
 ### The git tree
 
 Bottom right, beside the bar: the commits of the branch where you are, drawn as a graph (a lane

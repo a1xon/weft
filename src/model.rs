@@ -463,6 +463,10 @@ pub struct Config {
     pub archive_s: f64,
     /// A flow of several cards goes to the archive this long after its last step finished (likewise; 0 = never).
     pub archive_flow_s: f64,
+    /// An agent that finished and has sat idle this long ends its process (seconds, wall clock;
+    /// 0 = never). Its card and result stay; the next prompt starts a new process.
+    #[serde(default = "rest_default")]
+    pub rest_s: f64,
     /// Cards are named by their agent's `title_cmd` (until you rename one yourself).
     pub titles: bool,
 }
@@ -488,9 +492,14 @@ impl Default for Config {
             recheck_s: 60.0,
             archive_s: 600.0,
             archive_flow_s: 900.0,
+            rest_s: rest_default(),
             titles: true,
         }
     }
+}
+
+fn rest_default() -> f64 {
+    1800.0
 }
 
 fn default_chrome() -> Vec<String> {

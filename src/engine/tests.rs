@@ -2337,6 +2337,37 @@ fn the_archive_file_stays_out_of_git() {
 }
 
 #[test]
+fn an_agent_that_sat_idle_after_its_work_for_half_an_hour_ends_its_process_but_keeps_its_card() {
+    let mut e = engine();
+    let ago = |min: u64| Instant::now().checked_sub(Duration::from_secs(min * 60)).unwrap();
+    for (id, done_min) in [("n1", 40), ("n2", 10), ("n3", 40), ("n4", 40), ("n5", 40), ("n6", 40), ("n7", 40)] {
+        add(&mut e, id, id, "go");
+        finished(&mut e, id, id != "n7", done_min);
+        let rt = e.rt.get_mut(id).unwrap();
+        rt.alive = true;
+        rt.screen_changed = ago(done_min);
+    }
+    // waits for the person; kept; in a kept flow; its terminal is open
+    e.rt.get_mut("n3").unwrap().issue = Some("which database?".into());
+    e.flow.nodes.iter_mut().find(|n| n.id == "n4").unwrap().keep = true;
+    link(&mut e, "e1", "n4", "n5", On::Done);
+    e.rest_idle(&["n6".into()]);
+    let alive: Vec<&str> = ["n1", "n2", "n3", "n4", "n5", "n6", "n7"].into_iter().filter(|id| e.rt[*id].alive).collect();
+    assert_eq!(alive, vec!["n2", "n3", "n4", "n5", "n6"], "the done one and the failed one rest; the rest stay");
+    // the card is as it was: done, with its result
+    assert_eq!(e.eff_status("n1", &HashMap::new()), Status::Done);
+    assert_eq!(e.rt["n1"].output.as_deref(), Some("result of n1"));
+    // a screen that changed lately is not idle, and 0 switches it off
+    e.rt.get_mut("n2").unwrap().since = now_ms() - 40 * 60_000;
+    e.rest_idle(&["n6".into()]);
+    assert!(e.rt["n2"].alive);
+    e.rt.get_mut("n6").unwrap().screen_changed = ago(31);
+    e.cfg.rest_s = 0.0;
+    e.rest_idle(&[]);
+    assert!(e.rt["n6"].alive);
+}
+
+#[test]
 fn an_archive_from_before_the_packs_moves_into_them_and_keeps_everything() {
     let mut e = engine();
     add(&mut e, "n1", "fix login", "fix the login");
