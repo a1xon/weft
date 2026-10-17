@@ -252,6 +252,8 @@ impl Engine {
             "rt": rts,
             "archive": self.archive_json(),
             "boards": self.boards.list(),
+            // (the page offers to fix what failed only to a daemon that can: see fix.rs)
+            "fix": true,
         })
     }
 

@@ -533,6 +533,76 @@ pub fn marked(page: &crate::browser::Page, marks: &[crate::browser::Mark], log: 
     s
 }
 
+// ------------------------------------------------------------------ fixing what failed
+
+/// One card that failed, as a fixer is told about it (see `engine/fix.rs`).
+pub struct Failed {
+    pub id: String,
+    pub name: String,
+    /// what it is: "claude · opus · high", "tests gate", "commit", ...
+    pub what: String,
+    pub dir: String,
+    pub asked: String,
+    pub said: String,
+    /// the cards it got its input from, and the ones that wait for it: `n1 "plan" (done)`
+    pub after: Vec<String>,
+    pub before: Vec<String>,
+    /// it has a terminal to read
+    pub screen: bool,
+}
+
+/// The top bar's *failed*: a stronger agent finds out why, fixes the cause and runs the cards again.
+pub fn fix_request(exe: &str, failed: &[Failed]) -> String {
+    let one = failed.len() == 1;
+    let mut s = format!(
+        "{} on this weft board failed. Find out why, fix the cause, and run {} again so the work goes on from where it stopped.\n\n\
+What each card was asked and what it said is below, cut to the parts that matter. To see more:\n\
+- `{exe} read <id> -n 400`: its terminal\n\
+- `{exe} result <id>`: its whole last result\n\
+- `{exe} ls`: every card on the board and its status\n",
+        if one { "A card".to_string() } else { format!("{} cards", failed.len()) },
+        if one { "it" } else { "them" }
+    );
+    for f in failed {
+        s += &format!("\n## {} \"{}\" · {}\n", f.id, f.name, f.what);
+        if !f.dir.is_empty() {
+            s += &format!("Folder: {}\n", f.dir);
+        }
+        if !f.after.is_empty() {
+            s += &format!("Gets its input from: {}\n", f.after.join(", "));
+        }
+        if !f.before.is_empty() {
+            s += &format!("Waiting for it: {}\n", f.before.join(", "));
+        }
+        if !f.asked.trim().is_empty() {
+            s += &format!("### What it was asked\n{}\n", f.asked.trim());
+        }
+        s += &format!("### What it said\n{}\n", if f.said.trim().is_empty() { "(nothing: read its terminal)" } else { f.said.trim() });
+        if f.screen {
+            s += &format!("Its terminal: `{exe} read {} -n 400`\n", f.id);
+        }
+    }
+    s += &format!(
+        "\n## How to go about it\n\
+1. Find the cause: read what failed, the terminals and the files. Several failures can share one cause, and a card can fail only because the one before it did.\n\
+2. Fix the cause where it is (code, tests, configuration, a missing step). Do not do the failed cards' own tasks for them: they do them when they run again.\n\
+3. Check your fix: run the build and the tests, or whatever failed.\n\
+4. Run each card whose cause you fixed again: `{exe} retry <id> \"<what was wrong and what you changed>\"`. It does its own work again with \
+the input it had, and hands its result on as before. Retry only the first failed card of a chain: the ones after it run again by themselves \
+when it hands its result on. It returns at once; do not wait for the cards to finish.\n\
+5. If the cause is something only the person can solve (access, a decision, an account or a tool that is missing), do not work around it: \
+say what is needed.\n\n\
+Then report what was wrong, what you changed, and which cards you started again."
+    );
+    s
+}
+
+/// A card that failed runs again (`weft retry`): what was fixed in the meantime goes with its task.
+pub fn fixed(by: &str, note: &str) -> String {
+    let by = if by.trim().is_empty() { String::new() } else { format!(" (by \"{}\")", by.trim()) };
+    format!("## This failed last time; what was fixed since{by}\n{}", note.trim())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

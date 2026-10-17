@@ -62,7 +62,7 @@ impl Engine {
 
     /// The first agent (or command) whose work reaches `id`: the agent a queued prompt is asked of,
     /// else through the links in (gates, queued prompts, git steps before it). Notes do no work.
-    fn agent_upstream(&self, id: &str) -> Option<String> {
+    pub(super) fn agent_upstream(&self, id: &str) -> Option<String> {
         let mut seen = std::collections::HashSet::new();
         let mut todo = VecDeque::from([id.to_string()]);
         while let Some(at) = todo.pop_front() {

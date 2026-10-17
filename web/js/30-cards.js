@@ -258,6 +258,8 @@ function statusText(n, r) {
   if (!r) return 'not started';
   if (k === 'note') return `note · ${(n.prompt || '').length} chars`;
   const st = r.status;
+  const fixer = st === 'failed' && S.fixOn && fixerOf(n.id);
+  if (fixer) return `failed \u00b7 ${fixer.id} is fixing it`;
   if (k === 'git') {
     const verb = gitOpLabel(n), g = r.git || {};
     if (st === 'draft') return `disarmed · arm to ${verb}`;

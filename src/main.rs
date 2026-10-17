@@ -54,6 +54,8 @@ USAGE
   weft tell <id[,id]|all> <text|->
                              (inside an agent) say something to the agents it is
                              linked to talk with; nobody else hears it
+  weft retry <node> [text|-] run a finished card again with the input it had; the
+                             text (what was fixed since) goes with its task
 
 Nodes can be addressed by id (n1) or by name.
 Agents live in tmux socket `weft`:  tmux -L weft attach
@@ -153,6 +155,7 @@ async fn real_main(args: Vec<String>) -> Result<i32, String> {
         }
         "shot" => shot(rest),
         "tell" => tell(rest),
+        "retry" => retry(rest),
         "eta" => eta(rest),
         "open" => open(rest).await.map(|_| 0),
         "app" => match launch::app_dir(rest).map_err(launch::tell)? {
@@ -476,6 +479,23 @@ fn tell(args: &[String]) -> Result<i32, String> {
     }
     let r = client::call(json!({"op": "tell", "from": node, "to": to, "text": text}))?;
     println!("{}", r["said"].as_str().filter(|s| !s.is_empty()).unwrap_or("told"));
+    Ok(0)
+}
+
+/// `weft retry <node> ["what was fixed"]`: a card that failed runs again with the input it had, and
+/// what it hands on goes down its links as the first time. Returns at once.
+fn retry(args: &[String]) -> Result<i32, String> {
+    let usage = "usage: weft retry <node> [\"<what was wrong and what you changed>\"]  (- reads it from stdin)";
+    let a = AgentArgs::parse(args, &[]);
+    let name = a.words.first().ok_or(usage)?;
+    let mut text = a.note();
+    if text == "-" {
+        text.clear();
+        std::io::stdin().read_to_string(&mut text).map_err(|e| e.to_string())?;
+    }
+    let id = client::resolve(name)?;
+    client::call(json!({"op": "retry", "id": id, "text": text.trim(), "by": a.node.clone().unwrap_or_default()}))?;
+    println!("{id} runs again; it hands its result on when it is done");
     Ok(0)
 }
 

@@ -119,7 +119,7 @@ impl Engine {
     }
 
     /// The addenda the launch pad has switched on: the person's own choice, else each one's default.
-    fn chosen_addenda(&self) -> Vec<String> {
+    pub(super) fn chosen_addenda(&self) -> Vec<String> {
         let mine = &self.cfg.prefs["addenda"];
         self.cfg
             .library
@@ -167,7 +167,7 @@ fn card_w(n: &Node) -> f64 {
     }
 }
 
-fn card_h(n: &Node) -> f64 {
+pub(super) fn card_h(n: &Node) -> f64 {
     if n.h > 0.0 {
         n.h
     } else {

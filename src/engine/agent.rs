@@ -43,7 +43,7 @@ pub(super) fn tuning_args(a: &AgentCfg, model: &str, effort: &str) -> String {
 }
 
 /// Does this agent take a reasoning level together with this model?
-fn effort_applies(a: &AgentCfg, model: &str) -> bool {
+pub(super) fn effort_applies(a: &AgentCfg, model: &str) -> bool {
     let m = model.trim();
     a.effort_models.is_empty() || a.effort_models.iter().any(|x| if x.is_empty() { m.is_empty() } else { m.contains(x.as_str()) })
 }

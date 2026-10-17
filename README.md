@@ -69,6 +69,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 | click a card's answer, or `R` | the whole **result**, full size and laid out as the agent's terminal showed it: indents and tables kept (a markdown table from `weft done` is drawn as a table), long lines wrapped under their own indent; `+`/`-` text size, `Esc` back. `weft result <node>` prints the same text in your terminal |
 | marquee or shift-click, then `G` | gather several results into one agent |
 | right-click anything | what it can do |
+| click **N failed** in the top bar | a fresh agent finds out why, fixes the cause and runs the failed cards again (below) |
 | drag finished cards onto the **archive** (bottom left) | they are filed: off the canvas, their terminals end, their results kept (below) |
 | look at the **git tree** (bottom right) | the commits of the branch where you are, live; its name picks another branch, a click on a commit shows its files (below) |
 | **tidy** (top bar) or `T` | lines the cards up: each flow left to right in columns, a card level with what it is linked to (a chain is one straight row, a fork fans out around its start), no link crossing another or running through a card; a tall card pushes only its own column. Agents that talk stand side by side, lone cards gather in a block of their own (one per folder while agents work in several), and these groups are packed to suit the window: the picture shown largest, or one nearly as large that keeps closer to where things stood, more room between groups than inside one. `Ctrl+Z` puts it back |
@@ -563,6 +564,32 @@ long its output pauses. weft's own copy of the screen is checked against tmux's 
 sits on a screen that has not changed for 20 seconds: if the pane does not show it, the copy is
 replaced by what tmux shows. A marker on a screen that has not moved for `background_s` is dropped.
 
+### When something fails
+
+A click on **N failed** in the top bar (or *fix it* in a failed card's menu) starts a fresh agent
+under the failed cards, one reasoning level above the agents that failed, at least *high* (their
+CLI and model; the person's last agent when no agent was behind them). It is told, for each
+card: what it is, its folder, the cards before and after it (and their status), what it was asked
+and what it said (a tests gate adds what the suite printed). The rest is one `weft read` /
+`weft result` away. It looks for the cause (several failures often share one, and a
+card can fail only because the one before it did), fixes it, checks the fix, and runs the cards
+again:
+
+```
+weft retry <card> "<what was wrong and what you changed>"
+```
+
+The card does its own work again with the input it had (the latest results of the cards before
+it), and what was fixed goes with its task; what it hands on goes down its links as the first
+time, so the cards it held up follow by themselves. A gate checks again; a git step takes its
+input up again (the agents are asked to commit). *run it again* in a failed card's menu does the
+same without a note. Something only the person can solve (access, a decision) comes back as a
+question, not as a workaround.
+
+While it works the chip says *fixing*, the failed cards say who is on them, and another click
+shows that agent instead of starting a second one. If it gives up, the next click starts a new one,
+told about it too.
+
 ## CLI
 
 ```
@@ -576,6 +603,7 @@ weft send [--queue|--now] <node> <text|->   a prompt into a node (starts it if n
 weft result <node>            its latest result
 weft read <node> [-n N]       terminal history of a node
 weft run                      run the flow
+weft retry <node> [text|-]    run a finished card again with the input it had; the text (what was fixed) goes with its task
 weft stop [dir] [--keep]      quit: the daemon and every agent of the project end (--keep leaves the agents in tmux)
 # inside an agent:
 weft done|issue|fail [text]   report this node: finished / cannot go on without the person / cannot be done
@@ -695,6 +723,7 @@ src/engine/        the single actor that owns all state
     gates.rs       the gates on a link: approve, screenshot, tests
     git.rs         commit, push and open PR as steps; repo.rs is the git plumbing under them
     handover.rs    a fresh agent takes over another one's work
+    fix.rs         what failed, fixed: a stronger agent told what failed, and `weft retry`
     talk.rs        agents that talk: who is told what, `weft tell`, messages held until they can be taken
     archive.rs     finished work filed away (by hand or by itself), kept, brought back
     history.rs     the git tree in the corner: a branch's commits, what happened to it (reflog), the remote (ls-remote)

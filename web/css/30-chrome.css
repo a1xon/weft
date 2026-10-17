@@ -13,6 +13,11 @@
 .tk.vi{color:var(--vi);border-color:var(--vi);cursor:pointer;animation:blink 1.2s steps(2) infinite}
 .tk.gr{color:var(--gr);border-color:rgba(61,220,151,.35)}
 .tk.rd{color:var(--rd);border-color:rgba(255,92,122,.45)}
+.tk.fx{cursor:pointer}
+.tk.fx i{font-style:normal;color:var(--i3)}
+.tk.fx:hover{background:rgba(255,92,122,.12);border-color:var(--rd)}
+.tk.fx:hover i{color:var(--i0)}
+.tk.fx.on i{color:var(--am)}
 .acts{display:flex;gap:8px;align-items:center}
 .btn{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 12px;border:1px solid var(--l2);color:var(--i1);
   font:600 calc(12px*var(--fs)) var(--display);letter-spacing:.05em;background:transparent;white-space:nowrap}

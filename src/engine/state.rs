@@ -40,6 +40,8 @@ pub(super) enum InputKind {
     Result,
     /// the note of the agent being taken over
     Handover,
+    /// what was fixed since a card failed, when it runs again (`weft retry`)
+    Fixed,
 }
 
 /// Why a run started: the flow keeps going after a flow-caused run; a run the

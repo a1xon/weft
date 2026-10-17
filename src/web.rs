@@ -51,6 +51,7 @@ const JS: &[(&str, &str)] = &[
     part!("js/45-archive.js"),
     part!("js/50-links.js"),
     part!("js/52-talk.js"),
+    part!("js/58-fix.js"),
     part!("js/60-dial.js"),
     part!("js/70-menus.js"),
     part!("js/75-eta.js"),

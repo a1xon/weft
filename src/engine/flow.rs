@@ -207,6 +207,7 @@ impl Engine {
             .iter()
             .map(|i| match i.kind {
                 InputKind::Handover => format!("## Taking over from \"{}\"\n{}", i.name, i.text.trim()),
+                InputKind::Fixed => words::fixed(&i.name, &i.text),
                 _ => format!("### Output of \"{}\"\n{}", i.name, self.piped(&i.from, i.text.trim())),
             })
             .collect::<Vec<_>>()

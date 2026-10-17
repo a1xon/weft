@@ -45,7 +45,7 @@ function renderTicker() {
       const id = [...S.rt.entries()].find(([, r]) => r.status === 'attention')?.[0];
       if (id) showPlea(id); } }, h('b', {}, c.attention), ' needs you') : null,
     c.blocked ? h('span', { class: 'tk rd' }, h('b', {}, c.blocked), ' blocked') : null,
-    c.failed ? h('span', { class: 'tk rd' }, h('b', {}, c.failed), ' failed') : null,
+    c.failed ? failedChip(c.failed) : null,
     c.done ? h('span', { class: 'tk gr' }, h('b', {}, c.done), ' done') : null,
   ]));
 }

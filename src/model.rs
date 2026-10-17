@@ -173,6 +173,9 @@ pub struct Node {
     /// Kept on the canvas: never goes to the archive by itself, and neither does its flow.
     #[serde(default)]
     pub keep: bool,
+    /// The cards that failed and this agent was asked to fix (see engine/fix.rs). Not a link.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fixes: Vec<String>,
 }
 
 /// What a watch collects.

@@ -247,6 +247,21 @@ pub enum Cmd {
         id: String,
         text: String,
     },
+    /// A fresh, stronger agent finds out why cards failed (`ids`; none: all of them), fixes it and
+    /// runs them again. An agent already at it is shown instead (see fix.rs).
+    Fix {
+        #[serde(default)]
+        ids: Vec<String>,
+    },
+    /// Run a finished card again with the input it had (`weft retry`); `text`: what was fixed since.
+    Retry {
+        id: String,
+        #[serde(default)]
+        text: String,
+        /// the agent that fixed it
+        #[serde(default)]
+        by: String,
+    },
     /// Retake the screenshot / run the suite again; `fix` sends the failure to the agent instead.
     GateRetry {
         id: String,
@@ -461,6 +476,8 @@ impl Engine {
             Cmd::Approve { id, ok } => self.cmd_approve(id, ok),
             Cmd::GateChanges { id, text } => self.cmd_gate_changes(id, text),
             Cmd::GateRetry { id, fix } => self.cmd_gate_retry(id, fix),
+            Cmd::Fix { ids } => self.cmd_fix(ids),
+            Cmd::Retry { id, text, by } => self.cmd_retry(id, text, by),
             Cmd::GateShot { id, name } => self.cmd_gate_shot(id, name),
             Cmd::Fire { id } => self.cmd_fire(id),
             Cmd::Run {} => self.cmd_run(),

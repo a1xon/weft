@@ -35,6 +35,7 @@ mod archive;
 mod boards;
 mod checks;
 mod commands;
+mod fix;
 mod flow;
 mod gates;
 mod git;

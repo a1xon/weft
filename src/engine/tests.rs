@@ -3168,3 +3168,126 @@ fn a_daemon_making_way_for_a_new_build_keeps_the_agents_and_tells_the_pages() {
     let r = e.cmd(None, serde_json::from_value(json!({"op": "quit"})).unwrap());
     assert_eq!(r["end"], false);
 }
+
+/// A chain plan -> build -> ship whose middle card failed: build ran claude sonnet at `effort`.
+fn failed_chain(effort: &str) -> Engine {
+    let mut e = engine();
+    add(&mut e, "n1", "plan", "plan it");
+    add(&mut e, "n2", "build", "build it");
+    add(&mut e, "n3", "ship", "ship {{inputs}}");
+    let b = &mut e.flow.nodes[1];
+    (b.agent, b.model, b.effort) = ("claude".into(), "sonnet".into(), effort.into());
+    link(&mut e, "e1", "n1", "n2", On::Done);
+    link(&mut e, "e2", "n2", "n3", On::Ok);
+    e.settle("n1", true, "the plan".into());
+    e.rt.get_mut("n2").unwrap().queue.clear();
+    e.settle("n2", false, "error[E0432]: unresolved import `foo`".into());
+    assert_eq!(e.rt["n2"].status, Status::Failed);
+    e
+}
+
+#[test]
+fn what_failed_is_looked_into_by_a_stronger_agent_that_knows_the_cards() {
+    let mut e = failed_chain("high");
+    let r = e.cmd(None, Cmd::Fix { ids: vec![] });
+    let id = r["id"].as_str().expect("a fixer").to_string();
+    let f = e.node(&id).unwrap().clone();
+    assert_eq!((f.agent.as_str(), f.model.as_str(), f.effort.as_str()), ("claude", "sonnet", "xhigh"), "a level above");
+    assert_eq!(f.fixes, vec!["n2".to_string()]);
+    assert_eq!(f.name, "fix: build");
+    for part in [
+        "## n2 \"build\" \u{b7} claude \u{b7} sonnet \u{b7} high",
+        "Gets its input from: n1 \"plan\" (done)",
+        "Waiting for it: n3 \"ship\" (blocked)",
+        "### What it was asked\nbuild it",
+        "unresolved import `foo`",
+        "/bin/weft retry <id>",
+        "/bin/weft read n2 -n 400",
+    ] {
+        assert!(f.prompt.contains(part), "{part:?} in:\n{}", f.prompt);
+    }
+    assert!(f.y > e.node("n2").unwrap().y, "placed under what it fixes");
+    assert_eq!(e.rt[&id].queue.len(), 1, "it starts at once");
+    // (no tmux here to run it)
+    e.rt.get_mut(&id).unwrap().status = Status::Busy;
+    // asked again while it works: the same one is shown
+    let again = e.cmd(None, Cmd::Fix { ids: vec![] });
+    assert_eq!((again["id"].as_str(), again["again"].as_bool()), (Some(id.as_str()), Some(true)));
+    assert_eq!(e.flow.nodes.len(), 4);
+    // it gave up: the next one starts
+    e.rt.get_mut(&id).unwrap().queue.clear();
+    finished(&mut e, &id, false, 0);
+    let next = e.cmd(None, Cmd::Fix { ids: vec![] });
+    let next = e.node(next["id"].as_str().unwrap()).unwrap();
+    assert_eq!(next.fixes, vec!["n2".to_string(), id.clone()], "the card, and the fixer that failed on it");
+    assert_eq!(next.name, "fix: build + 1 more");
+}
+
+#[test]
+fn a_fixer_thinks_at_least_hard_and_never_past_the_top() {
+    for (had, gets) in [("", "high"), ("low", "high"), ("xhigh", "max"), ("max", "max")] {
+        let mut e = failed_chain(had);
+        let id = e.cmd_fix(vec![])["id"].as_str().unwrap().to_string();
+        assert_eq!(e.node(&id).unwrap().effort, gets, "after {had:?}");
+    }
+    let mut e = engine();
+    add(&mut e, "a", "a", "x");
+    assert_eq!(e.cmd_fix(vec![])["ok"], false, "nothing has failed");
+}
+
+#[test]
+fn a_card_run_again_gets_what_it_had_and_what_was_fixed_and_hands_on() {
+    let mut e = failed_chain("");
+    add(&mut e, "n9", "fix: build", "fix it");
+    assert_eq!(e.cmd_retry("n3".into(), String::new(), String::new())["ok"], false, "it never ran");
+    let r = e.cmd(None, Cmd::Retry { id: "n2".into(), text: "added the foo crate".into(), by: "n9".into() });
+    assert_eq!(r["ok"], true);
+    let q = &e.rt["n2"].queue;
+    assert_eq!(q.len(), 1);
+    assert!(q[0].text.starts_with("build it"), "its own task");
+    assert!(q[0].text.contains("### Output of \"plan\"\nthe plan"), "with the input it had");
+    assert!(q[0].text.contains("## This failed last time; what was fixed since (by \"fix: build\")\nadded the foo crate"));
+    assert_eq!(e.cmd_fix(vec![])["ok"], false, "about to run again: failed no more");
+    // it works now: the card after it goes on
+    e.rt.get_mut("n2").unwrap().queue.clear();
+    e.settle("n2", true, "built".into());
+    assert_eq!(e.rt["n3"].queue.len(), 1);
+    assert!(e.rt["n3"].queue[0].text.contains("built"));
+    // one that could not even start is run again too
+    {
+        let r = e.rt.get_mut("n1").unwrap();
+        r.finished = false;
+        r.status = Status::Failed;
+    }
+    assert_eq!(e.cmd_retry("n1".into(), String::new(), String::new())["ok"], true);
+    assert_eq!(e.rt["n1"].queue.len(), 1);
+    // the next time it goes with the latest note only
+    e.cmd_retry("n2".into(), "pinned foo to 1.2".into(), "n9".into());
+    let q = &e.rt["n2"].queue;
+    assert_eq!(q.len(), 1);
+    assert!(q[0].text.contains("pinned foo") && !q[0].text.contains("added the foo crate"));
+}
+
+#[test]
+fn a_git_step_run_again_takes_up_what_came_in_and_a_gate_with_an_open_round_checks_again() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "slug");
+    git_node(&mut e, "c", "commit", "commit");
+    link(&mut e, "e1", "a", "c", On::Done);
+    e.git_arrival("c", "e1", "a", "slug", false, "could not finish");
+    assert_eq!(e.rt["c"].status, Status::Failed);
+    assert_eq!(e.cmd_retry("c".into(), String::new(), String::new())["ok"], false, "nothing that came in can be taken up");
+    // the agent did it after all (as it does once it was run again): now the commit can
+    e.rt.get_mut("a").unwrap().propagated = true;
+    e.rt.get_mut("a").unwrap().cause = Cause::User;
+    e.settle("a", true, "slug fixed".into());
+    assert_eq!(e.rt["c"].status, Status::Failed, "(a chat is not handed on)");
+    assert_eq!(e.cmd_retry("c".into(), String::new(), String::new())["ok"], true);
+    assert!(!e.rt["c"].finished, "a new round");
+    assert!(e.rt["a"].queue.iter().any(|q| q.src == Src::Reply("c".into())), "the agent is asked to commit its work");
+    // a tests gate whose round is still open runs again; nothing else is asked
+    add_kind(&mut e, "g", "tests", "tests", "");
+    e.rt.get_mut("g").unwrap().gate.held = Some("slug fixed".into());
+    assert_eq!(e.cmd_retry("g".into(), "x".into(), String::new())["ok"], true);
+    assert_eq!(e.rt["g"].gate.round, 1);
+}

@@ -22,6 +22,7 @@ socket and config) and runs, one fresh daemon each:
 | `watch.cjs` | checks: tray, watch on an agent, grid, steer, approve, zoom, paste, tests watch, gate on a link |
 | `eta.cjs` | the countdown: asked once, large on the card, in the top bar, asked again when it runs out |
 | `aim.cjs` | what the bar talks to: solid chip + tag on the card, a prompt for a busy agent becomes a queued-prompt card (the next one after it), letting go after 30 s untouched (countdown, held by hovering / text in the bar), ✕ |
+| `fix.cjs` | what failed, fixed: the top bar's *N failed* offers a fix, a click starts an agent a level up told what the card was asked and said (selected, under it); the chip says *fixing*, the card who is on it, a second click shows the same agent; the card's menu; `weft retry` runs it again with what was fixed |
 | `place.cjs` | where a card that starts working lands (pad, bar with nothing selected, hand over): never left of a card that runs or has run in its row, a draft still may; a prompt queued after it lines up right next to it; no card covers another |
 | `bar.cjs` | the message bar's own controls: agent, model, reasoning, yolo, bound to the selected agent |
 | `dial.cjs` | the dial (a ring of equal slices that opens where a link is let go, never while drawing; keys, Esc): queue a prompt (the same agent answers), hand off, git; two commits meeting in one push, an open PR, an agent after it that starts from everything carried |

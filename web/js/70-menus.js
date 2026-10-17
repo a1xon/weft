@@ -53,6 +53,7 @@ function portMenu(id, side, x, y) {
 function nodeMenu(id, x, y) {
   const n = S.nodes.get(id), r = S.rt.get(id), k = kindOf(n);
   const items = [];
+  if (r && r.status === 'failed' && S.fixOn) items.push(...fixItems(id));
   if (k === 'agent' && n.agent === 'step') {
     const host = hostOf(n);
     items.push(
