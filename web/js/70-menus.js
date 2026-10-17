@@ -254,14 +254,19 @@ async function cloneAt(id) {
   const r = await req('node_add', { node: c });
   if (r.id) { await whenNode(r.id); select([r.id]); }
 }
+/* links arrive one by one, and a finished card hands its result over the moment it is linked: a
+   card that gets several links back waits as a draft until all are in, then starts once with all */
+const holdsLinks = (n, links) => !n.takeover && links > 1 && ['agent', 'step'].includes(kindOf(n));
 /* a parallel copy that receives the same inputs */
 async function fork(id) {
   const n = S.nodes.get(id); if (!n) return;
-  const c = { ...n }; delete c.id; c.name = ''; c.auto_name = false; c.x = n.x; c.y = n.y + nh(n) + 40; c.draft = false;
+  const inc = incoming(id), hold = holdsLinks(n, inc.length);
+  const c = { ...n }; delete c.id; c.name = ''; c.auto_name = false; c.x = n.x; c.y = n.y + nh(n) + 40; c.draft = hold;
   const p = freeSpot(c.x, c.y); c.x = p.x; c.y = p.y;
   const r = await req('node_add', { node: c });
   if (!r.id) return;
-  for (const e of incoming(id)) send('edge_add', { from: e.from, to: r.id, on: e.on });
+  for (const e of inc) send('edge_add', { from: e.from, to: r.id, on: e.on });
+  if (hold) send('arm', { id: r.id });
   await whenNode(r.id); select([r.id]);
 }
 async function keepAsNote(id) {

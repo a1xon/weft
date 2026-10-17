@@ -14,7 +14,6 @@ impl Engine {
 
     pub(super) fn deliver_input(&mut self, e: &Edge, from: &str, name: &str, ok: bool, out: &str) {
         if let Some(t) = self.rt.get_mut(&e.to) {
-            t.used.clear(); // a new round has begun
             t.inputs.retain(|(eid, _)| *eid != e.id);
             t.inputs.push((
                 e.id.clone(),
@@ -78,24 +77,130 @@ impl Engine {
         self.state_dirty = true;
     }
 
-    /// The junction: all inputs arrived (`Promise.all`) or the first one (`Promise.any`).
-    fn check_join(&mut self, to: &str) {
+    /// The junction: all inputs arrived (`Promise.all`) or the first one (`Promise.any`). A link whose
+    /// card already handed on its result, and is not about to hand on a new one, counts as arrived:
+    /// it is a promise that resolved before (`Promise.all([done, done, new])` waits for `new` only).
+    pub(super) fn check_join(&mut self, to: &str) {
         let Some(node) = self.node(to) else { return };
         if node.draft {
             return; // collects inputs, reacts once armed
         }
-        let incoming: Vec<&str> = self.flow.edges.iter().filter(|e| e.to == to && !self.is_const_edge(e)).map(|e| e.id.as_str()).collect();
+        let incoming: Vec<&Edge> = self.flow.edges.iter().filter(|e| e.to == to && !self.is_const_edge(e)).collect();
         if incoming.is_empty() {
             return; // fed only by notes: starts with "run flow" or when fired by hand
         }
         let rt = &self.rt[to];
-        let have = incoming.iter().filter(|eid| rt.inputs.iter().any(|(i, _)| i == **eid)).count();
-        let need = match node.join {
-            Join::All => incoming.len(),
-            Join::Any => 1,
+        let fresh = |e: &Edge| rt.inputs.iter().any(|(i, _)| *i == e.id);
+        let have = incoming.iter().filter(|e| fresh(e)).count();
+        let ready = match node.join {
+            Join::All => incoming.iter().all(|e| fresh(e) || self.resolved(e)),
+            Join::Any => true,
         };
-        if have > 0 && have >= need {
+        if have > 0 && ready {
             self.trigger(to, false);
+        }
+    }
+
+    /// Is what came down this link final for now: its card has a result the link takes, and neither
+    /// it nor a card before it works on a new one? (A card the person chats with keeps the result its
+    /// links had: the answer to the chat stays with it.)
+    pub(super) fn resolved(&self, e: &Edge) -> bool {
+        let Some(src) = self.rt.get(&e.from) else { return false };
+        let ok = src.ok.unwrap_or(true);
+        // (a git step builds on what came in: a failed one there is nothing to commit or push)
+        let git = self.node(&e.to).is_some_and(|n| n.kind() == Kind::Git);
+        src.output.is_some() && e.on.matches(ok) && (ok || !git) && !self.coming(e)
+    }
+
+    /// Will a new result come down this link: its card works on one (or one is queued for it), or a
+    /// card before it does. A loop back through the card it leads to does not count.
+    fn coming(&self, e: &Edge) -> bool {
+        let mut seen = std::collections::HashSet::new();
+        let mut todo = vec![(e.from.clone(), e.id.clone())];
+        while let Some((at, via)) = todo.pop() {
+            if at == e.to || !seen.insert(at.clone()) {
+                continue;
+            }
+            if self.at_work(&at, &via) {
+                return true;
+            }
+            // a draft collects what arrives and goes on only when someone arms it
+            if self.node(&at).is_none_or(|n| n.draft) {
+                continue;
+            }
+            todo.extend(self.flow.edges.iter().filter(|x| x.to == at).map(|x| (x.from.clone(), x.id.clone())));
+        }
+        false
+    }
+
+    /// Is the card working on a result that will go down its link `via` (or queued to)? What an agent
+    /// answers for a queued prompt or a gate goes there, and an answer to a chat after its links had
+    /// their result goes only to links made since: none of that comes down the others.
+    fn at_work(&self, id: &str, via: &str) -> bool {
+        let (Some(n), Some(r)) = (self.node(id), self.rt.get(id)) else { return false };
+        match n.kind() {
+            Kind::Note => false,
+            Kind::Step => r.step_wait.is_some(),
+            Kind::Git => {
+                !r.finished
+                    && (r.git.busy || r.git.wait.is_some() || r.git.finishing || (!r.git.jobs.is_empty() && (!n.draft || r.git.force)))
+            }
+            k if k.is_gate() => !r.finished && r.gate.held.is_some(),
+            _ => {
+                let hands_on = |cause: Cause| cause == Cause::Flow || !r.propagated || r.unsent.iter().any(|u| u == via);
+                let works = r.armed && !r.finished && r.reply_to.is_none() && hands_on(r.cause);
+                let queued = r.queue.iter().any(|q| match q.src {
+                    Src::Flow => true,
+                    Src::You => hands_on(Cause::User),
+                    Src::Reply(_) => false,
+                });
+                works || queued || r.hand.phase != HandPhase::None
+            }
+        }
+    }
+
+    /// A card settled. It may have been what a junction still waited for, also when nothing came
+    /// down its links (a failure on an "only if it succeeds" link, or a card before it that did not
+    /// run on): the junctions that hold inputs look again.
+    pub(super) fn recheck_joins(&mut self) {
+        let held: Vec<String> = self.rt.iter().filter(|(_, r)| !r.inputs.is_empty()).map(|(i, _)| i.clone()).collect();
+        for id in held {
+            if self.node(&id).is_some_and(|n| n.kind() != Kind::Git) {
+                self.check_join(&id);
+            }
+        }
+        let git: Vec<String> = self
+            .flow
+            .nodes
+            .iter()
+            .filter(|n| n.kind() == Kind::Git)
+            .filter(|n| {
+                self.rt.get(&n.id).is_some_and(|r| {
+                    let g = &r.git;
+                    !r.finished && !g.seen.is_empty() && !g.busy && !g.finishing && g.wait.is_none() && g.jobs.is_empty()
+                })
+            })
+            .map(|n| n.id.clone())
+            .collect();
+        for id in git {
+            self.git_pump(&id, false);
+        }
+    }
+
+    /// The cards after `id` show which of their links are still to come: tell the browsers again.
+    pub(super) fn touch_downstream(&mut self, id: &str) {
+        let mut seen = std::collections::HashSet::new();
+        let mut todo = vec![id.to_string()];
+        while let Some(at) = todo.pop() {
+            if !seen.insert(at.clone()) {
+                continue;
+            }
+            for e in self.flow.edges.iter().filter(|e| e.from == at) {
+                if let Some(r) = self.rt.get_mut(&e.to) {
+                    r.ui = true;
+                }
+                todo.push(e.to.clone());
+            }
         }
     }
 
@@ -106,19 +211,35 @@ impl Engine {
             return;
         }
         let consts = self.const_inputs(id);
+        // Only what is new goes in: the agent's session has the results it was given before. A new
+        // session (its process ended) knows none of them, so it is given them again.
+        let again: Vec<(String, Input)> = match self.rt.get(id) {
+            Some(r) if node.kind() == Kind::Agent && r.runs > 0 && !r.alive && !r.spawning => self
+                .flow
+                .edges
+                .iter()
+                .filter(|e| e.to == id && !self.is_const_edge(e) && !r.inputs.iter().any(|(i, _)| *i == e.id) && self.resolved(e))
+                .map(|e| {
+                    let (name, ok, text) = self.input_from(&e.from);
+                    (e.id.clone(), Input { from: e.from.clone(), name, ok, text, kind: InputKind::Result })
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
         let (runs, inputs) = {
             let Some(rt) = self.rt.get_mut(id) else { return };
             let order: Vec<&str> = self.flow.edges.iter().filter(|e| e.to == id).map(|e| e.id.as_str()).collect();
             let mut taken: Vec<(String, Input)> = std::mem::take(&mut rt.inputs);
+            taken.extend(again);
             for (cid, ci) in consts {
                 taken.retain(|(eid, _)| *eid != cid);
                 taken.push((cid, ci));
             }
             taken.sort_by_key(|(eid, _)| order.iter().position(|o| *o == eid).unwrap_or(usize::MAX));
-            rt.used = taken.iter().map(|(eid, _)| eid.clone()).collect();
             rt.ui = true;
             (rt.runs, taken.into_iter().map(|(_, i)| i).collect::<Vec<_>>())
         };
+        self.touch_downstream(id);
         if node.kind() == Kind::Step {
             // the agent has what it already produced, in its own session: its own result and the
             // answers it gave to other queued prompts of the same session are not sent back to it

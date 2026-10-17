@@ -79,6 +79,13 @@ arrived; switch it to `≥1` for the first (`Promise.any`). A junction that can 
 satisfied shows *blocked by …* instead of waiting forever. Notes are constants you can point any
 agent at; they never trigger anything.
 
+A link that delivered stays delivered, like a promise that resolved before. Link a new card into a
+finished junction and it waits for that one alone, then runs again with only the new result (its
+session still has the others, and the note rides along) and hands its answer down the same chain.
+While a card before it works on something new, it waits for that too, so a round started further
+up still meets in one run. An agent whose process has ended starts a new session, which is given
+every result again. A gate holds only what is new; a push is described below.
+
 ### The dial: what the link is for
 
 Drag from a card's ◇ (its *out port*) and let go in empty space: where the line ends is where the
@@ -222,6 +229,9 @@ agent can go straight to *open PR*; the explicit chain is just easier to read.
   that did the work is asked to bring the branch up to date (`pull --rebase`) and the push is
   tried once more. Linked straight from an agent it asks for the commit first. Commits from
   agents in different repositories ([other folders](#other-folders)) are pushed in each of them.
+  A commit linked in after a push gets a push of its own: the commits pushed before count as in,
+  and only the new one is reported on. After a push that failed (one commit failed), the commit
+  run again brings the others back with it.
 * **open PR** pushes if nothing before it did, then asks an agent that did the work to write the
   title and description and open it (`gh pr create`, or whatever the host offers). That agent
   knows why; a template does not. Extra instructions go in its options (base branch, labels,

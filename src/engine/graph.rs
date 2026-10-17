@@ -110,8 +110,8 @@ impl Engine {
     }
 
     /// Add (or update) a link. A result that already exists is delivered at once,
-    /// like `.then()` on a resolved promise.
-    pub(super) fn add_edge(&mut self, from: &str, to: &str, on: On) -> Result<(), String> {
+    /// like `.then()` on a resolved promise. True when it was.
+    pub(super) fn add_edge(&mut self, from: &str, to: &str, on: On) -> Result<bool, String> {
         if from == to || self.node(from).is_none() || self.node(to).is_none() {
             return Err("invalid link".into());
         }
@@ -126,13 +126,14 @@ impl Engine {
                 "a commit takes the work of one agent: give the other agent its own commit and link both commits to one push".into()
             );
         }
-        let (eid, new) = if let Some(e) = self.flow.edges.iter_mut().find(|e| e.from == from && e.to == to) {
+        let (eid, new, was) = if let Some(e) = self.flow.edges.iter_mut().find(|e| e.from == from && e.to == to) {
+            let was = e.on;
             e.on = on;
-            (e.id.clone(), false)
+            (e.id.clone(), false, Some(was))
         } else {
             let id = self.next_id("e", self.taken_ids(true).into_iter());
             self.flow.edges.push(Edge { id: id.clone(), from: from.into(), to: to.into(), on });
-            (id, true)
+            (id, true, None)
         };
         // a queued prompt continues the session of whatever it was just linked after
         if let Some(agent) = self.agent_behind(from) {
@@ -150,7 +151,8 @@ impl Engine {
         });
         let arrived = self.rt.get(to).is_some_and(|r| r.inputs.iter().any(|(i, _)| *i == eid));
         if let (Some((out, ok)), false) = (settled, arrived) {
-            if on.matches(ok) {
+            // a link that took this result before (only its condition changed) does not hand it on twice
+            if on.matches(ok) && !was.is_some_and(|w| w.matches(ok)) {
                 let name = self.node(from).map(|n| n.name.clone()).unwrap_or_default();
                 let e = self.flow.edges.iter().find(|e| e.id == eid).cloned().unwrap();
                 if let Some(r) = self.rt.get_mut(from) {
@@ -158,7 +160,7 @@ impl Engine {
                     r.propagated = true;
                 }
                 self.deliver_input(&e, from, &name, ok, &out);
-                return Ok(());
+                return Ok(true);
             }
         }
         // linked while busy: the result it is working on goes down this link when it comes,
@@ -169,7 +171,7 @@ impl Engine {
             }
             self.state_dirty = true;
         }
-        Ok(())
+        Ok(false)
     }
 
     /// The agent whose session goes on after `from`: an agent, the agent a queued prompt is asked
@@ -462,7 +464,7 @@ impl Engine {
 
     pub(super) fn cmd_edge_add(&mut self, from: String, to: String, on: On) -> Value {
         match self.add_edge(&from, &to, on) {
-            Ok(()) => json!({"ok": true}),
+            Ok(_) => json!({"ok": true}),
             Err(e) => json!({"ok": false, "error": e}),
         }
     }
@@ -472,7 +474,7 @@ impl Engine {
             return json!({"ok": false, "error": "no such link"});
         };
         match self.add_edge(&e.from, &e.to, on) {
-            Ok(()) => json!({"ok": true}),
+            Ok(_) => json!({"ok": true}),
             Err(er) => json!({"ok": false, "error": er}),
         }
     }
@@ -503,18 +505,12 @@ impl Engine {
         let Some((out, ok)) = self.rt.get(&from).and_then(|r| r.output.clone().map(|o| (o, r.ok.unwrap_or(true)))) else {
             return json!({"ok": false, "error": "that agent has no result yet"});
         };
-        if let Err(e) = self.add_edge(&from, &to, On::Done) {
-            return json!({"ok": false, "error": e});
-        }
-        // an existing link may already have delivered: hand over again, explicitly
-        let arrived = self
-            .flow
-            .edges
-            .iter()
-            .find(|e| e.from == from && e.to == to)
-            .map(|e| self.rt.get(&to).is_some_and(|r| r.inputs.iter().any(|(i, _)| *i == e.id)));
-        let consumed_already = self.rt.get(&to).is_some_and(|r| r.runs > 0 || !r.queue.is_empty());
-        if arrived != Some(true) && consumed_already {
+        let handed = match self.add_edge(&from, &to, On::Done) {
+            Ok(h) => h,
+            Err(e) => return json!({"ok": false, "error": e}),
+        };
+        // an existing link had a result before: hand over again, explicitly (a new one just got it)
+        if !handed {
             if let Some(e) = self.flow.edges.iter().find(|e| e.from == from && e.to == to).cloned() {
                 let name = self.node(&from).map(|n| n.name.clone()).unwrap_or_default();
                 self.deliver_input(&e, &from, &name, ok, &out);

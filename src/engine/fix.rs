@@ -237,6 +237,10 @@ impl Engine {
                 return json!({"ok": false, "error": format!("nothing came into {id} to take up again")});
             }
             for e in &back {
+                // (after a failed round the first one takes the others up with it)
+                if self.rt.get(&id).is_some_and(|r| !r.finished && r.git.seen.contains(&e.id)) {
+                    continue;
+                }
                 let (name, ok, out) = self.input_from(&e.from);
                 self.deliver_input(e, &e.from, &name, ok, &out);
             }
@@ -264,7 +268,7 @@ impl Engine {
     }
 
     /// A card's latest result as an input: its name, whether it succeeded, what it said.
-    fn input_from(&self, from: &str) -> (String, bool, String) {
+    pub(super) fn input_from(&self, from: &str) -> (String, bool, String) {
         let name = self.node(from).map(|n| n.name.clone()).unwrap_or_default();
         let r = self.rt.get(from);
         (name, r.and_then(|r| r.ok).unwrap_or(true), r.and_then(|r| r.output.clone()).unwrap_or_default())

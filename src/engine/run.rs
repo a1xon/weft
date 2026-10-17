@@ -360,6 +360,8 @@ impl Engine {
         for w in waiting {
             self.takeover_ask(&w);
         }
+        self.touch_downstream(id);
+        self.recheck_joins();
     }
 
     /// Hand the next queued prompt to the agent.

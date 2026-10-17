@@ -152,11 +152,16 @@ pub(super) fn pr_link(text: &str) -> Option<(String, String)> {
 }
 
 impl Engine {
-    fn git_need(&self, id: &str) -> usize {
-        let n_in = self.flow.edges.iter().filter(|e| e.to == id).count();
+    /// Has every link in handed on this round (`Promise.all`; one is enough for `Promise.any`)?
+    fn git_all_in(&self, id: &str) -> bool {
+        let Some(rt) = self.rt.get(id) else { return false };
+        if rt.git.seen.is_empty() {
+            return false;
+        }
+        // a link that handed on in an earlier round, with nothing new coming down it, is still in
         match self.node(id).map(|n| n.join) {
-            Some(Join::Any) => 1.min(n_in),
-            _ => n_in,
+            Some(Join::Any) => true,
+            _ => self.flow.edges.iter().filter(|e| e.to == id).all(|e| rt.git.seen.contains(&e.id) || self.resolved(e)),
         }
     }
 
@@ -247,6 +252,26 @@ impl Engine {
 
     /// A result arrived: commit it, and once every incoming link has delivered, push.
     pub(super) fn git_arrival(&mut self, id: &str, edge: &str, from: &str, name: &str, ok: bool, out: &str) {
+        // a round after one that failed: what the other links handed on then went no further, so
+        // it is taken up again (after a round that went through only the new result goes on)
+        let again = ok && self.rt.get(id).is_some_and(|r| r.finished && r.git.seen.is_empty() && r.ok == Some(false));
+        if !self.git_take(id, edge, from, name, ok, out) {
+            return;
+        }
+        if again {
+            let others: Vec<Edge> = self.flow.edges.iter().filter(|e| e.to == id && e.id != edge && self.resolved(e)).cloned().collect();
+            for e in others {
+                let (name, ok, out) = self.input_from(&e.from);
+                self.git_take(id, &e.id, &e.from, &name, ok, &out);
+            }
+        }
+        self.state_dirty = true;
+        self.git_pump(id, false);
+    }
+
+    /// Take one result into the round: what it carries, and a commit of its agent's work. False when
+    /// it failed: then the round is over.
+    fn git_take(&mut self, id: &str, edge: &str, from: &str, name: &str, ok: bool, out: &str) -> bool {
         // a queued prompt speaks for the agent that answered it, a gate for the agent behind it
         let agent = self.work_agent(from);
         let wt = self.rt.get(&agent).and_then(|r| r.worktree.clone()).map(PathBuf::from).filter(|p| p.is_dir());
@@ -274,7 +299,7 @@ impl Engine {
             }
             let out = self.rt.get(id).map(|r| r.git.log.join("\n")).unwrap_or_default();
             self.git_round_done(id, false, out);
-            return;
+            return false;
         }
         // what goes on from here: this agent's task and answer, or everything the step before carried
         let upstream = if from_git { self.rt.get(from).map(|r| (r.git.carry.clone(), r.git.facts.clone())) } else { None };
@@ -304,7 +329,7 @@ impl Engine {
             })
         };
         {
-            let Some(rt) = self.rt.get_mut(id) else { return };
+            let Some(rt) = self.rt.get_mut(id) else { return false };
             if rt.finished && rt.git.seen.is_empty() {
                 rt.begin_git_round();
             }
@@ -336,8 +361,7 @@ impl Engine {
             rt.cause = Cause::Flow;
             rt.ui = true;
         }
-        self.state_dirty = true;
-        self.git_pump(id, false);
+        true
     }
 
     /// The card's "commit & push now": commit what is there and push, ready or not.
@@ -377,7 +401,7 @@ impl Engine {
 
     pub(super) fn git_pump(&mut self, id: &str, force: bool) {
         let Some(node) = self.node(id).cloned() else { return };
-        let need = self.git_need(id);
+        let all_in = self.git_all_in(id);
         let tx = self.tx.clone();
         let nid = id.to_string();
         let needs_push = self.git_needs_push(id);
@@ -425,7 +449,7 @@ impl Engine {
         // resolved (and goes on to what is linked after it), a push step pushes, a pull request
         // step pushes if nothing before it did and then has the pull request opened. Work in
         // several repositories is pushed (and gets a pull request) in each of them.
-        if rt.git.seen.len() >= need && !rt.git.seen.is_empty() && !rt.git.finishing {
+        if all_in && !rt.git.finishing {
             rt.git.finishing = true;
             let op = node.git_op;
             // a pull request only needs the push when nothing before it did that

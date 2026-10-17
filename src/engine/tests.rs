@@ -1145,7 +1145,6 @@ fn a_queued_prompt_is_answered_by_the_same_agent_and_its_answer_flows_on() {
     e.flow.nodes.push(st);
     e.rt.insert("s".into(), Rt::new(80, 24));
     add(&mut e, "b", "review", "review it");
-    link(&mut e, "e1", "a", "s", On::Done);
     link(&mut e, "e2", "s", "b", On::Done);
     e.add_edge("a", "s", On::Done).unwrap(); // a is settled: its result is delivered at once
     let q = &e.rt["a"].queue;
@@ -3290,4 +3289,391 @@ fn a_git_step_run_again_takes_up_what_came_in_and_a_gate_with_an_open_round_chec
     e.rt.get_mut("g").unwrap().gate.held = Some("slug fixed".into());
     assert_eq!(e.cmd_retry("g".into(), "x".into(), String::new())["ok"], true);
     assert_eq!(e.rt["g"].gate.round, 1);
+}
+
+/// The card ran what it was given (`begin_step` + its answer): a flow-caused run that settles.
+fn ran(e: &mut Engine, id: &str, out: &str) {
+    {
+        let r = e.rt.get_mut(id).unwrap();
+        r.queue.clear();
+        r.runs += 1;
+        r.cause = Cause::Flow;
+        r.armed = true;
+        r.finished = false;
+    }
+    e.settle(id, true, out.into());
+}
+
+/// a, b -> t (Promise.all), with a note on t; everything has run once and t is done.
+fn done_junction(e: &mut Engine) {
+    for (id, name) in [("a", "a"), ("b", "b")] {
+        add(e, id, name, "go");
+    }
+    add(e, "t", "t", "review {{inputs}}");
+    e.rt.get_mut("t").unwrap().alive = true;
+    add_kind(e, "note", "brief", "note", "Keep it short.");
+    link(e, "e1", "a", "t", On::Done);
+    link(e, "e2", "b", "t", On::Done);
+    link(e, "e0", "note", "t", On::Done);
+    ran(e, "a", "A result");
+    ran(e, "b", "B result");
+    assert_eq!(e.rt["t"].queue.len(), 1);
+    ran(e, "t", "reviewed a and b");
+    assert!(e.rt["t"].finished && e.rt["t"].queue.is_empty());
+}
+
+fn queued(e: &Engine, id: &str) -> Vec<String> {
+    e.rt[id].queue.iter().map(|q| q.text.clone()).collect()
+}
+
+#[test]
+fn a_done_junction_given_a_new_link_waits_for_it_and_gets_only_what_is_new() {
+    let mut e = engine();
+    done_junction(&mut e);
+    // c is still at work when it is linked in: nothing to hand on yet, the links that delivered stay in
+    add(&mut e, "c", "c", "go");
+    {
+        let r = e.rt.get_mut("c").unwrap();
+        r.armed = true;
+        r.cause = Cause::Flow;
+    }
+    e.add_edge("c", "t", On::Done).unwrap();
+    assert!(e.rt["t"].queue.is_empty());
+    let eid = |e: &Engine, from: &str| e.flow.edges.iter().find(|x| x.from == from && x.to == "t").unwrap().clone();
+    assert!(e.resolved(&eid(&e, "a")) && e.resolved(&eid(&e, "b")), "a and b resolved before");
+    assert!(!e.resolved(&eid(&e, "c")));
+    // c resolves: t runs again, with c's result only (its session has a's and b's), and its note
+    ran(&mut e, "c", "C result");
+    let q = queued(&e, "t");
+    assert_eq!(q.len(), 1, "{q:?}");
+    assert!(q[0].contains("review") && q[0].contains("C result") && q[0].contains("Keep it short."), "{}", q[0]);
+    assert!(!q[0].contains("A result") && !q[0].contains("B result"), "{}", q[0]);
+    assert_eq!(e.rt["t"].queue[0].src, Src::Flow, "a flow run: what t says goes down its links again");
+}
+
+#[test]
+fn a_done_junction_linked_to_a_card_that_is_done_runs_again_at_once() {
+    let mut e = engine();
+    done_junction(&mut e);
+    add(&mut e, "c", "c", "go");
+    ran(&mut e, "c", "C result");
+    e.add_edge("c", "t", On::Done).unwrap();
+    let q = queued(&e, "t");
+    assert_eq!(q.len(), 1, "like .then() on a resolved promise");
+    assert!(q[0].contains("C result") && !q[0].contains("A result"), "{}", q[0]);
+}
+
+#[test]
+fn what_t_says_after_the_new_link_goes_down_the_old_chain_alone() {
+    let mut e = engine();
+    done_junction(&mut e);
+    // t -> d, and d also waits for x (Promise.all), all of it ran once
+    add(&mut e, "x", "x", "go");
+    add(&mut e, "d", "d", "ship {{inputs}}");
+    e.rt.get_mut("d").unwrap().alive = true;
+    link(&mut e, "e6", "x", "d", On::Done);
+    e.add_edge("t", "d", On::Done).unwrap();
+    assert!(e.rt["d"].queue.is_empty(), "x has not run yet");
+    ran(&mut e, "x", "X result");
+    assert_eq!(queued(&e, "d").len(), 1);
+    ran(&mut e, "d", "shipped");
+    add(&mut e, "c", "c", "go");
+    ran(&mut e, "c", "C result");
+    e.add_edge("c", "t", On::Done).unwrap();
+    ran(&mut e, "t", "reviewed c");
+    let q = queued(&e, "d");
+    assert_eq!(q.len(), 1, "d runs again without x running again");
+    assert!(q[0].contains("reviewed c") && !q[0].contains("X result") && !q[0].contains("reviewed a and b"), "{}", q[0]);
+}
+
+#[test]
+fn a_new_round_from_upstream_waits_for_every_branch_again() {
+    // u -> a -> t and u -> x -> b -> t: when u runs again, t waits for both, also for b that has
+    // not started yet because x works first
+    let mut e = engine();
+    for id in ["u", "a", "x", "b"] {
+        add(&mut e, id, id, "go");
+    }
+    add(&mut e, "t", "t", "join {{inputs}}");
+    e.rt.get_mut("t").unwrap().alive = true;
+    for (id, from, to) in [("e1", "u", "a"), ("e2", "u", "x"), ("e3", "x", "b"), ("e4", "a", "t"), ("e5", "b", "t")] {
+        link(&mut e, id, from, to, On::Done);
+    }
+    ran(&mut e, "u", "u1");
+    ran(&mut e, "a", "a1");
+    ran(&mut e, "x", "x1");
+    ran(&mut e, "b", "b1");
+    assert_eq!(queued(&e, "t").len(), 1);
+    ran(&mut e, "t", "t1");
+    // round two
+    ran(&mut e, "u", "u2");
+    assert_eq!(queued(&e, "a").len(), 1);
+    assert_eq!(queued(&e, "x").len(), 1);
+    ran(&mut e, "a", "a2");
+    assert!(e.rt["t"].queue.is_empty(), "b is still to come (x works on it)");
+    assert!(e.rt["t"].inputs.iter().any(|(i, _)| i == "e4"), "a's result waits at the junction");
+    ran(&mut e, "x", "x2");
+    assert!(e.rt["t"].queue.is_empty());
+    ran(&mut e, "b", "b2");
+    let q = queued(&e, "t");
+    assert_eq!(q.len(), 1, "one run with both: {q:?}");
+    assert!(q[0].contains("a2") && q[0].contains("b2"), "{}", q[0]);
+}
+
+#[test]
+fn a_branch_that_does_not_go_on_lets_the_junction_go() {
+    // b's input x works when c arrives: t waits; x fails on an "only if it succeeds" link, so b
+    // will not run again: t goes with c
+    let mut e = engine();
+    done_junction(&mut e);
+    add(&mut e, "x", "x", "go");
+    link(&mut e, "e7", "x", "b", On::Ok);
+    {
+        let r = e.rt.get_mut("x").unwrap();
+        r.armed = true;
+        r.cause = Cause::Flow;
+    }
+    add(&mut e, "c", "c", "go");
+    link(&mut e, "e8", "c", "t", On::Done);
+    ran(&mut e, "c", "C result");
+    assert!(e.rt["t"].queue.is_empty(), "b may still run again");
+    e.settle("x", false, "x broke".into());
+    let q = queued(&e, "t");
+    assert_eq!(q.len(), 1, "{q:?}");
+    assert!(q[0].contains("C result") && !q[0].contains("B result"), "{}", q[0]);
+}
+
+#[test]
+fn a_chat_with_a_card_before_the_junction_does_not_hold_it() {
+    let mut e = engine();
+    done_junction(&mut e);
+    // the person asks a something: that answer stays with a, so it is nothing to wait for
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.finished = false;
+        r.armed = true;
+        r.cause = Cause::User;
+    }
+    // (a link made meanwhile gets that answer: still nothing that comes to t)
+    add(&mut e, "y", "y", "go");
+    e.add_edge("a", "y", On::Done).unwrap();
+    assert_eq!(e.rt["a"].unsent, vec!["e3".to_string()]);
+    add(&mut e, "c", "c", "go");
+    ran(&mut e, "c", "C result");
+    e.add_edge("c", "t", On::Done).unwrap();
+    assert_eq!(queued(&e, "t").len(), 1);
+    // the same while a works for the flow: then t waits for it
+    let mut e = engine();
+    done_junction(&mut e);
+    e.rt.get_mut("a").unwrap().queue.push_back(QItem { id: 9, text: "again".into(), shown: "again".into(), src: Src::Flow });
+    add(&mut e, "c", "c", "go");
+    ran(&mut e, "c", "C result");
+    e.add_edge("c", "t", On::Done).unwrap();
+    assert!(e.rt["t"].queue.is_empty(), "a's next result is coming");
+    ran(&mut e, "a", "A again");
+    let q = queued(&e, "t");
+    assert_eq!(q.len(), 1);
+    assert!(q[0].contains("A again") && q[0].contains("C result") && !q[0].contains("B result"), "{}", q[0]);
+}
+
+#[test]
+fn a_failed_link_still_holds_a_done_junction() {
+    let mut e = engine();
+    done_junction(&mut e);
+    e.flow.edges.iter_mut().find(|x| x.id == "e2").unwrap().on = On::Ok;
+    {
+        let r = e.rt.get_mut("b").unwrap();
+        r.finished = false;
+        r.armed = true;
+        r.cause = Cause::Flow;
+    }
+    e.settle("b", false, "B broke".into());
+    add(&mut e, "c", "c", "go");
+    ran(&mut e, "c", "C result");
+    e.add_edge("c", "t", On::Done).unwrap();
+    assert!(e.rt["t"].queue.is_empty(), "b's latest is a failure its link does not take");
+    ran(&mut e, "b", "B fixed");
+    let q = queued(&e, "t");
+    assert_eq!(q.len(), 1);
+    assert!(q[0].contains("B fixed") && q[0].contains("C result") && !q[0].contains("A result"), "{}", q[0]);
+}
+
+#[test]
+fn an_agent_in_a_new_session_is_given_every_result_again() {
+    let mut e = engine();
+    done_junction(&mut e);
+    // its process ended (idle for half an hour): the next session knows nothing of a and b
+    e.rt.get_mut("t").unwrap().alive = false;
+    add(&mut e, "c", "c", "go");
+    ran(&mut e, "c", "C result");
+    e.add_edge("c", "t", On::Done).unwrap();
+    let q = queued(&e, "t");
+    assert_eq!(q.len(), 1);
+    assert!(q[0].contains("A result") && q[0].contains("B result") && q[0].contains("C result"), "{}", q[0]);
+    assert_eq!(q[0].matches("Keep it short.").count(), 1, "{}", q[0]);
+}
+
+#[test]
+fn a_done_gate_given_a_new_link_holds_only_the_new_result() {
+    let mut e = engine();
+    add(&mut e, "a", "a", "go");
+    add(&mut e, "b", "b", "go");
+    add_kind(&mut e, "g", "approve", "gate", "");
+    add(&mut e, "d", "d", "use {{inputs}}");
+    link(&mut e, "e1", "a", "g", On::Done);
+    link(&mut e, "e2", "b", "g", On::Done);
+    link(&mut e, "e3", "g", "d", On::Ok);
+    ran(&mut e, "a", "A result");
+    ran(&mut e, "b", "B result");
+    e.cmd(None, Cmd::Approve { id: "g".into(), ok: true });
+    assert_eq!(e.rt["g"].status, Status::Done);
+    ran(&mut e, "d", "used both");
+    add(&mut e, "c", "c", "go");
+    link(&mut e, "e4", "c", "g", On::Done);
+    ran(&mut e, "c", "C result");
+    let held = e.rt["g"].gate.held.clone().unwrap_or_default();
+    assert!(held.contains("C result") && !held.contains("A result"), "{held}");
+    assert_eq!(e.rt["g"].status, Status::Attention);
+    e.cmd(None, Cmd::Approve { id: "g".into(), ok: true });
+    let q = queued(&e, "d");
+    assert!(q.len() == 1 && q[0].contains("C result") && !q[0].contains("B result"), "{q:?}");
+}
+
+fn commit_with(e: &mut Engine, id: &str, name: &str) {
+    git_node(e, id, name, "commit");
+    e.rt.get_mut(id).unwrap().git.carry = vec![Carry {
+        name: name.into(),
+        agent: "claude".into(),
+        node: format!("agent-{id}"),
+        task: format!("do {name}"),
+        result: format!("{name} done"),
+        commit: format!("{id}0000 {name}"),
+    }];
+}
+
+/// The commit step resolved: its report goes to the push.
+fn committed(e: &mut Engine, id: &str, ok: bool) {
+    e.rt.get_mut(id).unwrap().git.seen = vec!["x".into()];
+    e.settle(id, ok, format!("report of {id}"));
+}
+
+fn carried(e: &Engine, id: &str) -> Vec<String> {
+    e.rt[id].git.carry.iter().map(|c| c.name.clone()).collect()
+}
+
+#[tokio::test]
+async fn a_pushed_push_given_a_new_commit_pushes_again_with_only_that_commit() {
+    let mut e = engine();
+    commit_with(&mut e, "c1", "slug");
+    commit_with(&mut e, "c2", "wrap");
+    git_node(&mut e, "p", "push", "push");
+    e.flow.nodes.iter_mut().find(|n| n.id == "p").unwrap().draft = false;
+    link(&mut e, "e1", "c1", "p", On::Done);
+    link(&mut e, "e2", "c2", "p", On::Done);
+    committed(&mut e, "c1", true);
+    committed(&mut e, "c2", true);
+    assert!(e.rt["p"].git.finishing);
+    e.on_git("p".into(), 0, GitJobKind::Push, Ok("pushed feature to origin".into()), Some(Facts::default()));
+    assert_eq!(e.rt["p"].status, Status::Done);
+    // a third commit is linked in while its agent still works
+    commit_with(&mut e, "c3", "tabs");
+    e.add_edge("c3", "p", On::Done).unwrap();
+    assert!(!e.rt["p"].git.finishing && e.rt["p"].finished);
+    committed(&mut e, "c3", true);
+    assert!(e.rt["p"].git.finishing, "the commits pushed before are still in");
+    assert_eq!(carried(&e, "p"), vec!["tabs".to_string()]);
+}
+
+#[tokio::test]
+async fn a_push_whose_commit_failed_takes_the_other_commit_up_again_once_it_is_fixed() {
+    let mut e = engine();
+    commit_with(&mut e, "c1", "slug");
+    commit_with(&mut e, "c2", "wrap");
+    git_node(&mut e, "p", "push", "push");
+    e.flow.nodes.iter_mut().find(|n| n.id == "p").unwrap().draft = false;
+    link(&mut e, "e1", "c1", "p", On::Done);
+    link(&mut e, "e2", "c2", "p", On::Done);
+    committed(&mut e, "c2", true);
+    committed(&mut e, "c1", false);
+    assert_eq!(e.rt["p"].status, Status::Failed);
+    // c1 is run again and resolves: the push does not wait for c2 again, and carries both
+    committed(&mut e, "c1", true);
+    assert!(e.rt["p"].git.finishing, "{:?}", e.rt["p"].git.log);
+    assert_eq!(carried(&e, "p"), vec!["slug".to_string(), "wrap".to_string()]);
+    // the other order: c1 fails first, c2 arrives into a new round that waits for c1
+    let mut e = engine();
+    commit_with(&mut e, "c1", "slug");
+    commit_with(&mut e, "c2", "wrap");
+    git_node(&mut e, "p", "push", "push");
+    e.flow.nodes.iter_mut().find(|n| n.id == "p").unwrap().draft = false;
+    link(&mut e, "e1", "c1", "p", On::Done);
+    link(&mut e, "e2", "c2", "p", On::Done);
+    committed(&mut e, "c1", false);
+    committed(&mut e, "c2", true);
+    assert!(!e.rt["p"].git.finishing, "a failed commit is nothing to push");
+    committed(&mut e, "c1", true);
+    assert!(e.rt["p"].git.finishing);
+    assert_eq!(carried(&e, "p"), vec!["wrap".to_string(), "slug".to_string()]);
+}
+
+#[test]
+fn changing_what_a_link_waits_for_does_not_hand_the_same_result_on_twice() {
+    let mut e = engine();
+    done_junction(&mut e);
+    // "only if it succeeds" on a link whose result t already had: nothing runs again
+    assert_eq!(e.cmd_edge_set("e1".into(), On::Ok)["ok"], true);
+    assert!(e.rt["t"].queue.is_empty() && e.rt["t"].inputs.is_empty());
+    // a failure that the link did not take, taken once its condition allows it
+    add(&mut e, "x", "x", "go");
+    add(&mut e, "y", "y", "fix {{inputs}}");
+    e.add_edge("x", "y", On::Ok).unwrap();
+    {
+        let r = e.rt.get_mut("x").unwrap();
+        r.armed = true;
+        r.cause = Cause::Flow;
+    }
+    e.settle("x", false, "x broke".into());
+    assert!(e.rt["y"].queue.is_empty());
+    let id = e.flow.edges.iter().find(|l| l.from == "x").unwrap().id.clone();
+    e.cmd_edge_set(id, On::Done);
+    assert!(queued(&e, "y").iter().any(|q| q.contains("x broke")));
+}
+
+#[test]
+fn handing_a_result_over_gives_it_once_and_again_on_request() {
+    let mut e = engine();
+    add(&mut e, "a", "a", "go");
+    add(&mut e, "t", "t", "use {{inputs}}");
+    ran(&mut e, "a", "A result");
+    // no link yet: the new link hands it over, and only once
+    e.cmd_handover("a".into(), "t".into());
+    assert_eq!(queued(&e, "t").len(), 1);
+    // the link had it: handed over again on request
+    ran(&mut e, "t", "used it");
+    e.cmd_handover("a".into(), "t".into());
+    assert_eq!(queued(&e, "t").len(), 1);
+    // a gate that let it through holds it again
+    add_kind(&mut e, "g", "approve", "gate", "");
+    e.add_edge("a", "g", On::Done).unwrap();
+    e.cmd(None, Cmd::Approve { id: "g".into(), ok: true });
+    assert_eq!(e.rt["g"].status, Status::Done);
+    e.cmd_handover("a".into(), "g".into());
+    assert_eq!(e.rt["g"].status, Status::Attention);
+    assert!(e.rt["g"].gate.held.as_deref().unwrap_or("").contains("A result"));
+}
+
+#[test]
+fn zz_probe_handover() {
+    let mut e = engine();
+    add(&mut e, "a", "a", "go");
+    add(&mut e, "t", "t", "use {{inputs}}");
+    ran(&mut e, "a", "A result");
+    e.cmd_handover("a".into(), "t".into());
+    eprintln!("PROBE new link: t queue {}", e.rt["t"].queue.len());
+    add_kind(&mut e, "g", "approve", "gate", "");
+    e.add_edge("a", "g", On::Done).unwrap();
+    e.cmd(None, Cmd::Approve { id: "g".into(), ok: true });
+    eprintln!("PROBE gate before: status {:?} runs {}", e.rt["g"].status, e.rt["g"].runs);
+    e.cmd_handover("a".into(), "g".into());
+    eprintln!("PROBE gate after: status {:?} held {:?}", e.rt["g"].status, e.rt["g"].gate.held.is_some());
 }

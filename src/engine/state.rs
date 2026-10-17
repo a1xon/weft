@@ -359,8 +359,6 @@ pub(super) struct Rt {
     pub(super) steps: Vec<StepRec>,
     pub(super) asked: String,
     pub(super) inputs: Vec<(String, Input)>,
-    /// edge ids this agent's latest run consumed: the junction stays lit until a new round starts
-    pub(super) used: Vec<String>,
     pub(super) runs: u32,
     pub(super) cause: Cause,
     /// A user-started run produced a result nobody has been handed yet.
@@ -697,7 +695,6 @@ impl Rt {
             steps: Vec::new(),
             asked: String::new(),
             inputs: Vec::new(),
-            used: Vec::new(),
             runs: 0,
             cause: Cause::Flow,
             fresh: false,
@@ -979,7 +976,6 @@ impl Rt {
     /// content and stays; what the flow queued is progress and goes.
     pub(super) fn reset(&mut self) {
         self.inputs.clear();
-        self.used.clear();
         self.queue.retain(|q| q.src != Src::Flow);
         self.runs = 0;
         self.finished = false;

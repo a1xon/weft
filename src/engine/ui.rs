@@ -85,8 +85,8 @@ impl Engine {
             .filter(|e| {
                 self.is_const_edge(e)
                     || rt.inputs.iter().any(|(i, _)| *i == e.id)
-                    || rt.used.contains(&e.id)
                     || (is_git && rt.git.seen.contains(&e.id))
+                    || self.resolved(e)
             })
             .map(|e| e.id.as_str())
             .collect();

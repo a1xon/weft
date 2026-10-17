@@ -7,9 +7,10 @@ function snapshotNodes(ids) {
   };
 }
 async function restore(snap) {
-  const map = new Map();
+  const map = new Map(), held = [];
   for (const n of snap.nodes) {
     const c = { ...n }; const old = c.id; delete c.id;
+    if (!c.draft && holdsLinks(c, snap.edges.filter(e => e.to === old).length)) { c.draft = true; held.push(old); }
     const r = await req('node_add', { node: c });
     if (r.id) map.set(old, r.id);
   }
@@ -17,6 +18,7 @@ async function restore(snap) {
     const f = map.get(e.from) || (S.nodes.has(e.from) ? e.from : null), t = map.get(e.to) || (S.nodes.has(e.to) ? e.to : null);
     if (f && t) send('edge_add', { from: f, to: t, on: e.on });
   }
+  for (const old of held) if (map.has(old)) send('arm', { id: map.get(old) });
   await Promise.all([...map.values()].map(whenNode));
   select([...map.values()]);
 }
