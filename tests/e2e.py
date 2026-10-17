@@ -592,6 +592,33 @@ try:
     check("analysis" in call("result", id=lo).get("text", "").lower(), "with a real answer: %r" % call("result", id=lo).get("text", "")[:60])
     check(received(ea).count("=== prompt ===") == 1 and received(lo).count("=== prompt ===") == 1, "and each got the task exactly once")
 
+    # a command that ends before it reads what was typed into it runs once, not again and again (weft's
+    # own deploy, `cargo install`, looped on "install and build" typed into it)
+    clear()
+    def queued(nid):
+        return next(n["queued"] for n in call("ls")["nodes"] if n["id"] == nid)
+    typed_log, dn_log = TMP + "/typed-runs", TMP + "/dn-runs"
+    ty = add(name="typed-to", agent="sh", cmd="echo ran >> %s" % typed_log, prompt="go")
+    call("send", id=ty, text="install and build")
+    check(wait(lambda: status(ty)[0] == "done", "typed-to"), "typing into a command starts it (%s)" % (status(ty),))
+    time.sleep(3)
+    check(status(ty) == ("done", 1) and open(typed_log).read().count("ran") == 1, "and it runs once, not again and again (%s)" % (status(ty),))
+    check(queued(ty) == 0, "what it never read went with it")
+    # a typed line it never read (stopped while it kept printing) waits ahead of what a link brings: the run takes that
+    up = add(name="upstream", agent="sh", cmd="echo the-push-is-in", prompt="go")
+    dn = add(name="downstream", agent="sh", cmd="while :; do date +%N; sleep 0.2; done", prompt="ship {{inputs}}")
+    call("send", id=dn, text="install and build")
+    time.sleep(2.5)
+    call("stop", id=dn)
+    check(queued(dn) == 1, "a line typed into a command that never went quiet is still queued after a stop (%s)" % queued(dn))
+    call("node_set", id=dn, patch={"cmd": 'echo ran >> %s; cat "$WEFT_PROMPT_FILE"' % dn_log})
+    call("edge_add", **{"from": up, "to": dn})
+    call("start", id=up)
+    check(wait(lambda: status(dn)[0] == "done", "downstream"), "a link's input runs it (%s)" % (status(dn),))
+    time.sleep(3)
+    check(status(dn) == ("done", 2) and open(dn_log).read().count("ran") == 1, "once, on that input (%s)" % (status(dn),))
+    check("the-push-is-in" in call("result", id=dn).get("text", ""), "which it was given as its prompt file")
+
     # 15. quitting leaves nothing behind
     for n in call("ls")["nodes"]:
         call("node_del", id=n["id"])

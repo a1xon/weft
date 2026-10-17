@@ -3765,3 +3765,31 @@ fn a_gate_still_waiting_for_its_human_holds_what_arrives_too() {
     let held = e.rt["g"].gate.held.clone().unwrap_or_default();
     assert!(held.contains("C result") && !held.contains("A result"), "{held}");
 }
+
+#[test]
+fn a_command_that_ends_before_it_reads_what_was_typed_to_it_does_not_run_again() {
+    // (weft's own deploy, `cargo install --path .`: "install and build" typed into the card was still
+    // queued when the install ended, so it started again, ended again, ... forever)
+    let mut e = engine();
+    add_kind(&mut e, "d", "deploy", "sh", "");
+    e.flow.nodes[0].finish = Finish::Exit;
+    e.flow.nodes[0].cmd = "cargo install --path .".into();
+    let start = |e: &mut Engine, n: u64| {
+        e.rt.get_mut("d").unwrap().spawn = Some(n);
+        e.rt.get_mut("d").unwrap().spawning = true;
+        e.on_spawned("d".into(), n, Ok(Spawned { pane: format!("%{n}"), win: format!("@{n}"), worktree: None }));
+    };
+    start(&mut e, 1);
+    e.enqueue("d", "install and build".into(), "install and build".into(), Src::You, false);
+    e.on_tmux(TEv::Dead { pane: "%1".into(), status: 0 });
+    assert!(e.rt["d"].queue.is_empty(), "what it never read went with it");
+    assert_eq!(e.rt["d"].status, Status::Done, "it is not started again");
+    assert_eq!(e.rt["d"].runs, 1);
+    // a new input from a link that came in while it ran is its next run
+    start(&mut e, 2);
+    e.enqueue("d", "the push's result".into(), "the push's result".into(), Src::Flow, false);
+    e.enqueue("d", "typed".into(), "typed".into(), Src::You, false);
+    e.on_tmux(TEv::Dead { pane: "%2".into(), status: 0 });
+    let left: Vec<&Src> = e.rt["d"].queue.iter().map(|q| &q.src).collect();
+    assert_eq!(left, vec![&Src::Flow]);
+}

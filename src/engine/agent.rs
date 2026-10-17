@@ -208,10 +208,11 @@ impl Engine {
         rt.ui = true;
         rt.checks.told.clear();
         let existing_wt = rt.worktree.clone();
-        // Plain commands receive their (rendered) prompt as a file, not as keystrokes.
+        // Plain commands receive their (rendered) prompt as a file, not as keystrokes (what was typed
+        // ahead of it stays for their stdin).
         let mut prompt_file: Option<String> = None;
-        if node.finish == Finish::Exit && matches!(rt.queue.front(), Some(q) if q.src == Src::Flow) {
-            if let Some(q) = rt.queue.pop_front() {
+        if node.finish == Finish::Exit {
+            if let Some(q) = rt.queue.iter().position(|q| q.src == Src::Flow).and_then(|i| rt.queue.remove(i)) {
                 rt.asked = q.shown.clone();
                 let path = self.boot.dir.join(".weft").join("run").join(format!("{}.prompt.md", node.id));
                 if write_atomic(&path, q.text.as_bytes()).is_ok() {

@@ -645,9 +645,16 @@ impl Engine {
             }
             TEv::Dead { pane, status } => {
                 let Some(id) = self.panes.get(&pane).cloned() else { return };
+                let command = self.node(&id).is_some_and(|n| n.finish == Finish::Exit);
                 let Some(rt) = self.rt.get_mut(&id) else { return };
                 rt.alive = false;
                 rt.ui = true;
+                if command {
+                    // what was typed for a command's stdin goes with it: left queued, it would start the
+                    // command again, which ends before reading it again, and so on forever. Only a new
+                    // input from a link is another run.
+                    rt.queue.retain(|q| q.src == Src::Flow);
+                }
                 let (armed, finished) = (rt.armed, rt.finished);
                 if armed && !finished {
                     self.step_done(&id, status == 0, None, How::Exit);
