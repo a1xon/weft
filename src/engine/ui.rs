@@ -77,8 +77,9 @@ impl Engine {
                 return Status::Waiting;
             }
         }
-        // done before, and a new result is on its way down a link: it waits for it, to run again
-        if rt.finished && matches!(rt.status, Status::Done | Status::Failed) && self.waits_for_links(id) {
+        // done before, and a card before it is not finished (or it holds only some of a new round, a
+        // git step's open one too): it waits for that, to run again, and is not shown done
+        if matches!(rt.status, Status::Done | Status::Failed) && self.waits_for_links(id) {
             return Status::Waiting;
         }
         rt.status
@@ -92,8 +93,9 @@ impl Engine {
         let arrived: Vec<&str> = incoming
             .iter()
             .filter(|e| {
+                // (a git step's inputs stay after its round: what it has this round is `seen`)
                 self.is_const_edge(e)
-                    || rt.inputs.iter().any(|(i, _)| *i == e.id)
+                    || (!is_git && rt.inputs.iter().any(|(i, _)| *i == e.id))
                     || (is_git && rt.git.seen.contains(&e.id))
                     || self.resolved(e)
             })

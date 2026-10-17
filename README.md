@@ -85,7 +85,11 @@ A link that delivered stays delivered, like a promise that resolved before. Link
 finished junction and it waits for that one alone, then runs again with only the new result (its
 session still has the others, and the note rides along) and hands its answer down the same chain.
 While a card before it works on something new, it waits for that too, so a round started further
-up still meets in one run; it shows *waiting* again meanwhile, not *done*. A message typed into a
+up still meets in one run; it shows *waiting* again meanwhile, not *done*. No card is *done* while
+anything before it is unfinished: a card at work for the flow, a task added before it that has not
+run yet, a junction that holds only some of a new round (*waiting · 3/4 in*, a push whose commits
+are not all in). That goes all the way down the chain, and a card linked after one of them gets
+its next result, not the one it had. A message typed into a
 card that waits for its links (a deploy before its push is in) does not start it: it goes in after
 the card's own task once they are in. An agent whose process has ended starts a new session, which is given
 every result again. A gate holds only what is new; a push is described below.

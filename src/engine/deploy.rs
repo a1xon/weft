@@ -241,7 +241,7 @@ mod flow_tests {
         let bare = r["id"].as_str().unwrap().to_string();
         e.cmd_node_set(d.clone(), json!({"agent": "claude", "finish": "idle", "prompt": "run ./manual-deploy.sh and watch it"}));
         assert!(e.node(&d).unwrap().draft && !e.node(&d).unwrap().deploy_unset(), "it has something to run now");
-        e.propagate("p", true, "Pushed `main` to `origin`.");
+        e.settle("p", true, "Pushed `main` to `origin`.".into());
         assert!(!e.node(&d).unwrap().draft, "the push coming in started it");
         assert!(!e.rt[&d].queue.is_empty() || e.rt[&d].status != Status::New, "{:?}", e.rt[&d].status);
         assert!(!e.rt[&d].finished, "an agent deploy is not failed for having no command: {:?}", e.rt[&d].output);

@@ -99,8 +99,9 @@ impl Engine {
         let rt = &self.rt[to];
         let fresh = |e: &Edge| rt.inputs.iter().any(|(i, _)| *i == e.id);
         let have = incoming.iter().filter(|e| fresh(e)).count();
+        // (what came down a link whose card has a newer result on the way is not final: it waits for that)
         let ready = match node.join {
-            Join::All => incoming.iter().all(|e| fresh(e) || self.resolved(e)),
+            Join::All => incoming.iter().all(|e| (fresh(e) && !self.coming(e)) || self.resolved(e)),
             Join::Any => true,
         };
         if have > 0 && ready {
@@ -119,16 +120,24 @@ impl Engine {
         src.output.is_some() && e.on.matches(ok) && (ok || !git) && !self.coming(e)
     }
 
-    /// Does an agent card wait for its links: a new result is on its way down one of them (so a result
-    /// it had is about to be replaced), or, before it has run, what it needs has not all come yet? It
-    /// goes when they are in; what is typed into it meanwhile waits with it (a deploy before its push).
+    /// Does a card wait for its links: it holds only some of what a new round needs (a junction at
+    /// 3/4), a new result is on its way down one of them, or a card before it has not finished (one
+    /// added there, or a junction further up that waits)? Then what it had is not final: it is not
+    /// shown done, a card linked after it gets its next result, not this one, and what is typed into
+    /// it waits with it (a deploy before its push). Before it has run, it waits until what it needs
+    /// has all come.
     pub(super) fn waits_for_links(&self, id: &str) -> bool {
         let (Some(node), Some(rt)) = (self.node(id), self.rt.get(id)) else { return false };
-        if node.draft || node.kind() != Kind::Agent {
+        if node.draft || node.kind() == Kind::Note {
             return false;
         }
         let incoming: Vec<&Edge> = self.flow.edges.iter().filter(|e| e.to == id && !self.is_const_edge(e)).collect();
-        let fresh = |e: &Edge| rt.inputs.iter().any(|(i, _)| *i == e.id);
+        // (a git step keeps what came in until its round is over)
+        let git = node.kind() == Kind::Git;
+        let fresh = |e: &Edge| if git { rt.git.seen.contains(&e.id) } else { rt.inputs.iter().any(|(i, _)| *i == e.id) };
+        if !incoming.is_empty() && self.part_in(id) {
+            return true;
+        }
         if incoming.iter().any(|e| !fresh(e) && self.coming(e)) {
             return true;
         }
@@ -143,7 +152,8 @@ impl Engine {
     }
 
     /// Will a new result come down this link: its card works on one (or one is queued for it), or a
-    /// card before it does. A loop back through the card it leads to does not count.
+    /// card before it does, or one of them has not finished (`unfinished`). A loop back through the
+    /// card it leads to does not count.
     fn coming(&self, e: &Edge) -> bool {
         let mut seen = std::collections::HashSet::new();
         let mut todo = vec![(e.from.clone(), e.id.clone())];
@@ -154,11 +164,47 @@ impl Engine {
             if self.at_work(&at, &via) {
                 return true;
             }
+            // (one that waits for what this link leads to is after it, in a loop, not before it)
+            if self.unfinished(&at) && !self.leads_to(&e.to, &at) {
+                return true;
+            }
             // a draft collects what arrives and goes on only when someone arms it
             if self.node(&at).is_none_or(|n| n.draft) {
                 continue;
             }
             todo.extend(self.flow.edges.iter().filter(|x| x.to == at).map(|x| (x.from.clone(), x.id.clone())));
+        }
+        false
+    }
+
+    /// Has the card no final result yet: it has never run (a task added before the cards after it),
+    /// or it holds part of a round it has not run?
+    fn unfinished(&self, id: &str) -> bool {
+        self.rt.get(id).is_some_and(|r| r.output.is_none()) || self.part_in(id)
+    }
+
+    /// Does the card hold some of the inputs of a round it has not run yet: a junction partly in, or a
+    /// git step whose round is open?
+    fn part_in(&self, id: &str) -> bool {
+        let (Some(n), Some(r)) = (self.node(id), self.rt.get(id)) else { return false };
+        match n.kind() {
+            Kind::Note => false,
+            Kind::Git => !r.finished && !r.git.seen.is_empty(),
+            _ => !r.inputs.is_empty(),
+        }
+    }
+
+    /// Does a path of links lead from `from` to `to`?
+    fn leads_to(&self, from: &str, to: &str) -> bool {
+        let mut seen = std::collections::HashSet::new();
+        let mut todo = vec![from.to_string()];
+        while let Some(at) = todo.pop() {
+            if at == to {
+                return true;
+            }
+            if seen.insert(at.clone()) {
+                todo.extend(self.flow.edges.iter().filter(|e| e.from == at).map(|e| e.to.clone()));
+            }
         }
         false
     }

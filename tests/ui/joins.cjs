@@ -62,7 +62,8 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await p.evaluate(([c, t]) => send('edge_add', { from: c, to: t }), [c, t]);
   await sleep(800);
   r = await rt(t);
-  ok(r.st === 'done' && r.runs === 1, 'T stays done while C works (' + r.st + ', ' + r.runs + ')');
+  // (no card is done while one before it is not: T waits again, and has not run again)
+  ok(r.st === 'waiting' && r.runs === 1, 'T waits again while C works (' + r.st + ', ' + r.runs + ')');
   ok(r.arrived.length === 2 && r.need === 3, 'A and B count as in, C is to come (' + r.arrived.length + '/' + r.need + ')');
   ok(!/\barr\b/.test(await linkCls(c, t) || ''), 'the link from C is not drawn as arrived');
   ok(await waitFor(async () => (await rt(t)).runs === 2, 30000), 'C resolved: T runs again');

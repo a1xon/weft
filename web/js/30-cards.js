@@ -271,6 +271,7 @@ function statusText(n, r) {
     }
     if (st === 'done') return `${n.git_op === 'commit' ? 'committed' : n.git_op === 'pr' ? 'PR opened' : n.git_op === 'push' ? 'pushed' : 'shipped'} ${age(r.since)} ago`;
     if (st === 'failed') return `failed ${age(r.since)} ago`;
+    if (st === 'waiting') return `waiting · ${r.arrived.length}/${r.need || 0} in`;
     return `armed · ${g.seen || 0}/${r.need || 0} in`;
   }
   if (n.agent === 'step') {

@@ -479,6 +479,7 @@ fn a_gate_with_nobody_to_ask_hands_the_decision_to_the_human() {
 fn a_tests_gate_sends_failures_back_a_few_times_then_asks_the_human() {
     let mut e = engine();
     alive_agent(&mut e, "a", "implement");
+    e.rt.get_mut("a").unwrap().output = Some("implemented".into());
     add_kind(&mut e, "t", "tests", "tests", "");
     add(&mut e, "b", "release", "ship {{inputs}}");
     link(&mut e, "e1", "a", "t", On::Done);
@@ -1327,6 +1328,7 @@ fn a_commit_hands_on_a_report_of_what_was_done() {
     alive_agent(&mut e, "a", "slug");
     e.flow.nodes.iter_mut().find(|n| n.id == "a").unwrap().agent = "claude".into();
     e.rt.get_mut("a").unwrap().asked = "Fix the slugify function so the tests pass".into();
+    e.rt.get_mut("a").unwrap().output = Some("slugify now lowercases and strips accents.".into());
     git_node(&mut e, "c", "commit", "commit");
     e.flow.nodes.iter_mut().find(|n| n.id == "c").unwrap().draft = false;
     add(&mut e, "t", "tester", "test the features live");
@@ -2478,6 +2480,7 @@ fn after_a_restart_from_an_older_build_the_answer_still_goes_to_its_step() {
         let r = e.rt.get_mut("a").unwrap();
         r.armed = true;
         r.runs = 4;
+        r.output = Some("Committed cd82c97.".into());
         r.asked = "recheck this is working. increase the font size by 20%.".into();
         let echo = format!("\u{25cf} Committed cd82c97.\r\n\u{276f} recheck this is working. increase the font size by 20%.\r\n  {}\r\n", words::status_rule(false));
         r.parser.process(format!("{echo}\u{25cf} Rechecked: the font is 20% bigger.\r\n").as_bytes());
@@ -2580,6 +2583,7 @@ fn a_board_with_a_stale_host_is_put_right() {
 fn a_step_is_not_sent_what_its_own_agent_answered_in_that_session() {
     let mut e = engine();
     alive_agent(&mut e, "a", "agent");
+    e.rt.get_mut("a").unwrap().output = Some("what a did".into());
     alive_agent(&mut e, "b", "other");
     mk_step(&mut e, "s1", "one", "a");
     mk_step(&mut e, "s2", "two", "a");
@@ -3808,7 +3812,7 @@ fn what_is_typed_into_a_card_that_waits_for_its_links_waits_with_it() {
     assert_eq!(e.rt["d"].status, Status::New, "not started");
     assert_eq!(e.eff_status("d", &HashMap::new()), Status::Waiting);
     // the push comes in: the deploy goes, with its own task first and then what was typed
-    e.propagate("p", true, "Pushed `main` to `origin`.");
+    e.settle("p", true, "Pushed `main` to `origin`.".into());
     let q: Vec<(&Src, &str)> = e.rt["d"].queue.iter().map(|q| (&q.src, q.shown.as_str())).collect();
     assert_eq!(q.len(), 2, "{q:?}");
     assert!(q[0].0 == &Src::Flow && q[0].1.contains("Deploy what was pushed.") && q[0].1.contains("Pushed `main`"), "{q:?}");
@@ -3851,4 +3855,123 @@ fn a_done_card_waits_again_while_a_new_result_comes_down_its_link() {
     let q: Vec<(&Src, &str)> = e.rt["b"].queue.iter().map(|q| (&q.src, q.shown.as_str())).collect();
     assert!(q.len() == 2 && q[0].0 == &Src::Flow && q[0].1.contains("plan v2"), "{q:?}");
     assert_eq!(q[1], (&Src::You, "also add a test"));
+}
+
+fn shown(e: &Engine, id: &str) -> Status {
+    e.eff_status(id, &HashMap::new())
+}
+
+#[tokio::test]
+async fn a_push_with_a_commit_still_to_come_is_not_done_and_what_is_linked_after_it_gets_the_next_push() {
+    // (rubbermetrics n71: the push stayed green with two of its commits still to come, and the card
+    // linked after it ran at once on the push before)
+    let mut e = engine();
+    commit_with(&mut e, "c1", "slug");
+    git_node(&mut e, "p", "push", "push");
+    e.flow.nodes.iter_mut().find(|n| n.id == "p").unwrap().draft = false;
+    link(&mut e, "e1", "c1", "p", On::Done);
+    committed(&mut e, "c1", true);
+    e.on_git("p".into(), 0, GitJobKind::Push, Ok("pushed feature to origin".into()), Some(Facts::default()));
+    assert_eq!(shown(&e, "p"), Status::Done);
+    // two new tasks are added before it
+    commit_with(&mut e, "c2", "tabs");
+    commit_with(&mut e, "c3", "wrap");
+    e.add_edge("c2", "p", On::Done).unwrap();
+    e.add_edge("c3", "p", On::Done).unwrap();
+    assert_eq!(shown(&e, "p"), Status::Waiting, "not done while commits before it are still to come");
+    add(&mut e, "d", "deploy", "deploy {{inputs}}");
+    e.add_edge("p", "d", On::Done).unwrap();
+    assert!(e.rt["d"].queue.is_empty() && e.rt["d"].inputs.is_empty(), "not the push before");
+    assert_eq!(shown(&e, "d"), Status::Waiting);
+    // one of them is in (2/3): the push's round is open, it still waits
+    committed(&mut e, "c2", true);
+    assert!(!e.rt["p"].git.finishing);
+    assert_eq!(shown(&e, "p"), Status::Waiting);
+    assert!(e.rt["d"].queue.is_empty());
+    // the last one: it pushes, and the card after it gets this push
+    committed(&mut e, "c3", true);
+    assert!(e.rt["p"].git.finishing);
+    let gen = e.rt["p"].git.gen;
+    e.on_git("p".into(), gen, GitJobKind::Push, Ok("pushed feature to origin".into()), Some(Facts::default()));
+    assert_eq!(shown(&e, "p"), Status::Done);
+    let q = queued(&e, "d");
+    assert_eq!(q.len(), 1, "{q:?}");
+    assert!(q[0].contains("tabs") && q[0].contains("wrap") && !q[0].contains("slug"), "{}", q[0]);
+}
+
+#[test]
+fn a_junction_at_three_of_four_is_not_done_and_nothing_after_it_runs_before_it_does() {
+    let mut e = engine();
+    done_junction(&mut e);
+    add(&mut e, "y", "y", "use {{inputs}}");
+    link(&mut e, "e5", "t", "y", On::Done);
+    ran(&mut e, "y", "used t");
+    assert_eq!(shown(&e, "y"), Status::Done);
+    // a new task before the junction, a draft nobody started yet: t and what follows it are not done
+    add(&mut e, "c", "c", "go");
+    e.flow.nodes.iter_mut().find(|n| n.id == "c").unwrap().draft = true;
+    e.add_edge("c", "t", On::Done).unwrap();
+    assert_eq!(shown(&e, "t"), Status::Waiting);
+    assert_eq!(shown(&e, "y"), Status::Waiting, "nothing after it is done either");
+    add(&mut e, "z", "z", "use {{inputs}}");
+    e.add_edge("t", "z", On::Done).unwrap();
+    assert!(queued(&e, "z").is_empty(), "a card linked after it does not run on its old answer");
+    // a new round reaches it from a: it holds that (the 3/4 lock) and waits for c
+    ran(&mut e, "a", "A2");
+    assert!(e.rt["t"].queue.is_empty() && !e.rt["t"].inputs.is_empty());
+    assert_eq!(shown(&e, "t"), Status::Waiting);
+    // c is started and resolves: t runs once with what is new, then every card after it goes on
+    e.flow.nodes.iter_mut().find(|n| n.id == "c").unwrap().draft = false;
+    ran(&mut e, "c", "C result");
+    let q = queued(&e, "t");
+    assert_eq!(q.len(), 1, "{q:?}");
+    assert!(q[0].contains("A2") && q[0].contains("C result") && !q[0].contains("B result"), "{}", q[0]);
+    ran(&mut e, "t", "reviewed again");
+    for id in ["y", "z"] {
+        assert!(queued(&e, id).iter().any(|q| q.contains("reviewed again")), "{id}: {:?}", queued(&e, id));
+    }
+}
+
+#[test]
+fn a_card_at_work_for_the_flow_makes_every_card_after_it_wait_again() {
+    let mut e = engine();
+    for id in ["a", "b", "c"] {
+        add(&mut e, id, id, "go {{inputs}}");
+    }
+    link(&mut e, "e1", "a", "b", On::Done);
+    link(&mut e, "e2", "b", "c", On::Done);
+    for id in ["a", "b", "c"] {
+        ran(&mut e, id, &format!("{id}1"));
+    }
+    // a chat with a: its answer stays with it, so nothing after it changes
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        (r.cause, r.armed, r.finished) = (Cause::User, true, false);
+    }
+    assert_eq!((shown(&e, "b"), shown(&e, "c")), (Status::Done, Status::Done));
+    // a runs again for the flow: every card after it waits, and so does one linked after them now
+    e.rt.get_mut("a").unwrap().cause = Cause::Flow;
+    assert_eq!((shown(&e, "b"), shown(&e, "c")), (Status::Waiting, Status::Waiting));
+    add(&mut e, "d", "d", "go {{inputs}}");
+    e.add_edge("c", "d", On::Done).unwrap();
+    assert!(queued(&e, "d").is_empty());
+    e.settle("a", true, "a2".into());
+    ran(&mut e, "b", "b2");
+    ran(&mut e, "c", "c2");
+    let q = queued(&e, "d");
+    assert!(q.len() == 1 && q[0].contains("c2"), "{q:?}");
+}
+
+#[test]
+fn a_card_that_waits_for_this_one_in_a_loop_does_not_hold_it() {
+    // a -> r -> a: r (a draft, not run yet) comes after a, not before it
+    let mut e = engine();
+    add(&mut e, "a", "a", "go");
+    add(&mut e, "r", "review", "review {{inputs}}");
+    link(&mut e, "e1", "a", "r", On::Done);
+    link(&mut e, "e2", "r", "a", On::Fail);
+    e.flow.nodes.iter_mut().find(|n| n.id == "r").unwrap().draft = true;
+    ran(&mut e, "a", "a1");
+    assert!(!e.rt["r"].inputs.is_empty(), "the draft holds a's result");
+    assert_eq!(shown(&e, "a"), Status::Done);
 }

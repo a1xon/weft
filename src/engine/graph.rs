@@ -158,14 +158,13 @@ impl Engine {
         }
         self.flow_changed();
         // an agent that has a result hands it over, also while it is busy answering a queued prompt
-        // (that answer goes to its step; its own result stays what it was)
-        let settled = self.rt.get(from).and_then(|r| {
-            if r.finished || r.reply_to.is_some() {
-                r.output.clone().map(|o| (o, r.ok.unwrap_or(true)))
-            } else {
-                None
-            }
-        });
+        // (that answer goes to its step; its own result stays what it was); not while a card before
+        // it has not finished: that result is not final, the link gets the next one
+        let settled = self
+            .rt
+            .get(from)
+            .and_then(|r| if r.finished || r.reply_to.is_some() { r.output.clone().map(|o| (o, r.ok.unwrap_or(true))) } else { None })
+            .filter(|_| !self.waits_for_links(from));
         let arrived = self.rt.get(to).is_some_and(|r| r.inputs.iter().any(|(i, _)| *i == eid));
         if let (Some((out, ok)), false) = (settled, arrived) {
             // a link that took this result before (only its condition changed) does not hand it on twice
