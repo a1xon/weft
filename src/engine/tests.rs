@@ -1089,6 +1089,24 @@ fn an_eta_is_asked_for_once_counted_down_and_cleared_when_the_agent_finishes() {
 }
 
 #[test]
+fn a_card_marked_done_early_drops_its_countdown() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "build ui");
+    e.cmd(None, Cmd::CheckAdd { node: "a".into(), kind: CheckKind::Eta, subject: String::new(), cmd: String::new(), every_s: 0 });
+    e.cmd(None, Cmd::Eta { node: "a".into(), seconds: 600, note: "long".into() });
+    assert!(e.rt["a"].checks.eta.is_some());
+    // done by a path that skips settle, with most of the time still left
+    e.set_status("a", Status::Done);
+    assert!(e.rt["a"].checks.eta.is_none());
+    // and one that sets the status directly is not sent out with a countdown either
+    e.cmd(None, Cmd::Eta { node: "a".into(), seconds: 600, note: "long".into() });
+    e.rt.get_mut("a").unwrap().checks.eta = Some(Eta { at: now_ms() + 600_000, set: now_ms(), total: 600, note: String::new(), asked: 0 });
+    e.rt.get_mut("a").unwrap().status = Status::Done;
+    let st = e.full_state().to_string();
+    assert!(!st.contains("\"total\":600"), "{st}");
+}
+
+#[test]
 fn an_estimate_that_ran_out_is_asked_for_again_once() {
     let mut e = engine();
     alive_agent(&mut e, "a", "build ui");

@@ -11,7 +11,8 @@ function renderEta(id, n, r) {
   const el = nodeEls.get(id); if (!el) return;
   if (r && r.limit) return renderLimit(el, id, r.limit);
   if (el.eta && el.eta._lim) { el.eta.remove(); el.eta = null; }
-  const live = hasEta(n) && r && (r.eta || r.status === 'busy' || r.status === 'starting');
+  const over = r && ['done', 'failed', 'stopped', 'exited'].includes(r.status);
+  const live = hasEta(n) && r && !over && (r.eta || r.status === 'busy' || r.status === 'starting');
   if (!live) { if (el.eta) { el.eta.remove(); el.eta = null; } return; }
   if (!el.eta) {
     el.eta = h('div', { class: 'eta', title: 'how long the agent says it still needs' },

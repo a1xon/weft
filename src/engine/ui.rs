@@ -125,8 +125,11 @@ impl Engine {
         } else {
             json!({"sha": rt.gate.ci_sha, "watching": rt.gate.ci, "runs": rt.gate.ci_runs.iter().map(CiRun::to_json).collect::<Vec<_>>()})
         };
+        let status = self.eff_status(id, blocked);
+        // a finished card has no countdown, however it got there and whatever time was left
+        let eta = rt.checks.eta.as_ref().filter(|_| !matches!(status, Status::Done | Status::Failed | Status::Stopped | Status::Exited));
         json!({
-            "t": "rt", "id": id, "status": self.eff_status(id, blocked), "alive": rt.alive, "armed": rt.armed,
+            "t": "rt", "id": id, "status": status, "alive": rt.alive, "armed": rt.armed,
             "runs": rt.runs, "since": rt.since, "arrived": arrived, "need": need, "ok": rt.ok,
             "out": out, "out_n": rt.output.as_ref().map_or(0, |o| o.len()), "wt": rt.worktree,
             "queue": queue, "asked": head_chars(rt.asked.trim(), 300), "fresh": rt.fresh,
@@ -139,7 +142,7 @@ impl Engine {
             "waiting": rt.waiting.as_ref().map(|w| json!({"what": head_chars(&w.what, 200), "checks": w.checks})),
             "limit": rt.limit.as_ref().map(|l| json!({"until": l.until, "said": head_chars(&l.said, 300), "known": l.known})),
             "step_wait": rt.step_wait.as_ref().and_then(|h| self.node(h)).map(|n| n.name.clone()),
-            "eta": rt.checks.eta.as_ref().map(|e| json!({"at": e.at, "set": e.set, "total": e.total, "note": e.note})),
+            "eta": eta.map(|e| json!({"at": e.at, "set": e.set, "total": e.total, "note": e.note})),
             "feed": rt.checks.feed.iter().rev().take(24).collect::<Vec<_>>().into_iter().rev().map(|f| json!({
                 "id": f.id, "check": f.check, "at": f.at, "img": f.img, "note": f.note, "ok": f.ok,
                 "state": f.state, "reply": f.reply,

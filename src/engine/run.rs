@@ -227,6 +227,9 @@ impl Engine {
     pub(super) fn set_status(&mut self, id: &str, s: Status) {
         if let Some(rt) = self.rt.get_mut(id) {
             if rt.status != s {
+                if matches!(s, Status::Done | Status::Failed | Status::Stopped | Status::Exited) {
+                    rt.checks.eta = None;
+                }
                 rt.status = s;
                 rt.since = now_ms();
                 rt.ui = true;
