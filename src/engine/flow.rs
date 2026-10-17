@@ -119,6 +119,29 @@ impl Engine {
         src.output.is_some() && e.on.matches(ok) && (ok || !git) && !self.coming(e)
     }
 
+    /// Does an agent card wait for its links: a new result is on its way down one of them (so a result
+    /// it had is about to be replaced), or, before it has run, what it needs has not all come yet? It
+    /// goes when they are in; what is typed into it meanwhile waits with it (a deploy before its push).
+    pub(super) fn waits_for_links(&self, id: &str) -> bool {
+        let (Some(node), Some(rt)) = (self.node(id), self.rt.get(id)) else { return false };
+        if node.draft || node.kind() != Kind::Agent {
+            return false;
+        }
+        let incoming: Vec<&Edge> = self.flow.edges.iter().filter(|e| e.to == id && !self.is_const_edge(e)).collect();
+        let fresh = |e: &Edge| rt.inputs.iter().any(|(i, _)| *i == e.id);
+        if incoming.iter().any(|e| !fresh(e) && self.coming(e)) {
+            return true;
+        }
+        let ins = |e: &&Edge| fresh(e) || self.resolved(e);
+        // one whose card ended the other way never comes: the card is blocked, which is no wait
+        let never = |e: &&Edge| self.rt.get(&e.from).is_some_and(|s| s.finished && !e.on.matches(s.ok.unwrap_or(true)));
+        let (joined, blocked) = match node.join {
+            Join::All => (incoming.iter().all(ins), incoming.iter().any(never)),
+            Join::Any => (incoming.iter().any(ins), incoming.iter().all(never)),
+        };
+        !incoming.is_empty() && rt.runs == 0 && !rt.finished && !joined && !blocked
+    }
+
     /// Will a new result come down this link: its card works on one (or one is queued for it), or a
     /// card before it does. A loop back through the card it leads to does not count.
     fn coming(&self, e: &Edge) -> bool {
@@ -281,7 +304,9 @@ impl Engine {
         let inputs: Vec<Input> = taken.iter().map(|(_, i)| i.clone()).collect();
         let (body, full) = self.render_parts(&node, &inputs);
         if !full.is_empty() {
-            let qid = self.enqueue(id, full, body, Src::Flow, false);
+            // what was typed into it while it waited for this goes in after it
+            let first = self.rt.get(id).is_some_and(|r| !r.alive && !r.spawning && !r.queue.is_empty() && r.queue.iter().all(|q| q.src == Src::You));
+            let qid = self.enqueue(id, full, body, Src::Flow, first);
             self.unstarted(id, id, qid, at, taken);
         }
         self.state_dirty = true;

@@ -85,7 +85,9 @@ A link that delivered stays delivered, like a promise that resolved before. Link
 finished junction and it waits for that one alone, then runs again with only the new result (its
 session still has the others, and the note rides along) and hands its answer down the same chain.
 While a card before it works on something new, it waits for that too, so a round started further
-up still meets in one run. An agent whose process has ended starts a new session, which is given
+up still meets in one run; it shows *waiting* again meanwhile, not *done*. A message typed into a
+card that waits for its links (a deploy before its push is in) does not start it: it goes in after
+the card's own task once they are in. An agent whose process has ended starts a new session, which is given
 every result again. A gate holds only what is new; a push is described below.
 
 ### For each: one agent per job
@@ -286,7 +288,11 @@ agent can go straight to *open PR*; the explicit chain is just easier to read.
   track. `$WEFT_FOLDER` is the folder, `$WEFT_SHA` the commit. Its output is its result (the first
   line says `[weft] deploying <sha>`), so a tester linked after it starts from that. A red deploy is
   a failed card: *N failed* has a fixer fix it, commit and push the fix, and run it again, which
-  then deploys the new commit.
+  then deploys the new commit. Switched to an agent (*runs on* in its options), the agent deploys,
+  in the same checkout: the command becomes what it is asked, and can be reworded on the card.
+  A new deploy is made like the folder's last one: the same command or agent, prompt, model and
+  options, the same checks watching it and the same gates on the link into it (an approve stays an
+  approve), kept per folder in your preferences.
 * **Nothing waits to be armed.** Commit, push, PR and deploy run as soon as what they wait for is in.
   Where you want to look before something leaves the machine, put a [check](#checks-gates-and-watches)
   on the link before it: *approve* holds it for your OK, *check* has a command pass, *CI* waits for

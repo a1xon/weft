@@ -71,11 +71,15 @@ impl Engine {
             let has_in = self.flow.edges.iter().any(|e| e.to == id);
             let has_work = node.is_some_and(|n| self.has_work(n) || n.kind() != Kind::Agent);
             if !rt.queue.is_empty() {
-                return Status::Starting;
+                return if self.waits_for_links(id) { Status::Waiting } else { Status::Starting };
             }
             if has_in && (has_work || !rt.inputs.is_empty()) {
                 return Status::Waiting;
             }
+        }
+        // done before, and a new result is on its way down a link: it waits for it, to run again
+        if rt.finished && matches!(rt.status, Status::Done | Status::Failed) && self.waits_for_links(id) {
+            return Status::Waiting;
         }
         rt.status
     }

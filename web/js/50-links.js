@@ -86,6 +86,7 @@ function applyFlow(nodes, edges) {
   renderOmni(); renderQueue();
   if (pad.open) renderPad();
   if (S.fly && !insideFly()) renderFly();
+  rememberDeploys();
 }
 function whenNode(id) {
   return new Promise(res => {

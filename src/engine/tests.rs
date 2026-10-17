@@ -3793,3 +3793,62 @@ fn a_command_that_ends_before_it_reads_what_was_typed_to_it_does_not_run_again()
     let left: Vec<&Src> = e.rt["d"].queue.iter().map(|q| &q.src).collect();
     assert_eq!(left, vec![&Src::Flow]);
 }
+
+#[test]
+fn what_is_typed_into_a_card_that_waits_for_its_links_waits_with_it() {
+    // (weft's own deploy, handed to claude: "deploy and install everywhere" typed into it started it at
+    // once, long before the push it waits for was in)
+    let mut e = engine();
+    add_kind(&mut e, "p", "push", "git", "");
+    e.flow.nodes[0].git_op = GitOp::Push;
+    add_kind(&mut e, "d", "deploy", "claude", "Deploy what was pushed.");
+    e.flow.nodes[1].deploy = Some(DeployAt::Pushed);
+    link(&mut e, "e1", "p", "d", On::Done);
+    e.cmd_send("d".into(), "and install it everywhere".into(), SendMode::Auto, true);
+    assert_eq!(e.rt["d"].status, Status::New, "not started");
+    assert_eq!(e.eff_status("d", &HashMap::new()), Status::Waiting);
+    // the push comes in: the deploy goes, with its own task first and then what was typed
+    e.propagate("p", true, "Pushed `main` to `origin`.");
+    let q: Vec<(&Src, &str)> = e.rt["d"].queue.iter().map(|q| (&q.src, q.shown.as_str())).collect();
+    assert_eq!(q.len(), 2, "{q:?}");
+    assert!(q[0].0 == &Src::Flow && q[0].1.contains("Deploy what was pushed.") && q[0].1.contains("Pushed `main`"), "{q:?}");
+    assert_eq!(q[1], (&Src::You, "and install it everywhere"));
+    // a card with no links is started by what is typed into it, as always (no tmux here: it stops there)
+    add(&mut e, "c", "chat", "");
+    e.cmd_send("c".into(), "hello".into(), SendMode::Auto, true);
+    assert_eq!(e.rt["c"].status, Status::Stopped, "it was started");
+    // and so is one that is blocked: what it waited for failed, nothing comes down that link any more
+    add(&mut e, "f", "failed", "x");
+    add(&mut e, "g", "after it", "y");
+    link(&mut e, "e2", "f", "g", On::Done);
+    e.rt.get_mut("f").unwrap().armed = true;
+    e.settle("f", false, "broke".into());
+    e.cmd_send("g".into(), "go anyway".into(), SendMode::Auto, true);
+    assert_eq!(e.rt["g"].status, Status::Stopped, "it was started");
+}
+
+#[test]
+fn a_done_card_waits_again_while_a_new_result_comes_down_its_link() {
+    let mut e = engine();
+    add(&mut e, "a", "plan", "plan it");
+    add(&mut e, "b", "build", "build {{inputs}}");
+    link(&mut e, "e1", "a", "b", On::Done);
+    ran(&mut e, "a", "plan v1");
+    ran(&mut e, "b", "built v1");
+    assert_eq!(e.eff_status("b", &HashMap::new()), Status::Done);
+    // a person chatting with the card before it changes nothing down its link
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        (r.cause, r.armed, r.finished) = (Cause::User, true, false);
+    }
+    assert_eq!(e.eff_status("b", &HashMap::new()), Status::Done);
+    // the card before it runs again in the flow: b is no longer done, and what is typed into it waits
+    e.rt.get_mut("a").unwrap().cause = Cause::Flow;
+    assert_eq!(e.eff_status("b", &HashMap::new()), Status::Waiting);
+    e.cmd_send("b".into(), "also add a test".into(), SendMode::Auto, true);
+    assert_eq!(e.rt["b"].status, Status::Done, "not started on what was typed");
+    e.settle("a", true, "plan v2".into());
+    let q: Vec<(&Src, &str)> = e.rt["b"].queue.iter().map(|q| (&q.src, q.shown.as_str())).collect();
+    assert!(q.len() == 2 && q[0].0 == &Src::Flow && q[0].1.contains("plan v2"), "{q:?}");
+    assert_eq!(q[1], (&Src::You, "also add a test"));
+}

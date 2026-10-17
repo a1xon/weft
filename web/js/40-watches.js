@@ -419,7 +419,12 @@ function runNode(id) {
 function convertTo(id, k) {
   const cur = S.nodes.get(id), patch = { agent: k, model: '', effort: '' };
   if (k === 'sh' && cur.finish === 'idle') patch.finish = 'exit';
-  if (k !== 'sh' && cur.finish === 'exit' && !cur.cmd) patch.finish = 'idle';
+  // a command handed to an agent: the agent runs, and is asked for what the command did (kept, the
+  // command ran on under the agent's name and the card edited it, not a prompt)
+  if (k !== 'sh' && cur.finish === 'exit') {
+    patch.finish = 'idle';
+    if (isCmd(cur)) { patch.cmd = ''; if (!(cur.prompt || '').trim()) patch.prompt = cur.cmd.trim(); }
+  }
   patchNode(id, patch, 0);
   setAgent(k);
   // a prompt that is being written keeps the keyboard and its hint

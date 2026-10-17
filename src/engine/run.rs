@@ -229,8 +229,29 @@ impl Engine {
     /// A queued prompt exists for an agent whose process is gone: bring it back.
     pub(super) fn restart_if_queued(&mut self, id: &str) {
         let go = self.rt.get(id).is_some_and(|r| !r.alive && !r.spawning && !r.queue.is_empty());
-        if go {
+        if go && !self.held_for_links(id) {
             self.start(id);
+        }
+    }
+
+    /// Only what a person typed is queued on a card that waits for its links: that does not start it,
+    /// the links coming in do (weft's own requests to it go now).
+    fn held_for_links(&self, id: &str) -> bool {
+        self.rt.get(id).is_some_and(|r| r.queue.iter().all(|q| q.src == Src::You)) && self.waits_for_links(id)
+    }
+
+    /// Start a card for what was just queued on it, unless it waits for its links: then it says so.
+    fn start_or_hold(&mut self, id: &str) {
+        if self.rt.get(id).is_none_or(|r| r.alive || r.spawning) {
+            return;
+        }
+        if !self.held_for_links(id) {
+            return self.start(id);
+        }
+        let name = self.node(id).map(|n| n.name.clone()).unwrap_or_default();
+        self.toast("info", &format!("\"{name}\" waits for the cards before it: what you typed goes in when they are done."));
+        if let Some(rt) = self.rt.get_mut(id) {
+            rt.ui = true;
         }
     }
 
@@ -536,9 +557,7 @@ impl Engine {
         } else if queue_it || !submit {
             let full = if submit { self.with_addenda(&node, &text) } else { text.clone() };
             self.enqueue(&id, full, text, Src::You, false);
-            if !alive && self.rt.get(&id).is_some_and(|r| !r.spawning) {
-                self.start(&id);
-            }
+            self.start_or_hold(&id);
         } else {
             // idle / ready / settled: start a step right away
             let qid = self.next_q;
@@ -560,9 +579,7 @@ impl Engine {
         };
         let full = self.with_addenda(&node, &text);
         let qid = self.enqueue(&id, full, text, Src::You, front);
-        if self.rt.get(&id).is_some_and(|r| !r.alive && !r.spawning) {
-            self.start(&id);
-        }
+        self.start_or_hold(&id);
         json!({"ok": true, "qid": qid})
     }
 
