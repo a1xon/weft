@@ -15,10 +15,12 @@ const DIAL_OPT = {
   after: { key: 'agent', label: 'next agent', hint: 'gets the commits, files and who did what', run: c => spawnAt(agentFor(c.id), c.at.x, c.at.y, { from: c.id }) },
   push: { key: 'push', label: 'push', hint: 'once every commit before it has resolved', run: c => spawnGit(c.id, c.at, 'push') },
   pr: { key: 'pr', label: 'open PR', hint: 'an agent that did the work opens it', run: c => spawnGit(c.id, c.at, 'pr') },
+  // runs the folder's deploy command on exactly what was pushed (61-deploy.js)
+  deploy: { key: 'deploy', label: 'deploy', hint: 'runs the deploy command on what was pushed', run: c => spawnDeploy(c.id, c.at) },
 };
 function dialFor(n) {
   const k = kindOf(n);
-  if (k === 'git') return n.git_op === 'commit' ? [DIAL_OPT.after, DIAL_OPT.push] : n.git_op === 'pr' ? [DIAL_OPT.after] : [DIAL_OPT.after, DIAL_OPT.pr];
+  if (k === 'git') return n.git_op === 'commit' ? [DIAL_OPT.after, DIAL_OPT.push] : n.git_op === 'pr' ? [DIAL_OPT.after] : [DIAL_OPT.after, DIAL_OPT.deploy, DIAL_OPT.pr];
   if (k === 'agent' && n.agent !== 'sh') return [DIAL_OPT.queue, DIAL_OPT.handoff, DIAL_OPT.git];
   if (k === 'agent') return [DIAL_OPT.agent, DIAL_OPT.git];
   return [DIAL_OPT.agent];

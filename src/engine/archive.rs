@@ -334,7 +334,7 @@ impl Engine {
             .edges
             .iter()
             .map(|e| (e.from.as_str(), e.to.as_str()))
-            .chain(self.flow.nodes.iter().flat_map(|n| [(n.id.as_str(), n.takeover.as_str()), (n.id.as_str(), n.host.as_str())]))
+            .chain(self.flow.nodes.iter().flat_map(|n| [&n.takeover, &n.host, &n.twin].map(|o| (n.id.as_str(), o.as_str()))))
             .chain(self.flow.talks.iter().map(|t| (t.a.as_str(), t.b.as_str())));
         for (a, b) in ties {
             if let (Some(&x), Some(&y)) = (at.get(a), at.get(b)) {
@@ -381,23 +381,32 @@ impl Engine {
             if work.is_empty() || wait <= 0.0 || flow.iter().any(|id| self.node(id).is_some_and(|n| n.keep)) {
                 continue;
             }
-            let mut last = Some(0);
+            let (mut last, mut ran) = (Some(0), false);
             for id in work {
                 let Some(rt) = self.rt.get(id) else {
                     last = None;
                     break;
                 };
                 last = match self.eff_status(id, blocked) {
-                    Status::Done if rt.at_rest() => last.map(|l: u64| l.max(rt.since).max(rt.revived)),
+                    Status::Done if rt.at_rest() => {
+                        ran = true;
+                        last.map(|l: u64| l.max(rt.since).max(rt.revived))
+                    }
                     // it will not run: nothing more happens here
-                    Status::Blocked => last.map(|l| l.max(rt.revived)),
+                    Status::Blocked => {
+                        ran = true;
+                        last.map(|l| l.max(rt.revived))
+                    }
+                    // placed and never given anything to do: it goes along with a flow that ran (its clock
+                    // starts when it was placed)
+                    Status::Draft if self.idle_draft(id) => last.map(|l| l.max(rt.since)),
                     _ => None,
                 };
                 if last.is_none() {
                     break;
                 }
             }
-            if let Some(l) = last.filter(|l| *l > 0) {
+            if let Some(l) = last.filter(|l| *l > 0 && ran) {
                 plan.push((flow, (stand + (wait * 1000.0) as u64).saturating_sub(self.active.ran(l, stand))));
             }
         }
@@ -450,6 +459,7 @@ impl Engine {
 
     /// File what is due. Not while someone has one of its terminals open: that goes once it is closed.
     pub(super) fn tick_archive(&mut self) {
+        self.tick_retire();
         let now = now_ms();
         if now < self.archive_look {
             return;
@@ -468,6 +478,7 @@ impl Engine {
             self.file_away(&flow, true);
         }
         self.rest_idle(&watched);
+        self.tick_loose();
     }
 
     /// An agent that finished and has sat idle for `rest_s` ends its process: an idle agent CLI
@@ -491,6 +502,7 @@ impl Engine {
             .filter(|n| {
                 self.rt.get(&n.id).is_some_and(|r| {
                     r.alive
+                        && r.retiring.is_none()
                         && r.finished
                         && r.at_rest()
                         && r.issue.is_none()
@@ -502,8 +514,9 @@ impl Engine {
             })
             .map(|n| n.id.clone())
             .collect();
+        // (ended the way a person would, so it names its session: the next process takes it up again)
         for id in tired {
-            self.kill(&id);
+            self.retire(&id);
         }
     }
 

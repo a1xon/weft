@@ -200,6 +200,38 @@ pub(super) async fn push(dir: &Path, remote: &str, branch: &str, hashes: &[Strin
     }
 }
 
+/// What a push of `branch` still has to send, read from the refs only (writes nothing, asks nobody):
+/// each of `hashes` on a branch of the remote already, or how many are not. With no hashes (the
+/// commits before it had nothing new) the branch is compared with the remote's branch of that name.
+pub(super) async fn left_to_push(dir: &Path, remote: &str, branch: &str, hashes: &[String]) -> Result<Left, String> {
+    let remote = if remote.is_empty() { "origin" } else { remote };
+    if !git_run(dir, &["remote", "get-url", remote]).await?.0 {
+        return Err(format!("no remote \"{remote}\""));
+    }
+    let branch = if branch.is_empty() { branch_of(dir).await } else { branch.to_string() };
+    if hashes.is_empty() {
+        let range = format!("refs/remotes/{remote}/{branch}..refs/heads/{branch}");
+        let Some(n) = git_out(dir, &["rev-list", "--count", &range]).await else {
+            return Err(format!("{branch} is not on {remote}"));
+        };
+        return Ok(if n == "0" { Left::Pushed(format!("{remote}/{branch}")) } else { Left::Push(n.parse().unwrap_or(1)) });
+    }
+    let (mut missing, mut on) = (0, String::new());
+    let theirs = format!("refs/remotes/{remote}/");
+    for h in hashes {
+        let refs = git_out(dir, &["for-each-ref", "--contains", h, "--format=%(refname:short)", &theirs]).await.unwrap_or_default();
+        // (origin/HEAD only points at another of them)
+        let mut has = refs.lines().map(str::trim).filter(|r| r.contains('/') && !r.ends_with("/HEAD"));
+        let mine = format!("{remote}/{branch}");
+        match has.clone().find(|r| *r == mine).or_else(|| has.next()) {
+            Some(r) if on.is_empty() || r == mine => on = r.to_string(),
+            Some(_) => {}
+            None => missing += 1,
+        }
+    }
+    Ok(if missing == 0 { Left::Pushed(on) } else { Left::Push(missing) })
+}
+
 /// The repository as a step after this one will want to know it: branch, HEAD, the commits and the
 /// files they touched. With `since` it is everything from there to HEAD, else the given commits.
 pub(super) async fn facts(dir: &Path, hashes: &[String], since: Option<&str>) -> Facts {

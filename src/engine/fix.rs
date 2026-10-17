@@ -153,6 +153,10 @@ impl Engine {
             })
         };
         let what = match n.kind() {
+            Kind::Agent if n.deploy == Some(DeployAt::Pushed) => format!(
+                "a deploy step running `{}` on what was pushed (a clean checkout of the pushed commit): a fix counts only once it is committed and pushed, then `weft retry` it",
+                n.cmd.trim()
+            ),
             Kind::Agent if n.finish == Finish::Exit => format!("the command `{}`", n.cmd.trim()),
             Kind::Agent => [n.agent.as_str(), n.model.trim(), n.effort.trim()]
                 .into_iter()

@@ -67,6 +67,8 @@ struct SpawnPlan {
     /// the node wants its own worktree (`existing_worktree` is the one it already has)
     want_worktree: bool,
     existing_worktree: Option<String>,
+    /// a deploy step: what it runs on, and the name of the checkout weft keeps for it (deploy.rs)
+    deploy: Option<(DeployPlan, String)>,
     cols: u16,
     rows: u16,
 }
@@ -100,7 +102,8 @@ async fn add_worktree(project: &Path, id: &str, project_id: &str) -> Result<Path
 }
 
 async fn do_spawn(plan: SpawnPlan) -> Result<Spawned, String> {
-    let SpawnPlan { tm, id, cmd, mut cwd, project, project_id, env, prompt_file, want_worktree, existing_worktree, cols, rows } = plan;
+    let SpawnPlan { tm, id, cmd, mut cwd, project, project_id, mut env, prompt_file, want_worktree, existing_worktree, deploy, cols, rows } =
+        plan;
     tmux::ensure_session(&tm.sock, &tm.session, cols, rows).await?;
 
     let mut worktree = existing_worktree.filter(|p| PathBuf::from(p).is_dir());
@@ -114,6 +117,12 @@ async fn do_spawn(plan: SpawnPlan) -> Result<Spawned, String> {
         let path = add_worktree(&project, &id, &project_id).await?;
         worktree = Some(path.to_string_lossy().into_owned());
         cwd = path;
+    }
+    if let Some((plan, key)) = deploy {
+        let (dir, sha) = deploy_folder(&plan, &key).await?;
+        env.push(("WEFT_FOLDER".into(), plan.repo.to_string_lossy().into_owned()));
+        env.push(("WEFT_SHA".into(), sha));
+        cwd = dir;
     }
 
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
@@ -165,6 +174,15 @@ impl Engine {
         if node.kind() != Kind::Agent || self.exit.is_some() {
             return;
         }
+        if node.deploy.is_some() && node.cmd.trim().is_empty() {
+            // (an empty command would open a bare shell that never ends)
+            if let Some(rt) = self.rt.get_mut(id) {
+                rt.queue.clear();
+            }
+            let why = "This deploy has no command: type it into the card's options (it is kept for the folder), then run it again.";
+            self.settle(id, false, why.into());
+            return;
+        }
         let Some(tm) = self.tmux.clone() else {
             // tmux is the runtime: say so, keep the prompt queued and keep trying to reach it
             if !self.tmux_retrying {
@@ -202,17 +220,31 @@ impl Engine {
             }
         }
         self.set_status(id, Status::Starting);
+        // the conversation it takes up again, a copy of another card's (a twin), or a new one
+        let session = self.session_args(id);
 
         let agent_cfg = self.cfg.agents.get(&node.agent);
         let agent_cmd = agent_cfg.map(|a| a.cmd.clone()).unwrap_or_else(|| node.agent.clone());
         let cmd = if node.cmd.trim().is_empty() {
             match agent_cfg {
                 Some(a) if !a.cmd.trim().is_empty() => agent_command(a, &node, self.cfg.yolo),
-                _ => agent_cmd,
+                _ => agent_cmd.clone(),
             }
         } else {
             node.cmd.clone()
         };
+        let cmd = with_session(&cmd, &agent_cmd, &session);
+        // a deploy first says what it deploys (its result starts with that)
+        let cmd = if node.deploy.is_some() && !cmd.trim().is_empty() {
+            format!("echo \"[weft] deploying $WEFT_SHA in $PWD\"; {cmd}")
+        } else {
+            cmd
+        };
+        let deploy = self.deploy_plan(&node).map(|p| {
+            let name = p.repo.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let key = format!("{}-{name}-{:08x}", project_id(&self.boot.dir), fnv(&p.repo.to_string_lossy()) as u32);
+            (p, key)
+        });
         let cwd = self.node_dir(&node);
         let boot_env = vec![
             ("WEFT_NODE".to_string(), node.id.clone()),
@@ -233,6 +265,7 @@ impl Engine {
             prompt_file,
             want_worktree: node.worktree,
             existing_worktree: existing_wt,
+            deploy,
             cols: self.cfg.cols,
             rows: self.cfg.rows,
         };
@@ -278,6 +311,14 @@ impl Engine {
                 rt.attn = false;
                 rt.issue = None;
                 rt.typing = None;
+                // a new conversation of a card that worked before is told what it did (resume.rs)
+                rt.blank = finish == Finish::Idle && rt.runs > 0 && !rt.resuming && !rt.twin_due;
+                // a card that had finished starts a new run with what it is given now, as it would have
+                // had its process still been there
+                if rt.finished && finish == Finish::Idle {
+                    rt.steps.clear();
+                }
+                rt.retiring = None;
                 // a new process knows nothing of weft yet, nor of the agents it talks with
                 rt.briefed = false;
                 rt.ruled = false;
@@ -362,7 +403,11 @@ impl Engine {
                 t.entered = false;
                 t.at = now;
             }
-            Typed::Taken => rt.typing = None,
+            Typed::Taken => {
+                rt.typing = None;
+                // (a conversation taken up again that took a prompt is the one it was)
+                rt.resuming = false;
+            }
             Typed::GaveUp => {
                 rt.typing = None;
                 self.raise_issue(
@@ -451,6 +496,9 @@ impl Engine {
     pub(super) fn cmd_restart(&mut self, id: String) -> Value {
         self.kill(&id);
         if let Some(rt) = self.rt.get_mut(&id) {
+            // a restart is a clean start: a new conversation (told what the card did before)
+            rt.session = None;
+            rt.resuming = false;
             rt.finished = false;
             rt.armed = false;
             rt.ok = None;

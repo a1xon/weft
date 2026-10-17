@@ -55,7 +55,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 | --- | --- |
 | type in the bar at the bottom | a new agent, or a message to the selected one (a busy one gets a queued-prompt card after its work) |
 | double-click the canvas | a draft agent there, prompt focused. Enter runs it |
-| click a card's ◇ | **what next?** then · hand over · branch (below) |
+| click a card's ◇ | **what next?** then · twin · hand over · branch (below) |
 | drag a ◇ onto an agent | link them: the result is handed on |
 | drag the ○ on top of an agent onto another agent | they **talk**: they coordinate directly while they work, and only they hear it (below) |
 | drag a ◇ into empty space and let go | the line's end is where the next card goes; the **dial** opens there: queue a prompt the same agent answers · hand off to a fresh agent · git (`Alt` chooses any type) |
@@ -103,21 +103,28 @@ option (after a PR: the next agent), letting go adds it at once.
 | **lower left** | **hand off.** A draft agent that will take over the work; on enter the old agent writes the handover note | a fresh session plus the note |
 | **upper left** | **git**: commit, push or open a PR (below) | |
 
-After a commit or push the ring has two halves: right is the *next agent*, which receives everything the git chain carried, left is push / open PR.
+After a commit the ring has two halves: right is the *next agent*, which receives everything the git chain carried, left is push. After a push it has three: the next agent, *deploy* and open PR.
 A plain click on the ◇ still opens the composer below; dropping on a card links to it.
 
-### Next: then, hand over, or branch
+### Next: then, twin, hand over, or branch
 
 A new LLM session is not free: it must re-read everything. So the choice is explicit, cheapest first.
 
 | | What | Context | Use it for |
 | --- | --- | --- | --- |
 | **then** | queue a prompt on the **same** agent | keeps everything it knows | follow-ups, "also do X" |
+| **twin** | a **second** agent on a **copy** of its conversation | everything it knows, from then on its own | trying it another way, a side question that should not clutter the main thread |
 | **hand over** | a **fresh** agent takes over the work | new session, no history; the old agent first writes a handover note, the files stay as they are | context getting heavy, a different agent or model, a clean start that keeps the work |
 | **branch** | a **new** agent runs alongside and receives the result | only the result | parallel review, fan-out |
 
 * Clicking the ◇ opens the composer with *then* preselected. `Tab` switches the mode. In the
   message bar with one agent selected, `Tab` switches between continuing it and handing over.
+* **Twin** starts a new card on a copy of the agent's conversation (`claude --resume <id>
+  --fork-session`, `codex fork <id>`): same agent, model and reasoning, same folder, and it is told
+  it is a copy, so it does not undo, commit or report the other one's work. The first one goes on by
+  itself. A dashed thread ties the two cards; nothing fires along it. It is offered where the CLI
+  copies conversations and weft knows this one's id: claude always, codex once it has rested (it
+  names its session when it ends), agy not at all. *twin* is in the card's menu too.
 * **Queue**: every agent has one FIFO. Prompts go out one after another; links fire when the
   queue is drained, so a script of several steps hands over only its final result. A message you
   type on a settled agent is a conversation: it does not re-fire the links (hand it over
@@ -220,7 +227,7 @@ agent can go straight to *open PR*; the explicit chain is just easier to read.
 ```
  agent ──▶ commit ──┐
  agent ──▶ commit ──┼──▶ push ──▶ open PR ──▶ agent that tests it live
- agent ──▶ commit ──┘
+ agent ──▶ commit ──┘       └──▶ deploy ──▶ agent that tests it live
 ```
 
 * **commit takes one agent's work.** It asks that agent (it has seen the files; nobody else has)
@@ -230,7 +237,8 @@ agent can go straight to *open PR*; the explicit chain is just easier to read.
   that is what happens (the commit appears and joins the same push). One card per agent keeps
   failures, conflicts and branches attributable. Merge conflicts go back to the agent whose
   branch conflicts. An agent that failed is not committed; *commit now* takes what is there.
-  Commands and agents that are gone are committed mechanically (secrets and `.weft` are never
+  An agent that rests is woken on its own conversation to do it. Commands, and agents whose
+  conversation cannot be taken up again, are committed mechanically (secrets and `.weft` are never
   staged). Commits into one folder are serialised, so parallel agents never fight over its index.
 * **push is the barrier.** It waits until every commit linked into it has resolved
   (`Promise.all`), then pushes the branch. It never forces. If the remote moved on, the agent
@@ -244,8 +252,33 @@ agent can go straight to *open PR*; the explicit chain is just easier to read.
   title and description and open it (`gh pr create`, or whatever the host offers). That agent
   knows why; a template does not. Extra instructions go in its options (base branch, labels,
   reviewers). The card links to the pull request.
-* Push and PR are outward-facing: they are created **disarmed** and wait until you arm them. A
-  commit only asks an agent about its own work, so it starts at once.
+* **deploy** puts what was pushed to use: a command card after the push (or PR; the dial offers it
+  after a push, and the menu of a push or PR has *deploy what it pushes*). It runs the folder's deploy command,
+  guessed from the folder (`deploy.sh`, `manual-deploy.sh`, a `deploy` script in `package.json`,
+  `make deploy` or `make install`, `fly deploy`, `wrangler deploy`, `cargo install --path .`) or typed
+  into its options once and kept for the folder. It runs on a checkout of exactly the pushed commit
+  that weft keeps per repository (under `~/.local/state/weft/deploy/`; ignored build output stays,
+  so builds are incremental): unfinished files of other agents in the folder never ship. *the folder
+  as it is* in its options runs it in the folder instead, for a script that needs files git does not
+  track. `$WEFT_FOLDER` is the folder, `$WEFT_SHA` the commit. Its output is its result (the first
+  line says `[weft] deploying <sha>`), so a tester linked after it starts from that. A red deploy is
+  a failed card: *N failed* has a fixer fix it, commit and push the fix, and run it again, which
+  then deploys the new commit.
+* Push, PR and deploy are outward-facing: they are created **disarmed** and wait until you arm them.
+  A commit only asks an agent about its own work, so it starts at once.
+
+#### Loose ends
+
+A push nobody armed would keep its flow on the canvas for good: the archive files a flow only once
+every card in it is finished. So weft asks git (its refs only: the git tree is what fetches) what
+such a push has left once its commits are in:
+
+* **Commits still to send:** it is *ready*. The card says *ready · 1 commit to push*, the top bar
+  *N ready to push*; a click there lists them and arms one, or all. A deploy nobody armed whose push
+  is in counts too.
+* **Nothing to send** (a later push sent the whole branch, or you pushed by hand) **and nothing linked
+  after it:** it is done by itself (*pushed before*), and its flow can go to the archive. With a card
+  after it, arming stays your go-ahead for that card.
 
 **What travels.** A commit, a push and a PR each hand on one result: where the work is (branch,
 HEAD, project folder), the commits, the files changed, the pull request link if there is one, and
@@ -290,7 +323,10 @@ in the bottom left corner.
   by links, a hand-over's baton line or a queued prompt's agent) goes as one, **15 minutes after its
   last step**, once every card in it is finished: done, or a branch whose condition did not come
   true. Nothing in a flow that is still under way, failed or waits for you is filed, and a card whose
-  terminal you have open waits until you close it. A note goes along with the one flow it feeds.
+  terminal you have open waits until you close it. A note goes along with the one flow it feeds, and
+  so does a draft that never ran and was given nothing to do (an empty queued prompt). A finished
+  flow that another draft keeps here says so on its cards (*held · push not armed*; a click shows
+  that card: arm it or delete it). See [loose ends](#loose-ends) for pushes nobody armed.
   The clock only runs while you work on the canvas: two minutes without a click, a move or a key
   there and it stops (the countdowns dim) until you are back, so nothing leaves while you are away.
 * **Keep.** A finished card shows when it will go (`⊟ 24m` in its footer); a click on that keeps it
@@ -310,12 +346,19 @@ means never. The archive keeps the latest 100 drops. On disk it is a small index
 the cards, links and everything they knew), read only when you open or bring back that drop; an
 archive from an older weft is moved into packs on the first start.
 
-**Idle agents rest.** An agent CLI sitting at its prompt holds a few hundred MB. Once an agent has
-finished and its terminal has sat unchanged for `rest_s` (1800 s, wall clock; `0` = never), weft
-ends its process. The card stays as it is, done with its result; the next prompt to it starts a fresh
-terminal. Not an agent that waits for you (an issue, a dialog), a kept one (or one in a kept flow),
-or one whose terminal is open. On start weft also ends agent windows left in its tmux session whose
-card is gone.
+**Idle agents rest, and remember.** An agent CLI sitting at its prompt holds a few hundred MB. Once
+an agent has finished and its terminal has sat unchanged for `rest_s` (1800 s, wall clock; `0` =
+never), weft ends its process the way a person would (Ctrl+C at its prompt), and keeps its session
+id: weft gave claude one when it started, codex and agy name theirs on the way out. The card stays
+as it is, done with its result (*resting*). The next prompt to it (a follow-up, a queued prompt, a
+commit or hand-over request) starts a process on the same conversation (`claude --resume <id>`,
+`codex resume <id>`, `agy --conversation <id>`), so it still knows its work and commits only its own
+files. The same holds for an agent you stopped and for one brought back from the archive. Where the
+conversation cannot be taken up again (a CLI that cannot resume, a session that is gone), the new
+session's first prompt says what the card was asked and what it answered last. *restart agent* in a
+card's menu starts a clean conversation (told the same). Not an agent that waits for you (an issue,
+a dialog), a kept one (or one in a kept flow), or one whose terminal is open, rests. On start weft
+also ends agent windows left in its tmux session whose card is gone.
 
 ### The git tree
 
@@ -722,6 +765,15 @@ for an agent without one) the prompt's first words stand in. Git steps are named
 they carry: `commit: <agent>`, `push: <agent> + <agent>`, `PR: <agent> + 2 more`, and follow the
 links and names upstream. A name you give yourself stays. `"titles": false` turns the calls off.
 
+**Sessions.** How a card keeps its agent's conversation across processes (see *Idle agents rest*):
+`session_arg` gives a new session the id weft picked (claude `--session-id {}`), `resume_arg` takes
+an ended one up again (claude `--resume {}`, codex `resume {}`, agy `--conversation {}`), `fork_arg`
+starts a twin on a copy (claude `--resume {} --fork-session`, codex `fork {}`), `resume_hint` is what
+the CLI prints right before its id when it ends (codex `codex resume `, agy `--conversation=`) and
+`exit_keys` end it at its prompt so it does (`["C-c"]`, agy `["C-c", "C-c"]`). They go right after
+the agent's own `cmd`, before the flags weft adds. An agent without them starts every process anew,
+and its first prompt then says what the card did before.
+
 ## How it works
 
 * `tmux -C` (control mode) streams every pane's output as events. The daemon feeds each pane
@@ -784,6 +836,9 @@ src/engine/        the single actor that owns all state
     ci.rs          the CI check: the runs of the pushed commit (gh), red to the agent that did the work
     limits.rs      an agent at its usage limit sleeps until the reset its CLI names, then carries on
     rewind.rs      every step snapshotted before and after in a shadow repository: its diff, and undo
+    resume.rs      a card keeps its agent's conversation: session ids, an agent that rests and comes back, twins
+    loose.rs       loose ends: a push nobody armed says what it has left, or is done by itself
+    deploy.rs      the deploy step: the folder's deploy command on a checkout of the pushed commit
     git.rs         commit, push and open PR as steps; repo.rs is the git plumbing under them
     handover.rs    a fresh agent takes over another one's work
     fix.rs         what failed, fixed: a stronger agent told what failed, and `weft retry`

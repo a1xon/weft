@@ -214,7 +214,7 @@ impl Engine {
         // Only what is new goes in: the agent's session has the results it was given before. A new
         // session (its process ended) knows none of them, so it is given them again.
         let again: Vec<(String, Input)> = match self.rt.get(id) {
-            Some(r) if node.kind() == Kind::Agent && r.runs > 0 && !r.alive && !r.spawning => self
+            Some(r) if node.kind() == Kind::Agent && r.runs > 0 && !r.spawning && !self.remembers(id) => self
                 .flow
                 .edges
                 .iter()
@@ -253,7 +253,9 @@ impl Engine {
             // the agent has what it already produced, in its own session: its own result and the
             // answers it gave to other queued prompts of the same session are not sent back to it
             let host = node.host.clone();
-            let inputs: Vec<Input> = inputs.into_iter().filter(|i| !self.in_session_of(&i.from, &host)).collect();
+            // (unless that session is gone for good: then the agent gets them like any other input)
+            let kept = self.remembers(&host);
+            let inputs: Vec<Input> = inputs.into_iter().filter(|i| !(kept && self.in_session_of(&i.from, &host))).collect();
             if let Some(qid) = self.step_run(id, &node, &inputs) {
                 self.unstarted(id, &host, qid, at, taken);
             }

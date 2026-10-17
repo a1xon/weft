@@ -250,13 +250,31 @@ function filingLeft(at) {
 function renderFiling(id, n, r) {
   const el = nodeEls.get(id); if (!el || !n) return;
   const at = r && r.archive_at, kept = !!n.keep;
-  if (!archOn() || !(at || kept)) { if (el.fil) el.fil.hidden = true; return; }
+  // finished, but a draft nobody armed keeps its flow here (loose.rs): that one is named instead
+  const held = !at && !kept && r && r.held && S.nodes.has(r.held.id) ? r.held : null;
+  if (!archOn() || !(at || kept || held)) { if (el.fil) el.fil.hidden = true; return; }
   if (!el.fil) {
     el.fil = h('button', { class: 'fil' });
-    el.fil.addEventListener('click', e => { e.stopPropagation(); keepNode(id); });
+    el.fil.addEventListener('click', e => {
+      e.stopPropagation();
+      const by = el.fil._held;
+      if (by && S.nodes.has(by)) { select([by]); centerOn(by); } else keepNode(id);
+    });
     el.stx.after(el.fil);
   }
   el.fil.hidden = false;
+  el.fil._held = held ? held.id : null;
+  el.fil.classList.toggle('held', !!held);
+  if (held) {
+    const hk = 'h' + held.id + held.why;
+    if (el.fil._key === hk) return;
+    el.fil._key = hk;
+    el.fil.innerHTML = ICON.archive + '<span></span>';
+    el.fil.lastChild.textContent = 'held · ' + held.why;
+    el.fil.classList.remove('on', 'paused');
+    el.fil.title = `finished, but it stays on the canvas: ${held.name || held.id} is a draft nobody armed, and its flow goes to the archive only as a whole. click to show it (arm it, or delete it)`;
+    return;
+  }
   el.fil.classList.toggle('on', kept);
   const left = kept ? '' : filingLeft(at);
   const paused = !kept && (!!S.idle || !!S.hold);

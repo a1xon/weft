@@ -79,8 +79,12 @@ impl Engine {
     pub(super) fn takeover_begin(&mut self, to: &str, from: &str) {
         // a shell command cannot write a note: whatever it printed is all there is
         let askable = self.node(from).is_some_and(|n| n.kind() == Kind::Agent && n.agent != "sh" && n.finish != Finish::Exit);
-        let (alive, busy) =
-            self.rt.get(from).map_or((false, false), |r| (r.alive && askable, r.cur.is_some() || r.status == Status::Busy || r.attn));
+        // (one that rests is woken on its own conversation to write it)
+        let woken = self.resumable(from);
+        let (alive, busy) = self
+            .rt
+            .get(from)
+            .map_or((false, false), |r| ((r.alive || woken) && askable, r.cur.is_some() || r.status == Status::Busy || r.attn));
         if let Some(rt) = self.rt.get_mut(to) {
             rt.hand.from = Some(from.to_string());
             rt.ui = true;
@@ -103,13 +107,14 @@ impl Engine {
 
     pub(super) fn takeover_ask(&mut self, to: &str) {
         let Some(from) = self.rt.get(to).and_then(|r| r.hand.from.clone()) else { return };
-        if !self.rt.get(&from).is_some_and(|r| r.alive) {
+        if !self.rt.get(&from).is_some_and(|r| r.alive) && !self.resumable(&from) {
             return self.takeover_compose(to, None);
         }
         let exe = self.boot.exe.clone();
         let new_name = self.node(to).map(|n| n.name.clone()).unwrap_or_default();
         let text = words::handover_request(&exe, &new_name);
         self.enqueue(&from, text, format!("handover note for {new_name}"), Src::Reply(to.to_string()), true);
+        self.restart_if_queued(&from);
         if let Some(rt) = self.rt.get_mut(to) {
             rt.hand.phase = HandPhase::Asking;
             rt.ui = true;

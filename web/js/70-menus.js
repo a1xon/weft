@@ -82,6 +82,7 @@ function nodeMenu(id, x, y) {
       { sep: true },
       { cap: 'and then\u2026' },
       { label: 'then: queue a prompt on this agent', hint: 'click \u25c7', run: () => openNext(id, 'then') },
+      ...(r && r.twin ? [{ label: 'twin: a copy that remembers', hint: 'its conversation, a card of its own', run: () => openNext(id, 'twin') }] : []),
       { label: 'hand over to a fresh agent', hint: 'new context, same files', run: () => openNext(id, 'hand') },
       { label: 'branch: a new agent gets the result', run: () => openNext(id, 'branch') },
       { sep: true },
@@ -115,6 +116,7 @@ function nodeMenu(id, x, y) {
       { label: 'options', hint: ',', run: () => openFly(id, 'options') },
       { sep: true },
       { label: 'add next step', run: () => spawnLinked(id, 'next') },
+      ...(n.git_op !== 'commit' ? [{ label: 'deploy what it pushes', hint: 'the deploy command, on the pushed commit', run: () => spawnDeploy(id, { x: n.x + nw(n) + 150, y: n.y }) }] : []),
     );
   } else {
     items.push(

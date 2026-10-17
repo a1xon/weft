@@ -45,11 +45,49 @@ ap.add_argument("-c", action="append", default=[])
 # the "do not ask" switches of the real CLIs
 ap.add_argument("--dangerously-skip-permissions", action="store_true")
 ap.add_argument("--dangerously-bypass-approvals-and-sandbox", action="store_true")
+# sessions, the way the real CLIs keep them: claude --session-id / --resume [--fork-session],
+# codex resume|fork <id>, agy --conversation=<id>
+ap.add_argument("--session-id", default="")
+ap.add_argument("--resume", default="")
+ap.add_argument("--fork-session", action="store_true")
+ap.add_argument("--conversation", default="")
+ap.add_argument("sub", nargs="*", help="resume <id> | fork <id>, as codex takes them")
 args = ap.parse_args()
 YOLO = args.dangerously_skip_permissions or args.dangerously_bypass_approvals_and_sandbox
 for kv in args.c:
     if kv.startswith("model_reasoning_effort="):
         args.effort = kv.split("=", 1)[1].strip('"')
+
+# what it remembers of a session: the first line of every prompt it was given, in a file per session
+import tempfile, uuid
+SESSIONS = os.environ.get("SIM_SESSIONS") or tempfile.gettempdir()
+
+
+def mem_path(sid):
+    return os.path.join(SESSIONS, "sim-session-%s.txt" % re.sub(r"[^A-Za-z0-9_-]", "", sid))
+
+
+def mem_load(sid):
+    try:
+        with open(mem_path(sid)) as f:
+            return [l.rstrip("\n") for l in f if l.strip()]
+    except OSError:
+        return []
+
+
+TAKEN_UP = args.resume or args.conversation or (args.sub[1] if len(args.sub) > 1 and args.sub[0] in ("resume", "fork") else "")
+FORKED = args.fork_session or (len(args.sub) > 1 and args.sub[0] == "fork")
+MEMORY = mem_load(TAKEN_UP) if TAKEN_UP else []
+SESSION = args.session_id or (TAKEN_UP if TAKEN_UP and not FORKED else str(uuid.uuid4()))
+
+
+def remember(line):
+    MEMORY.append(line)
+    try:
+        with open(mem_path(SESSION), "w") as f:
+            f.write("\n".join(MEMORY) + "\n")
+    except OSError:
+        pass
 
 SLUG_FIXED = '''import re
 import unicodedata
@@ -271,6 +309,11 @@ def work(prompt):
                 f.write("=== prompt ===\n" + prompt + "\n")
         except OSError:
             pass
+    # RECALL: it says what it remembers of this session (the prompts before this one)
+    recalled = list(MEMORY)
+    head = next((l.strip() for l in prompt.splitlines() if l.strip() and not l.startswith("[weft]")), "")
+    if head:
+        remember(head[:160])
     # HIT_LIMIT[=<minutes>]: a CLI at its usage limit: it stops with the limit line, drops whatever it is
     # sent until weft says the limit has reset, and then carries on with the task it was in
     global held
@@ -393,6 +436,8 @@ def work(prompt):
                        " an off-by-one in the line-length comparison.")]
         if args.chatty:
             body += ["  - read the module", "  - compared with the tests", "  - kept the public API unchanged"]
+        if "recall" in low:
+            body = ["● I remember: " + " | ".join(recalled) if recalled else "● I remember nothing: this is a new session."]
     # BACKGROUND=<seconds>: like an agent that started a shell and will answer when it ends:
     # the turn is over, the screen is still, and the status line says what it is waiting for
     mb = re.search(r"BACKGROUND=(\d+)", prompt)
@@ -422,6 +467,8 @@ def work(prompt):
             summary = "Build finished: everything is green."
         elif not ok:
             summary = "Could not complete: conflicts with the tests."
+        if "recall" in low and action is None:
+            summary = body[0][2:]
         say("\x1b[2m●\x1b[0m Bash(" + os.path.basename(m.group(1)) + (" done" if ok else " fail") + ")")
         cmd = [m.group(1), "done" if ok else "fail"]
         subprocess.run(cmd, input=summary.encode(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -474,7 +521,9 @@ def handle_keys(data, busy=False):
             typed = typed[:-1]
             draw()
         elif b == b"\x03":
+            # like codex: it names its session on the way out
             restore()
+            W("\r\nTo continue this session, run:\r\n  codex resume %s\r\n" % SESSION)
             sys.exit(130)
         elif b == b"\x1b":
             pass
@@ -544,6 +593,8 @@ def main():
         W("\x1b[2J\x1b[H")
     tune = "  model=%s effort=%s yolo=%s" % (args.model or "default", args.effort or "default", "on" if YOLO else "off")
     say("\x1b[1m ▐▛███▜▌  SimAgent (%s)\x1b[0m" % args.name, " ▝▜█████▛▘ " + os.getcwd() + tune, "")
+    if TAKEN_UP:
+        say("\x1b[2m  %s session %s: %d earlier prompts\x1b[0m" % ("forked" if FORKED else "resumed", TAKEN_UP, len(MEMORY)), "")
     while True:
         r = select.select([fd], [], [], 1.0)[0]
         if r:

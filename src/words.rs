@@ -648,6 +648,35 @@ pub fn fixed(by: &str, note: &str) -> String {
     format!("## This failed last time; what was fixed since{by}\n{}", note.trim())
 }
 
+// ------------------------------------------------------------------ sessions
+
+/// In front of the first prompt of a new conversation of a card that worked before, when its old one
+/// could not be taken up again: what it was about, so a short follow-up ("yes, do 2") still makes sense.
+pub fn recap(task: &str, last_asked: &str, said: &str) -> String {
+    let mut s = format!(
+        "{TAG} Note: you work on this card in a new session; the earlier one has ended and you cannot see it. What it was about:\n\n\
+The task:\n{}",
+        task.trim()
+    );
+    if !last_asked.trim().is_empty() && last_asked.trim() != task.trim() {
+        s.push_str(&format!("\n\nWhat it was asked last:\n{}", last_asked.trim()));
+    }
+    if !said.trim().is_empty() {
+        s.push_str(&format!("\n\nWhat it answered last:\n{}", said.trim()));
+    }
+    s.push_str("\n\nThe files are as it left them (git shows what changed). What to do now follows.");
+    s
+}
+
+/// In front of a twin's first prompt: everything before it is a copy of another agent's conversation.
+pub fn twin_intro(src_id: &str, src_name: &str, own_id: &str) -> String {
+    format!(
+        "{TAG} Note: from here on you are a separate agent, {own_id}. The conversation up to now is a copy of {src_id}'s (\"{src_name}\"), \
+which goes on by itself. Work only on what follows. {src_id} may still change the same files: do not undo or redo its work, \
+and do not commit or report for it."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -15,6 +15,11 @@ async fn project_info(dir: &Path) -> Value {
     if let (Some(o), false) = (v.as_object_mut(), check.is_empty()) {
         o.insert("check".into(), json!(check));
     }
+    // and the one that puts it to use, for a deploy step (deploy.rs)
+    let deploy = guess_deploy(dir);
+    if let (Some(o), false) = (v.as_object_mut(), deploy.is_empty()) {
+        o.insert("deploy".into(), json!(deploy));
+    }
     v
 }
 
@@ -280,6 +285,10 @@ impl Engine {
         for (d, v) in list {
             if self.proj.get(&d) != Some(&v) {
                 self.bcast(&json!({"t": "proj", "dir": d, "git": v}));
+                // a push, a fetch, a commit: what a push nobody armed has left is looked at again (loose.rs)
+                for rt in self.rt.values_mut() {
+                    rt.git.looked = 0;
+                }
             }
             seen.insert(d, v);
         }

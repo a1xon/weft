@@ -342,6 +342,16 @@ pub(super) struct Rt {
     pub(super) ruled: bool,
     /// the node's own git worktree, if it runs in one
     pub(super) worktree: Option<String>,
+    /// the CLI's id for the card's conversation, so a later process takes it up again (resume.rs)
+    pub(super) session: Option<String>,
+    /// the process was started on that conversation again and has not taken a prompt yet
+    pub(super) resuming: bool,
+    /// a new process of a card that worked before, on a new conversation: its first prompt says what it did
+    pub(super) blank: bool,
+    /// a twin's first process: its first prompt says that it is one
+    pub(super) twin_due: bool,
+    /// a resting agent was asked to end (ms since the epoch): its window closes once it has
+    pub(super) retiring: Option<u64>,
     /// a "still working in the background" marker is on screen; since when; and whether it holds
     /// the agent back from finishing right now
     pub(super) work: bool,
@@ -393,6 +403,8 @@ pub(super) struct Rt {
     pub(super) blocked_by: Option<String>,
     /// when the browsers were last told it goes to the archive by itself
     pub(super) filing: Option<u64>,
+    /// a finished flow that a draft nobody armed keeps on the canvas: that card, and why (loose.rs)
+    pub(super) held: Option<(String, String)>,
 
     // ---- the node's role
     pub(super) gate: GateRound,
@@ -485,6 +497,9 @@ pub(super) struct GitRound {
     /// the repositories still to push (or to open a pull request in) this round, and the one at hand
     pub(super) repos: VecDeque<PathBuf>,
     pub(super) at: Option<PathBuf>,
+    /// a push nobody armed: what git says it has left to do, and when it was last looked at (loose.rs)
+    pub(super) left: Option<Left>,
+    pub(super) looked: u64,
 }
 
 impl GitRound {
@@ -623,6 +638,8 @@ pub enum GitJobKind {
     Commit,
     /// the push: the round goes on to the pull request or settles
     Push,
+    /// a look at what a push nobody armed has left to do (loose.rs): changes nothing
+    Look,
 }
 
 /// What a commit step is waiting for an agent to answer.
@@ -698,6 +715,11 @@ impl Rt {
             briefed: false,
             ruled: false,
             worktree: None,
+            session: None,
+            resuming: false,
+            blank: false,
+            twin_due: false,
+            retiring: None,
             work: false,
             work_since: None,
             bg: false,
@@ -729,6 +751,7 @@ impl Rt {
             last_msg: String::new(),
             blocked_by: None,
             filing: None,
+            held: None,
             gate: GateRound::default(),
             hand: Takeover::default(),
             step_wait: None,
@@ -760,6 +783,9 @@ impl Rt {
             runs: self.runs,
             inputs: self.inputs.clone(),
             worktree: self.worktree.clone(),
+            session: self.session.clone(),
+            blank: self.blank,
+            twin_due: self.twin_due,
             queue: self.queue.iter().cloned().collect(),
             steps: self.steps.clone(),
             asked: self.asked.clone(),
@@ -813,6 +839,9 @@ impl Rt {
         self.runs = s.runs;
         self.inputs = s.inputs;
         self.worktree = s.worktree;
+        self.session = s.session;
+        self.blank = s.blank;
+        self.twin_due = s.twin_due;
         self.queue = s.queue.into();
         self.steps = s.steps;
         self.asked = s.asked;
@@ -1085,6 +1114,12 @@ pub(super) struct Saved {
     pub(super) inputs: Vec<(String, Input)>,
     #[serde(default)]
     pub(super) worktree: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) session: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) blank: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) twin_due: bool,
     #[serde(default)]
     pub(super) queue: Vec<QItem>,
     #[serde(default)]

@@ -38,7 +38,7 @@ fresh() {
   "$BIN" open "$SB/proj" --no-open | tail -1 | tr -d ' ' > "$SB/url.txt"
 }
 # dev: `dev` plays the page following edits to its files (src/dev.rs)
-for t in ${TESTS:-story features pad folders boards tree repos next watch eta limit ci rewind bar aim place dial archive chain tidy nets talk marks quit peek plea fix joins dev}; do
+for t in ${TESTS:-story features pad folders boards tree repos next watch eta limit ci rewind bar aim place dial archive chain tidy nets talk marks quit peek plea fix joins memory loose dev}; do
   echo "== $t"; fresh
   SANDBOX="$SB" node "$HERE/$t.cjs"
 done

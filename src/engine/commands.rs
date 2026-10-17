@@ -214,6 +214,15 @@ pub enum Cmd {
         #[serde(default)]
         text: String,
     },
+    /// A twin of `from`: a new card on a copy of its conversation, asked `text` (see resume.rs).
+    Twin {
+        from: String,
+        text: String,
+        #[serde(default)]
+        x: f64,
+        #[serde(default)]
+        y: f64,
+    },
     /// List the models an agent's CLI offers (cached; `force` asks again).
     Models {
         agent: String,
@@ -472,6 +481,7 @@ impl Engine {
             Cmd::FeedAct { node, item, text } => self.cmd_feed_act(node, item, text),
             Cmd::FeedDel { node, item } => self.cmd_feed_del(node, item),
             Cmd::Takeover { from, node, text } => self.cmd_takeover(from, node, text),
+            Cmd::Twin { from, text, x, y } => self.cmd_twin(from, text, x, y),
             Cmd::PrefSet { prefs } => self.cmd_pref_set(prefs),
             Cmd::Proj { dir } => self.cmd_proj(dir),
             Cmd::Dirs { q, like } => self.cmd_dirs(&q, &like),

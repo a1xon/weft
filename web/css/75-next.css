@@ -12,3 +12,4 @@
 #nextbar .nf .seg button{padding:4px 9px;font:500 calc(11.5px*var(--fs)) var(--mono)}
 .hand{fill:none;stroke:var(--vi);stroke-width:1.5;stroke-dasharray:1 6;stroke-linecap:round;opacity:.75}
 .hand.wait{stroke:var(--am);opacity:1;animation:march .8s linear infinite}
+.hand.twin{stroke:var(--cy);stroke-dasharray:6 4;opacity:.6}

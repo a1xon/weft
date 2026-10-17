@@ -190,7 +190,7 @@ function renderOptionsTab(n) {
     h('div', { class: 'sec' }, h('h3', {}, 'name'), name),
     h('div', { class: 'sec' }, h('h3', {}, 'runs on'),
       seg(agents.map(([kk, a]) => [kk, a.label || kk]), n.agent, v => { convertTo(id, v); }),
-      h('div', { style: 'height:8px' }), cmd, h('div', { style: 'height:8px' }), h('div', { class: 'fdrow' }, cwd, cwdPick), h('div', { class: 'row2' }, wt)),
+      h('div', { style: 'height:8px' }), cmd, h('div', { style: 'height:8px' }), h('div', { class: 'fdrow' }, cwd, cwdPick), n.deploy ? deployRow(id, n) : h('div', { class: 'row2' }, wt)),
     h('div', { class: 'sec' }, h('h3', {}, 'watch it work'),
       ...(n.checks || []).map(c => checkRow(id, c)),
       h('div', { class: 'row2', style: 'flex-wrap:wrap' },

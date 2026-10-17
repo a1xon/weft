@@ -901,6 +901,11 @@ fn agents_run_in_yolo_mode_unless_switched_off() {
         limits: vec![],
         effort_models: vec![],
         title_cmd: String::new(),
+        session_arg: String::new(),
+        resume_arg: String::new(),
+        fork_arg: String::new(),
+        resume_hint: String::new(),
+        exit_keys: vec![],
     };
     assert_eq!(agent_command(&aider, &n, true), "aider --yes");
     // environment assignments in front keep working: no `command` prefix, the flag still goes on

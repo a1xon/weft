@@ -179,6 +179,25 @@ pub struct Node {
     /// tests gate: wait for the CI runs of the pushed commit instead of running a command (see engine/ci.rs).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub ci: bool,
+    /// A deploy step: a command card (`cmd`) after a push that runs on what the git steps before it
+    /// committed and pushed (see engine/deploy.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deploy: Option<DeployAt>,
+    /// The agent whose conversation this one started as a copy of (see engine/resume.rs). Lineage for
+    /// the canvas, not a link: nothing fires along it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub twin: String,
+}
+
+/// Where a deploy step runs its command.
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "snake_case")]
+pub enum DeployAt {
+    /// in a checkout of the pushed commit that weft keeps for the repository (so builds stay
+    /// incremental), never in the folder where agents may have unfinished work
+    Pushed,
+    /// in the folder itself, as it is (for a script that needs files git does not track)
+    Folder,
 }
 
 /// What a watch collects.
@@ -436,6 +455,24 @@ pub struct AgentCfg {
     /// lowest reasoning. Empty = the card keeps the first words of its prompt.
     #[serde(default)]
     pub title_cmd: String,
+    /// How a new session gets the id weft picked for it (`{}`), e.g. `--session-id {}`. Empty = the CLI
+    /// picks one and names it when it ends (`resume_hint`). See engine/resume.rs.
+    #[serde(default)]
+    pub session_arg: String,
+    /// How the next process takes an ended session up again (`{}` = its id): `--resume {}`,
+    /// `resume {}` (a subcommand: it goes right after the program). Empty = every process starts anew.
+    #[serde(default)]
+    pub resume_arg: String,
+    /// How a twin starts on a copy of another card's session: `--resume {} --fork-session`, `fork {}`.
+    /// Empty = no twins for this agent.
+    #[serde(default)]
+    pub fork_arg: String,
+    /// What the CLI prints right before its session id when it ends ("codex resume ").
+    #[serde(default)]
+    pub resume_hint: String,
+    /// Keys (tmux names) that end the CLI at its prompt the way a person would, so it names its session.
+    #[serde(default)]
+    pub exit_keys: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -578,6 +615,10 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             limits: strings(&["you've hit your", "usage limit reached", "reached your weekly usage limit"]),
             // no tools: the request must not turn into work
             title_cmd: r#"claude -p "$WEFT_TITLE_REQ" --model haiku --effort low --no-session-persistence --tools """#.into(),
+            // weft picks the id, so it never has to be found (a fork gets one of its own as well)
+            session_arg: "--session-id {}".into(),
+            resume_arg: "--resume {}".into(),
+            fork_arg: "--resume {} --fork-session".into(),
             ..AgentCfg::default()
         },
     );
@@ -604,6 +645,11 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             limits: strings(&["you've hit your usage limit"]),
             title_cmd: r#"codex exec -m gpt-6-luna -c model_reasoning_effort=low -s read-only --ephemeral --skip-git-repo-check "$WEFT_TITLE_REQ""#
                 .into(),
+            // one Ctrl+C at its prompt ends it with "To continue this session, run: codex resume <id>"
+            resume_arg: "resume {}".into(),
+            fork_arg: "fork {}".into(),
+            resume_hint: "codex resume ".into(),
+            exit_keys: strings(&["C-c"]),
             ..AgentCfg::default()
         },
     );
@@ -626,6 +672,10 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             limits: strings(&["usage limit reached", "exhausted your", "quota exceeded", "you've hit your"]),
             // the reasoning level is in the model's name (an --effort beside it drops the model)
             title_cmd: r#"agy -p "$WEFT_TITLE_REQ" --model gemini-3.8-flash-low"#.into(),
+            // the second Ctrl+C ends it with "Resume with -c (or command below): agy --conversation=<id>"
+            resume_arg: "--conversation {}".into(),
+            resume_hint: "--conversation=".into(),
+            exit_keys: strings(&["C-c", "C-c"]),
             ..AgentCfg::default()
         },
     );

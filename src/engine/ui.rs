@@ -100,7 +100,8 @@ impl Engine {
                    "waiting_on": rt.git.wait.as_ref().and_then(|w| self.node(w)).map(|n| n.name.clone()),
                    "commits": rt.git.facts.commits.len(), "files": rt.git.facts.files.len(), "pr": rt.git.facts.pr, "prs": rt.git.facts.prs,
                    "stage": match rt.git.stage { GitStage::Commit => "commit", GitStage::Rebase => "rebase", GitStage::Pr => "pr" },
-                   "carried": rt.git.carry.iter().map(|c| c.name.clone()).collect::<Vec<_>>()})
+                   "carried": rt.git.carry.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
+                   "left": rt.git.left.as_ref().map(Left::to_json)})
         } else {
             Value::Null
         };
@@ -128,7 +129,7 @@ impl Engine {
         let status = self.eff_status(id, blocked);
         // a finished card has no countdown, however it got there and whatever time was left
         let eta = rt.checks.eta.as_ref().filter(|_| !matches!(status, Status::Done | Status::Failed | Status::Stopped | Status::Exited));
-        json!({
+        let mut v = json!({
             "t": "rt", "id": id, "status": status, "alive": rt.alive, "armed": rt.armed,
             "runs": rt.runs, "since": rt.since, "arrived": arrived, "need": need, "ok": rt.ok,
             "out": out, "out_n": rt.output.as_ref().map_or(0, |o| o.len()), "wt": rt.worktree,
@@ -138,6 +139,8 @@ impl Engine {
             "gate": rt.gate.held.as_deref().map(|g| head_chars(g, 700)), "git": git,
             "bg": rt.bg,
             "archive_at": filing.get(id),
+            // a twin can start from it; its process rests and the next one takes its conversation up again
+            "twin": self.can_twin(id), "rests": self.resumable(id),
             "issue": rt.issue.as_deref().map(|i| head_chars(i, 4000)),
             "waiting": rt.waiting.as_ref().map(|w| json!({"what": head_chars(&w.what, 200), "checks": w.checks})),
             "limit": rt.limit.as_ref().map(|l| json!({"until": l.until, "said": head_chars(&l.said, 300), "known": l.known})),
@@ -157,7 +160,10 @@ impl Engine {
             "ci": ci,
             "cps": cps,
             "gate_to": rt.gate.targets.iter().filter_map(|t| self.node(t).map(|n| n.name.clone())).collect::<Vec<_>>(),
-        })
+        });
+        // (set afterwards: the macro above is at its recursion limit)
+        v["held"] = json!(rt.held.as_ref().map(|(h, why)| json!({"id": h, "name": self.node(h).map(|n| n.name.clone()), "why": why})));
+        v
     }
 
     pub(super) fn flush_ui(&mut self) {
@@ -172,12 +178,14 @@ impl Engine {
         if self.rt.values().any(|r| r.ui) {
             let blocked = self.blocked_map();
             let filing = self.filing_map(&blocked);
+            let held = self.held_map(&blocked);
             // blocked-ness and the archive clock are derived across the graph, so a node can change
             // without being touched
             for (id, rt) in self.rt.iter_mut() {
-                if rt.blocked_by.as_ref() != blocked.get(id) || rt.filing.as_ref() != filing.get(id) {
+                if rt.blocked_by.as_ref() != blocked.get(id) || rt.filing.as_ref() != filing.get(id) || rt.held.as_ref() != held.get(id) {
                     rt.blocked_by = blocked.get(id).cloned();
                     rt.filing = filing.get(id).copied();
+                    rt.held = held.get(id).cloned();
                     rt.ui = true;
                 }
             }

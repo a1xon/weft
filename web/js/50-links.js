@@ -46,6 +46,7 @@ function renderTicker() {
       if (id) showPlea(id); } }, h('b', {}, c.attention), ' needs you') : null,
     c.blocked ? h('span', { class: 'tk rd' }, h('b', {}, c.blocked), ' blocked') : null,
     c.failed ? failedChip(c.failed) : null,
+    readyChip(),
     c.done ? h('span', { class: 'tk gr' }, h('b', {}, c.done), ' done') : null,
   ]));
 }
@@ -101,7 +102,8 @@ const handEls = new Map();
 function drawHands() {
   const want = new Set();
   for (const n of S.nodes.values()) {
-    const a = n.takeover && S.nodes.get(n.takeover);
+    // a hand-over's baton, or a twin's thread back to the agent whose conversation it copied
+    const a = (n.takeover && S.nodes.get(n.takeover)) || (n.twin && S.nodes.get(n.twin));
     if (!a) continue;
     want.add(n.id);
     let el = handEls.get(n.id);
@@ -109,6 +111,7 @@ function drawHands() {
     el.setAttribute('d', pathBetween(a.x + nw(a), a.y + PY, n.x, n.y + PY));
     const r = S.rt.get(n.id);
     el.classList.toggle('wait', !!(r && r.hand_wait));
+    el.classList.toggle('twin', !n.takeover && !!n.twin);
   }
   for (const [id, el] of handEls) if (!want.has(id)) { el.remove(); handEls.delete(id); }
 }

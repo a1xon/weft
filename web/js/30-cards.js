@@ -262,7 +262,7 @@ function statusText(n, r) {
   if (fixer) return `failed \u00b7 ${fixer.id} is fixing it`;
   if (k === 'git') {
     const verb = gitOpLabel(n), g = r.git || {};
-    if (st === 'draft') return `disarmed · arm to ${verb}`;
+    if (st === 'draft') return g.left ? `ready · ${readyWhat(n, r)}` : `disarmed · arm to ${verb}`;
     if (st === 'busy') {
       if (g.waiting_on) return g.stage === 'pr' ? `${g.waiting_on} is opening the PR…` : g.stage === 'rebase' ? `${g.waiting_on} is updating the branch…` : `${g.waiting_on} is committing…`;
       return n.git_op === 'commit' ? 'committing…' : 'pushing…';
@@ -297,6 +297,7 @@ function statusText(n, r) {
     if (st === 'failed') return `rejected ${age(r.since)} ago`;
     return r.need ? `holds \u00b7 ${r.arrived.length}/${r.need} in` : 'holds the flow';
   }
+  if (n.deploy) { const t = deployText(n, r); if (t) return t; }
   if (r.limit) return limitText(r.limit);
   if (r.bg && st === 'busy') return `waiting on background work \u00b7 ${clock(r.since)}`;
   if (r.hand_wait) return r.hand_phase === 'asking' ? `taking over \u00b7 ${r.hand_wait} is writing the note` : `taking over \u00b7 waiting for ${r.hand_wait} to finish`;
@@ -311,7 +312,7 @@ function statusText(n, r) {
       : `working ${clock(r.since)}` + (r.runs > 1 ? ` \u00b7 run ${r.runs}` : '');
     case 'idle': return n.finish === 'idle' ? 'quiet' : 'quiet · waiting for you';
     case 'attention': return r.issue ? 'asks you' : 'needs you';
-    case 'done': return `done ${age(r.since)} ago`;
+    case 'done': return `done ${age(r.since)} ago` + (r.rests ? ' \u00b7 resting' : '');
     case 'failed': return `failed ${age(r.since)} ago`;
     case 'exited': return 'exited';
     case 'stopped': return 'stopped';

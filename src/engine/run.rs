@@ -412,6 +412,13 @@ impl Engine {
         if consumed && first {
             item.text = format!("{}\n\n{}", words::intro(), item.text);
         }
+        // a twin's first prompt says it is one; a new conversation of a card that worked before (its old
+        // one could not be taken up again) is told what the card did (resume.rs)
+        if agent && plain {
+            if let Some(note) = self.session_note(id) {
+                item.text = format!("{note}\n\n{}", item.text);
+            }
+        }
         // standing orders (an estimate, screenshots) are given once per session, with the first prompt
         if !matches!(item.src, Src::Reply(_)) {
             let orders = self.take_orders(id);

@@ -153,7 +153,7 @@ pub(super) fn pr_link(text: &str) -> Option<(String, String)> {
 
 impl Engine {
     /// Has every link in handed on this round (`Promise.all`; one is enough for `Promise.any`)?
-    fn git_all_in(&self, id: &str) -> bool {
+    pub(super) fn git_all_in(&self, id: &str) -> bool {
         let Some(rt) = self.rt.get(id) else { return false };
         if rt.git.seen.is_empty() {
             return false;
@@ -193,7 +193,7 @@ impl Engine {
 
     /// The branch a step works on in one repository: its own, else the one the commits before it
     /// went to there.
-    fn git_branch_in(&self, id: &str, dir: &Path) -> String {
+    pub(super) fn git_branch_in(&self, id: &str, dir: &Path) -> String {
         let Some(n) = self.node(id) else { return String::new() };
         if !n.branch.trim().is_empty() {
             return n.branch.trim().to_string();
@@ -244,7 +244,7 @@ impl Engine {
     }
 
     /// The commits of this round that are in one repository.
-    fn git_hashes_in(&self, id: &str, dir: &Path) -> Vec<String> {
+    pub(super) fn git_hashes_in(&self, id: &str, dir: &Path) -> Vec<String> {
         let Some(rt) = self.rt.get(id) else { return Vec::new() };
         let mine: Vec<Carry> = rt.git.carry.iter().filter(|c| self.git_dir_for(id, &c.node) == dir).cloned().collect();
         carry_hashes(&mine)
@@ -278,9 +278,10 @@ impl Engine {
         let agent_name = self.node(&agent).map(|n| n.name.clone()).unwrap_or_else(|| name.to_string());
         // the commit step before this one already committed: here it only counts
         let from_git = self.node(from).is_some_and(|n| n.kind() == Kind::Git);
-        // the agent that did the work commits it; a command or a vanished agent cannot be asked
-        let askable =
-            self.node(&agent).is_some_and(|n| n.kind() == Kind::Agent && n.agent != "sh") && self.rt.get(&agent).is_some_and(|r| r.alive);
+        // the agent that did the work commits it; a command or a vanished agent cannot be asked (one
+        // that rests is woken on its own conversation, so it still knows which files are its own)
+        let askable = self.node(&agent).is_some_and(|n| n.kind() == Kind::Agent && n.agent != "sh")
+            && (self.rt.get(&agent).is_some_and(|r| r.alive) || self.resumable(&agent));
         if !ok {
             // a step before this one failed (or an agent did not finish): nothing is committed or
             // pushed on top of that. "commit now" on the card still takes what is there.
@@ -336,6 +337,9 @@ impl Engine {
             if !rt.git.seen.iter().any(|s| s == edge) {
                 rt.git.seen.push(edge.to_string());
             }
+            // something new came in: what a push nobody armed has left is looked at again
+            rt.git.left = None;
+            rt.git.looked = 0;
             if let Some((c, f)) = upstream {
                 for x in c {
                     carry_add(&mut rt.git.carry, x);
@@ -516,7 +520,7 @@ impl Engine {
         rt.git.carry.iter().rev().map(|c| c.node.clone()).find(|n| {
             !n.is_empty()
                 && self.node(n).is_some_and(|x| x.kind() == Kind::Agent && x.agent != "sh")
-                && self.rt.get(n).is_some_and(|a| a.alive)
+                && (self.rt.get(n).is_some_and(|a| a.alive) || self.resumable(n))
                 && self.git_dir_for(id, n) == dir
         })
     }
@@ -526,6 +530,8 @@ impl Engine {
     fn git_ask(&mut self, id: &str, agent: &str, prompt: String, log: String, stage: GitStage) {
         let shown = prompt.lines().next().unwrap_or("").to_string();
         self.enqueue(agent, prompt, shown, Src::Reply(id.to_string()), true);
+        // (an agent that rests is started again on its own conversation)
+        self.restart_if_queued(agent);
         if let Some(rt) = self.rt.get_mut(id) {
             rt.git.busy = true;
             rt.git.wait = Some(agent.to_string());
@@ -692,12 +698,12 @@ impl Engine {
 
     /// The result a commit or push step passes on: where the work is and what each agent that did it
     /// was asked and said. An agent linked after it (one that tests the change live, say) starts from this.
-    fn git_report(&self, id: &str) -> String {
+    pub(super) fn git_report(&self, id: &str) -> String {
         let (Some(node), Some(rt)) = (self.node(id), self.rt.get(id)) else { return String::new() };
         git_report(node, &self.git_repos(id), &rt.git.log, &rt.git.facts, &rt.git.carry)
     }
 
-    fn git_round_done(&mut self, id: &str, ok: bool, out: String) {
+    pub(super) fn git_round_done(&mut self, id: &str, ok: bool, out: String) {
         if let Some(rt) = self.rt.get_mut(id) {
             rt.git.seen.clear();
             rt.git.jobs.clear();
@@ -711,6 +717,9 @@ impl Engine {
     }
 
     pub(super) fn on_git(&mut self, id: String, gen: u64, job: GitJobKind, res: Result<String, String>, facts: Option<Facts>) {
+        if job == GitJobKind::Look {
+            return self.on_loose(&id, gen, res);
+        }
         let push = job == GitJobKind::Push;
         // which repository a push was for, when there are several
         let there = match self.rt.get(&id).and_then(|r| r.git.at.clone()) {
@@ -765,7 +774,7 @@ impl Engine {
                     rt.git.conflicts += 1;
                     rt.git.log.push(format!("conflict while merging ({})", head_chars(rest, 80)));
                     let from = agent;
-                    if !from.is_empty() && self.rt.get(&from).is_some_and(|r| r.alive) {
+                    if !from.is_empty() && (self.rt.get(&from).is_some_and(|r| r.alive) || self.resumable(&from)) {
                         if let Some(r) = self.rt.get_mut(&id) {
                             r.git.jobs.push_front(GitJob::Ask { from, name, text, wt: Some(wt), resolve: true });
                         }

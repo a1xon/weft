@@ -1,12 +1,15 @@
 /* ------------------------------------------------------------ "and then\u2026" */
-/* Three ways to go on, cheapest first:
+/* Four ways to go on, cheapest first:
    then      queue a prompt on the SAME agent: its context and memory stay, links fire when its queue is done
+   twin      a SECOND agent on a copy of its conversation: it knows everything this one knows, and goes its
+             own way alongside (only where the CLI copies conversations and weft knows this one's: r.twin)
    hand over a FRESH agent takes over the work: the old one writes a note, the files stay where they are
    branch    a NEW agent runs alongside and receives the result (a link) */
 const nextbar = $('#nextbar');
 const NX = { id: null, mode: 'then', agent: null };
 const NX_MODES = [
   ['then', 'then', 'the same agent goes on: its context and memory stay'],
+  ['twin', 'twin', 'a second agent on a copy of this conversation: it knows everything this one knows, and does this alongside'],
   ['hand', 'hand over', 'a fresh agent takes over the work, with a note from this one'],
   ['branch', 'branch', 'a new agent runs alongside and receives the result'],
 ];
@@ -28,26 +31,29 @@ function renderNext(text) {
   const r = S.rt.get(NX.id) || {};
   const ta = h('textarea', { rows: 2, spellcheck: 'false', 'aria-label': 'What next?' });
   ta.value = text || '';
-  const modes = n.agent === 'sh' ? NX_MODES.filter(m => m[0] !== 'then') : NX_MODES;
+  const modes = NX_MODES.filter(m => !(n.agent === 'sh' && m[0] === 'then') && (m[0] !== 'twin' || r.twin));
+  if (!modes.some(m => m[0] === NX.mode)) NX.mode = modes[0][0];
   const seg_ = h('div', { class: 'seg' }, modes.map(([v, label, tip]) =>
     h('button', { 'aria-pressed': String(NX.mode === v), title: tip, onclick: () => { NX.mode = v; renderNext(ta.value); } }, label)));
   const busy = r.status === 'busy' || r.status === 'starting';
   const explain = {
     then: busy ? `${n.name} is working. This waits as its own card after it and is asked when ${n.name} is done.`
       : `${n.name} keeps its context and runs this next. Use it for follow-ups on the same work.`,
+    twin: `A copy of ${n.name}'s conversation starts as a card of its own: it knows everything ${n.name} knows and does this, while ${n.name} goes on by itself. It works in the same folder.`,
     hand: `A fresh ${NX.agent} takes over. ${n.name} writes a short handover note first; the files stay as they are.${busy ? ` It starts when ${n.name} has finished its step.` : ''}`,
     branch: `A new ${NX.agent} starts alongside and receives ${n.name}'s result (a link).`,
   }[NX.mode];
   const ph = {
     then: `what should ${n.name} do next?`,
+    twin: 'what should the twin do? (try it another way, a side question, …)',
     hand: 'what should the new agent do? (empty: carry on where it stopped)',
     branch: 'what should the new agent do with the result?',
   }[NX.mode];
   ta.placeholder = ph;
   const agents = agentList();
-  const pick = NX.mode === 'then' ? null : h('div', { class: 'seg' }, agents.map(([k, c]) =>
+  const pick = NX.mode === 'then' || NX.mode === 'twin' ? null : h('div', { class: 'seg' }, agents.map(([k, c]) =>
     h('button', { 'aria-pressed': String(NX.agent === k), title: c.label || k, onclick: () => { NX.agent = k; renderNext(ta.value); } }, k)));
-  const go = h('button', { class: 'btn sm pri', onclick: submitNext }, NX.mode === 'then' ? (busy ? 'queue' : 'send') : NX.mode === 'hand' ? 'hand over' : 'create');
+  const go = h('button', { class: 'btn sm pri', onclick: submitNext }, NX.mode === 'then' ? (busy ? 'queue' : 'send') : NX.mode === 'twin' ? 'start twin' : NX.mode === 'hand' ? 'hand over' : 'create');
   nextbar.replaceChildren(
     h('div', { class: 'nh' }, h('span', { class: 'nt' }, `after ${n.name}`), seg_),
     ta,
@@ -84,7 +90,7 @@ function submitNext() {
   const n = S.nodes.get(NX.id); if (!n) return closeNext();
   const ta = nextbar.querySelector('textarea'), text = ta.value.trim();
   const { id, mode, agent } = NX;
-  if (mode === 'then' && !text) { ta.classList.remove('nope'); void ta.offsetWidth; ta.classList.add('nope'); return; }
+  if ((mode === 'then' || mode === 'twin') && !text) { ta.classList.remove('nope'); void ta.offsetWidth; ta.classList.add('nope'); return; }
   closeNext();
   if (mode === 'then') {
     select([id]);
@@ -92,11 +98,23 @@ function submitNext() {
     const host = hostOf(n);
     if (busyAgent(host)) queueStep(host, text);
     else send('send', { id, text, mode: 'auto' });
+  } else if (mode === 'twin') {
+    twinOf(id, text);
   } else if (mode === 'hand') {
     takeoverFrom(id, agent, text);
   } else {
     spawnAt(agent, n.x + nw(n) + 150, n.y, { from: id, text, draft: !text, run: false, edit: !text });
   }
+}
+/* a twin: a new card on a copy of this agent's conversation, started at once (resume.rs) */
+async function twinOf(id, text) {
+  const n = S.nodes.get(id); if (!n) return null;
+  const p = freeSpot(n.x + nw(n) + 150, n.y + 60, true);
+  const r = await req('twin', { from: id, text, x: p.x, y: p.y });
+  if (!r.ok) { toast('err', r.error || 'could not start a twin'); return null; }
+  await whenNode(r.id);
+  select([r.id]); reveal(r.id);
+  return r.id;
 }
 /* a fresh agent takes over: the engine asks the old one for a note, composes the handover and starts it */
 async function takeoverFrom(id, agent, text) {
