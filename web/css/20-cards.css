@@ -119,3 +119,10 @@
 .lod .nm{font-size:calc(17px*var(--fs));display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lod .ft{height:40px}
 .lod .stx{font-size:calc(13px*var(--fs))}
+.cipills{display:flex;flex-wrap:wrap;gap:5px;margin:4px 0}
+.cipill{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border:1px solid var(--l2);font:500 calc(11px*var(--fs)) var(--mono);color:var(--i1);text-decoration:none;white-space:nowrap}
+.cipill i{font-style:normal}
+.cipill.ok{border-color:var(--gr)}.cipill.ok i{color:var(--gr)}
+.cipill.bad{border-color:var(--rd)}.cipill.bad i{color:var(--rd)}
+.cipill.run{border-color:var(--am)}.cipill.run i{color:var(--am);animation:cispin 1.6s linear infinite;display:inline-block}
+@keyframes cispin{to{transform:rotate(360deg)}}

@@ -17,6 +17,8 @@ Prompt directives it understands (case-insensitive):
                    is done when weft wakes it to check
     NO_STATUS      do not end with the status line this turn, as an agent that ignores the
                    rule would; weft then asks for the line and it answers
+    HIT_LIMIT[=M]  stop at a usage limit that "resets" in M minutes (2); carry on once weft
+                   says it has reset
 
     FAIL_TASK      do the work badly: report failure
     SLOW           think three times longer
@@ -158,6 +160,18 @@ def do_commit(prompt):
     return True, f"{h} {subject}"
 
 
+def do_ci_fix(prompt):
+    """CI went red on what was pushed: fix what the log names, commit it and push, like the request asks."""
+    apply_work(prompt)
+    ok, said = do_commit(prompt)
+    if not ok:
+        return ok, said
+    r = git("push", "-q")
+    if r.returncode != 0:
+        return False, "git push failed: " + r.stderr.strip()
+    return True, said + ", pushed"
+
+
 def show_shot(prompt):
     """A watch asked for it: make a picture and hand it over with `weft shot`, like a real agent would."""
     import tempfile
@@ -218,6 +232,8 @@ def do_run_tests():
 
 def apply_work(prompt):
     """Really do the edits the prompt asks for, in the current directory."""
+    # a note from weft ("the person undid ...") is no task: it does not redo what it names
+    prompt = re.sub(r"(?m)^\[weft\] Note:.*$", "", prompt)
     low = prompt.lower()
     done = []
     if re.search(r"slug", low) and re.search(r"fix|implement|repair|make", low):
@@ -237,6 +253,8 @@ def apply_work(prompt):
 
 # how the last turn went, for the status line: ("done"|"issue"|"fail"|"waiting", detail)
 outcome = ("done", "")
+# HIT_LIMIT: the task it stopped in at its usage limit, and the reset time it named
+held = None
 
 
 def work(prompt):
@@ -253,6 +271,22 @@ def work(prompt):
                 f.write("=== prompt ===\n" + prompt + "\n")
         except OSError:
             pass
+    # HIT_LIMIT[=<minutes>]: a CLI at its usage limit: it stops with the limit line, drops whatever it is
+    # sent until weft says the limit has reset, and then carries on with the task it was in
+    global held
+    if held is not None:
+        if "your usage limit has reset" not in low:
+            say("", "  ⎿  You've hit your session limit · resets " + held[1], "")
+            return
+        prompt, held = held[0], None
+        low = prompt.lower()
+    elif "hit_limit" in low:
+        mh = re.search(r"HIT_LIMIT=(\d+)", prompt)
+        at = time.strftime("%-I:%M%p", time.localtime(time.time() + 60 * int(mh.group(1) if mh else 2))).lower()
+        held = (re.sub(r"HIT_LIMIT(=\d+)?", "", prompt), at)
+        time.sleep(0.8)
+        say("", "● Reading the code.", "", "  ⎿  You've hit your session limit · resets " + at + " (Europe/Berlin)", "")
+        return
     # linked with agents to coordinate with: tell them once what it works on, as a real agent would
     # (a message from one of them only says how to answer: that line is not at the start of a line)
     mt = re.search(r'^\s*(\S+) tell (\S+) "<message>"', prompt, re.M)
@@ -319,6 +353,8 @@ def work(prompt):
         action = do_commit(prompt)
     elif "take over this work from you" in low:
         action = do_handover()
+    elif "ci failed on what was pushed" in low:
+        action = do_ci_fix(prompt)
     elif "open a pull request for the work" in low:
         action = do_pr(prompt)
     elif "was rejected: the remote has commits" in low:

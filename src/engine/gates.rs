@@ -7,9 +7,19 @@ fn gate_prompt(node: &Node, stage: GateStage, extra: &str, path: &str, exe: &str
     match stage {
         GateStage::Shot => words::gate_shot(exe, &node.subject, extra, path),
         GateStage::Write => words::gate_write_tests(exe, &node.subject),
+        GateStage::Fix if node.ci => words::ci_fix(exe, if extra.trim().is_empty() { notes } else { extra }),
         GateStage::Fix => words::gate_fix(exe, if extra.trim().is_empty() { notes } else { extra }),
         GateStage::RunByAgent => words::gate_run_tests(exe),
         GateStage::None => String::new(),
+    }
+}
+
+/// What goes back to the agent when the suite (or CI, which says it in its own words) went red.
+fn fix_note(node: &Node, out: &str) -> String {
+    if node.ci {
+        out.to_string()
+    } else {
+        format!("The test suite failed:\n\n{out}")
     }
 }
 
@@ -36,6 +46,14 @@ impl Engine {
             let t = self.agent_behind(&i.from).unwrap_or_else(|| self.resolve_host(&i.from));
             if self.node(&t).is_some_and(|n| n.kind() == Kind::Agent) && !targets.contains(&t) {
                 targets.push(t);
+            }
+        }
+        if node.ci {
+            // after a push nobody's session goes on: what CI finds goes to the agents behind the commits
+            for t in self.ci_targets(id) {
+                if !targets.contains(&t) {
+                    targets.push(t);
+                }
             }
         }
         {
@@ -79,7 +97,7 @@ impl Engine {
         self.state_dirty = true;
     }
 
-    fn gate_review_with(&mut self, id: &str, note: &str) {
+    pub(super) fn gate_review_with(&mut self, id: &str, note: &str) {
         if let Some(rt) = self.rt.get_mut(id) {
             if !rt.gate.out.is_empty() {
                 rt.gate.out.push('\n');
@@ -210,6 +228,9 @@ impl Engine {
     /// Run the suite: with the node's command if it has one, else by asking the agent to run it.
     fn gate_run_tests(&mut self, id: &str) {
         let Some(node) = self.node(id).cloned() else { return };
+        if node.ci {
+            return self.ci_start(id);
+        }
         if node.cmd.trim().is_empty() {
             self.gate_ask(id, GateStage::RunByAgent, "");
             return;
@@ -272,12 +293,12 @@ impl Engine {
         }
         let round = self.rt[id].gate.round;
         let can_fix = self.rt[id].gate.targets.iter().any(|t| self.rt.get(t).is_some_and(|r| r.alive));
-        if round <= node.retries && can_fix && !node.cmd.trim().is_empty() {
+        if round <= node.retries && can_fix && (node.ci || !node.cmd.trim().is_empty()) {
             if let Some(rt) = self.rt.get_mut(id) {
                 rt.gate.round += 1;
             }
             let out = self.rt[id].gate.out.clone();
-            self.gate_ask(id, GateStage::Fix, &format!("The test suite failed:\n\n{out}"));
+            self.gate_ask(id, GateStage::Fix, &fix_note(&node, &out));
         } else {
             self.gate_review(id);
         }
@@ -299,7 +320,9 @@ impl Engine {
             for s in &shots {
                 text.push_str(&format!("\n\nApproved screenshot: {}", self.shots_dir().join(s).to_string_lossy()));
             }
-            if node.kind() == Kind::Tests {
+            if node.ci {
+                text.push_str(&format!("\n\n{}", head_chars(out.trim(), 1500)));
+            } else if node.kind() == Kind::Tests {
                 let tail: Vec<&str> = out.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect();
                 text.push_str(&format!("\n\nTests passed.\n{}", tail.join("\n")));
             }
@@ -357,7 +380,8 @@ impl Engine {
             }
             (Kind::Tests, true) => {
                 let out = self.rt.get(&id).map(|r| r.gate.out.clone()).unwrap_or_default();
-                self.gate_ask(&id, GateStage::Fix, &format!("The test suite failed:\n\n{out}"));
+                let note = self.node(&id).map(|n| fix_note(n, &out)).unwrap_or_default();
+                self.gate_ask(&id, GateStage::Fix, &note);
             }
             (Kind::Tests, false) => self.gate_run_tests(&id),
             _ => {}

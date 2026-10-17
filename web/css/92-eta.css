@@ -14,3 +14,6 @@
 #etaTop.soon{border-color:var(--am)}#etaTop.soon .et{color:var(--am)}
 #etaTop.over{border-color:var(--rd)}#etaTop.over .et{color:var(--rd)}
 .ftxt.chg{color:var(--i1)}.ftxt.chg .res{color:var(--cy)}
+.eta.lim{pointer-events:auto;cursor:pointer;border-color:var(--vi)}
+.eta.lim .el,.eta.lim .et{color:var(--vi)}.eta.lim .bar{display:none}
+.eta.lim:hover{background:rgba(20,14,40,.96)}

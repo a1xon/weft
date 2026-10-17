@@ -321,6 +321,7 @@ function askChanges(id) {
 const TRAY = [
   ['gate', 'approve', 'you confirm before anything downstream starts'],
   ['check', 'check', "the folder's check command must pass (build, lint, tests); red goes back to the agent"],
+  ['ci', 'CI', 'after a push or a PR: the CI runs of the pushed commit must pass; red goes back to the agent that did the work, which fixes and pushes'],
   ['shot', 'screenshot', 'the agent shows its work; you approve the image or steer'],
   ['tests', 'tests', 'tests are run; red goes back to the agent'],
   ['eta', 'ETA', 'the agent says how long it will take; a countdown on its card, kept up to date'],
@@ -330,7 +331,7 @@ const TRAY = [
 function initTray() {
   $('#tray').replaceChildren(h('span', { class: 'tl', title: 'drop on a link: it holds the flow there (a gate). Drop on an agent: it watches it work and never blocks.' }, 'checks'), ...TRAY.map(([k, label, tip]) => {
     const where = WATCH_ONLY.includes(k) ? '. Drop it on an agent.'
-      : k === 'gate' || k === 'check' ? '. Drop it on a link to hold the flow there.' : '. Drop it on a link to hold the flow there, or on an agent to watch it work.';
+      : k === 'gate' || k === 'check' || k === 'ci' ? '. Drop it on a link to hold the flow there.' : '. Drop it on a link to hold the flow there, or on an agent to watch it work.';
     const b = h('button', { class: 'tchip', 'data-k': k, title: tip + where }, h('span', { class: 'ti', html: ICON[k] }), label);
     b.addEventListener('pointerdown', e => dragGate(e, k, label));
     return b;
@@ -367,7 +368,7 @@ function dragGate(e, k, label) {
     if (overNode && nodeEls.get(overNode)) nodeEls.get(overNode).root.classList.add('drop', 'watch');
   };
   // (an approval and a check only hold a flow: dropped on an agent they go after it)
-  const watches = id => k !== 'gate' && k !== 'check' && isWatchable(S.nodes.get(id));
+  const watches = id => k !== 'gate' && k !== 'check' && k !== 'ci' && isWatchable(S.nodes.get(id));
   // a watch dropped on a link belongs to the agent the link comes from
   const sourceOf = edgeId => { const ed = S.edges.get(edgeId); return ed && isWatchable(S.nodes.get(ed.from)) ? ed.from : null; };
   place(e);

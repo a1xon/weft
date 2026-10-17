@@ -3,6 +3,9 @@
 //! One small daemon per project keeps the flow graph, watches every agent
 //! through tmux control mode and serves the canvas UI on loopback.
 
+// a card's row for the browsers is one json! with many keys (engine/ui.rs `rt_json`)
+#![recursion_limit = "256"]
+
 mod boards;
 mod browser;
 mod client;

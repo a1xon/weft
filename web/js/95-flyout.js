@@ -130,6 +130,18 @@ function renderOptionsTab(n) {
       del);
     return;
   }
+  if (k === 'tests' && n.ci) {
+    const retries = h('input', { class: 'fld', style: 'width:70px', type: 'number', min: '0', max: '9', value: String(n.retries ?? 2), oninput: e => patchNode(id, { retries: Math.max(0, parseInt(e.target.value || '0', 10)) }) });
+    box.replaceChildren(
+      h('div', { class: 'sec' }, h('h3', {}, 'name'), name),
+      h('div', { class: 'sec' }, h('h3', {}, 'behaviour'),
+        h('div', { class: 'kvr' }, 'send failures back automatically', retries, 'times'),
+        h('div', { style: 'height:8px' }),
+        seg([[false, 'green passes by itself'], [true, 'always ask me']], !!n.confirm, v => patchNode(id, { confirm: v }, 0))),
+      h('p', { class: 'note' }, 'It waits for the CI runs of the commit the push before it pushed (GitHub Actions, read with gh). Red sends the end of the failed log to the agent that did the work, which fixes it, commits and pushes; then the runs of the new commit are waited for. It never pushes by itself.'),
+      del);
+    return;
+  }
   if (k === 'shot' || k === 'tests') {
     const subject = h('input', { class: 'fld', value: n.subject || '', placeholder: k === 'shot' ? 'e.g. the checkout page at http://localhost:3000/checkout' : 'e.g. the payment retry logic', oninput: e => patchNode(id, { subject: e.target.value }) });
     const cmd = h('input', { class: 'fld', value: n.cmd || '', placeholder: k === 'shot' ? 'empty: the agent takes it' : 'empty: the agent runs the suite', oninput: e => patchNode(id, { cmd: e.target.value }) });

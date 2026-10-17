@@ -34,6 +34,7 @@ mod agent;
 mod archive;
 mod boards;
 mod checks;
+mod ci;
 mod commands;
 mod fix;
 mod flow;
@@ -43,8 +44,10 @@ mod graph;
 mod handover;
 mod history;
 mod info;
+mod limits;
 mod marks;
 mod repo;
+mod rewind;
 mod run;
 mod state;
 #[cfg(test)]
@@ -62,7 +65,10 @@ pub use util::now_ms;
 use agent::*;
 use archive::*;
 use boards::Boards;
+use ci::*;
+use limits::*;
 use repo::*;
+use rewind::*;
 use state::*;
 use talk::*;
 use util::*;
@@ -89,6 +95,26 @@ pub enum Ev {
         job: GitJobKind,
         res: Result<String, String>,
         facts: Option<Facts>,
+    },
+    /// What the CI runs a CI check watches show now, and how it ended once it has (see ci.rs).
+    Ci {
+        id: String,
+        gen: u64,
+        sha: String,
+        runs: Vec<CiRun>,
+        end: Option<(CiEnd, String)>,
+    },
+    /// A snapshot of an agent's folder for step `n` is in (see rewind.rs), with the files it changed.
+    Cp {
+        id: String,
+        n: u32,
+        at: CpAt,
+        res: Result<(Snapshot, Vec<String>), String>,
+    },
+    /// The files of the steps the person undid are back.
+    Rewound {
+        id: String,
+        res: Result<Rewound, String>,
     },
     /// A gate's capture command or test suite finished.
     Gate {
@@ -505,13 +531,15 @@ impl Engine {
                     || r.dirty
                     || r.typing.is_some()
                     || r.spawning
-                    || r.cur.is_some()
+                    // (an agent asleep at its usage limit only needs the slow tick that wakes it)
+                    || (r.cur.is_some() && r.limit.is_none())
                     || !r.queue.is_empty()
                     || r.bg
                     || r.git.busy
-                    || r.gate.phase != GatePhase::Idle
+                    // (a CI check looks at its runs every few seconds by itself: it needs no heartbeat)
+                    || (r.gate.phase != GatePhase::Idle && !r.gate.ci)
                     || r.hand.phase != HandPhase::None
-                    || (r.alive && !r.finished && (r.armed || matches!(r.status, Status::New | Status::Starting)))
+                    || (r.alive && !r.finished && r.limit.is_none() && (r.armed || matches!(r.status, Status::New | Status::Starting)))
             })
     }
 
@@ -542,6 +570,9 @@ impl Engine {
             }
             Ev::Git { id, gen, job, res, facts } => self.on_git(id, gen, job, res, facts),
             Ev::Gate { id, gen, tests, ok, out } => self.on_gate(id, gen, tests, ok, out),
+            Ev::Ci { id, gen, sha, runs, end } => self.on_ci(id, gen, sha, runs, end),
+            Ev::Cp { id, n, at, res } => self.on_cp(id, n, at, res),
+            Ev::Rewound { id, res } => self.on_rewound(id, res),
             Ev::Snapshot { id, snap } => self.on_snapshot(id, snap),
             Ev::Proj(v) => self.on_project(v),
             Ev::Hand { to, from, brief, facts } => self.on_hand(&to, &from, brief, facts),
@@ -571,6 +602,7 @@ impl Engine {
             }
             // (git takes a moment: the log answers by itself, the engine does not wait for it)
             Ev::Cmd { cmd: Cmd::Log { dir, branch, n, show, remote }, reply, .. } => self.cmd_log(dir, branch, n, show, remote, reply),
+            Ev::Cmd { cmd: Cmd::CpDiff { id, n }, reply, .. } => self.cmd_cp_diff(id, n, reply),
             // (a sleeping board's daemon takes a moment to come up)
             Ev::Cmd { cmd: Cmd::BoardOpen { dir, window }, reply, .. } => self.cmd_board_open(dir, window, reply),
             Ev::Boards(list) => self.on_boards(list),
@@ -689,6 +721,7 @@ impl Engine {
         self.tick_project();
         self.tick_talk();
         self.tick_boards();
+        self.tick_limits();
         let now = Instant::now();
         let alive: Vec<String> = self.rt.iter().filter(|(_, r)| r.alive).map(|(i, _)| i.clone()).collect();
         for id in alive {

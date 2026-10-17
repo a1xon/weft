@@ -229,6 +229,25 @@ pub enum Cmd {
     Restart {
         id: String,
     },
+    /// An agent asleep at its usage limit tries now instead of at the reset time.
+    LimitWake {
+        id: String,
+    },
+    /// What step `n` of an agent changed, as a diff (answered by itself: see `Engine::handle`).
+    CpDiff {
+        id: String,
+        n: u32,
+    },
+    /// Undo steps `from..=to` of an agent (`to` missing: to its last); `force` also puts back files
+    /// that changed after them.
+    Rewind {
+        id: String,
+        from: u32,
+        #[serde(default)]
+        to: Option<u32>,
+        #[serde(default)]
+        force: bool,
+    },
     Fire {
         id: String,
     },
@@ -412,6 +431,7 @@ impl Cmd {
         !matches!(
             self,
             Cmd::Log { .. }
+                | Cmd::CpDiff { .. }
                 | Cmd::BoardOpen { .. }
                 | Cmd::Proj { .. }
                 | Cmd::Dirs { .. }
@@ -471,6 +491,12 @@ impl Engine {
             Cmd::NetSet { networks } => self.cmd_net_set(networks),
             Cmd::Start { id } => self.cmd_start(id),
             Cmd::Stop { id } => self.cmd_stop(id),
+            Cmd::LimitWake { id } => self.cmd_limit_wake(id),
+            Cmd::CpDiff { id, n } => {
+                self.cmd_cp_diff(id, n, None);
+                json!({"ok": false, "error": "the diff answers by itself"})
+            }
+            Cmd::Rewind { id, from, to, force } => self.cmd_rewind(id, from, to, force),
             Cmd::Restart { id } => self.cmd_restart(id),
             Cmd::Arm { id } => self.cmd_arm(id),
             Cmd::Approve { id, ok } => self.cmd_approve(id, ok),

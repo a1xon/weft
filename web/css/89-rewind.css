@@ -1,0 +1,20 @@
+/* rewind: a dot per step that changed files, above the card's footer; a step's diff in the reader */
+.cps{display:flex;align-items:center;gap:5px;flex-wrap:wrap;padding:3px 10px 2px;border-top:1px solid var(--l1);min-height:18px}
+.cps .cpl{font:600 calc(9px*var(--fs)) var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--i3);margin-right:3px}
+.cpd{width:11px;height:11px;padding:0;border:1.5px solid var(--cy2);background:var(--cy2);transform:rotate(45deg);cursor:pointer;font:700 9px/8px var(--mono);color:var(--vi)}
+.cpd:hover{background:var(--cy);border-color:var(--cy)}
+.cpd.open{background:transparent;border-color:var(--am);animation:cppulse 1.4s ease-in-out infinite}
+.cpd.undone{background:transparent;border-color:var(--i4)}
+.cpd.rw{transform:none;width:auto;height:auto;border:none;background:none;font-size:calc(12px*var(--fs));line-height:1}
+.cpd.rw.undone{color:var(--i4)}
+@keyframes cppulse{50%{opacity:.35}}
+#reader .fh2 .cpf{font:500 calc(11px*var(--fs)) var(--mono);color:var(--i2);white-space:nowrap}
+#reader .rbody.diff{white-space:pre}
+.dv{font:calc(13px*var(--fs)*var(--rz,1))/1.45 var(--mono);color:var(--i1)}
+.dv .dl{white-space:pre-wrap;word-break:break-all;padding-left:1ch;text-indent:-1ch}
+.dv .df{margin-top:14px;padding-top:6px;border-top:1px solid var(--l2);color:var(--i0);font-weight:700}
+.dv .dh,.dv .dm{color:var(--i3)}
+.dv .dk{color:var(--cy2)}
+.dv .da{color:var(--gr);background:rgba(61,220,151,.07)}
+.dv .dd{color:var(--rd);background:rgba(255,92,122,.07)}
+.dv .ds{color:var(--i2)}

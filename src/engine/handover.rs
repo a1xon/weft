@@ -85,7 +85,11 @@ impl Engine {
             rt.hand.from = Some(from.to_string());
             rt.ui = true;
         }
-        if !alive {
+        if self.rt.get(from).is_some_and(|r| r.limit.is_some()) {
+            // at its usage limit it cannot write a note: what it said and what git says will do
+            self.limit_hand_over(to, from);
+            self.takeover_compose(to, None);
+        } else if !alive {
             self.takeover_compose(to, None);
         } else if busy {
             if let Some(rt) = self.rt.get_mut(to) {

@@ -17,6 +17,11 @@ impl Engine {
             if changed {
                 rt.accumulate(&self.cfg.chrome);
             }
+            if changed && rt.turn && rt.limit.take().is_some() {
+                // it went back to work by itself (its CLI waited out the limit, a person typed into it)
+                rt.ui = true;
+                self.state_dirty = true;
+            }
             if changed && rt.work {
                 // something still runs in the background: has the step already given its last word?
                 let Rt { cur, parser, .. } = rt;
@@ -50,6 +55,8 @@ impl Engine {
         let (has_q, has_cur) = (!rt.queue.is_empty(), rt.cur.is_some());
         // a prompt that has not been seen taken is not a step that went quiet: nothing is judged yet
         let typing = rt.typing.is_some();
+        // asleep at its usage limit: nothing is judged, and nothing queued is typed (the CLI drops it)
+        let limited = rt.limit.is_some();
         if next != rt.status {
             rt.status = next;
             rt.since = now_ms();
@@ -60,8 +67,8 @@ impl Engine {
             self.verify_screen(id, now);
         }
 
-        if typing {
-            // wait for drive_typing
+        if typing || limited {
+            // wait for drive_typing, or for the limit to reset (`tick_limits`)
         } else if armed && !finished && finish == Finish::Idle && !attn && quiet >= fin_d && (has_cur || !has_q) {
             self.on_silence(id, has_q);
         } else if has_q && !attn && can_type && (finish == Finish::Exit || (!has_cur && (finished || !armed || next == Status::Idle))) {
@@ -89,6 +96,10 @@ impl Engine {
             Issue(String),
             Hold,
             Say(String),
+        }
+        // a CLI that stopped at its usage limit has not answered, and cannot take a question either
+        if let Some(said) = self.limit_hit(id) {
+            return self.limit_sleep(id, said);
         }
         let chrome = self.cfg.chrome.clone();
         let (nudge, max_checks) =
@@ -233,6 +244,7 @@ impl Engine {
 
     /// One step finished. Continue the script, or settle the agent.
     pub(super) fn step_done(&mut self, id: &str, ok: bool, text: Option<String>, how: How) {
+        self.cp_end(id);
         let Some(node) = self.node(id) else { return };
         let exit_node = node.finish == Finish::Exit;
         let chrome = self.cfg.chrome.clone();
@@ -418,6 +430,12 @@ impl Engine {
             item.text.push_str("\n\n");
             item.text.push_str(&words::status_rule(!ruled));
         }
+        // the person undid some of its work since its last prompt: it should know before it goes on
+        if agent && plain {
+            if let Some(note) = self.rt.get_mut(id).and_then(|r| r.rewound.take()) {
+                item.text = format!("{note}\n\n{}", item.text);
+            }
+        }
         let Some(rt) = self.rt.get_mut(id) else { return };
         let Some(pane) = rt.pane.clone() else {
             rt.queue.push_front(item);
@@ -444,6 +462,8 @@ impl Engine {
         rt.cur = Some(Step { expect_signal, rule, lone: !consumed, ..Step::new(item.text.clone(), before) });
         rt.issue = None;
         rt.waiting = None;
+        rt.limit = None;
+        rt.limit_sleeps = 0;
         if consumed {
             rt.briefed = true;
         }
@@ -456,6 +476,9 @@ impl Engine {
         rt.ui = true;
         self.set_status(id, Status::Busy);
         self.state_dirty = true;
+        if agent && plain {
+            self.cp_begin(id, &item.shown);
+        }
     }
 
     /// What a prompt for `id` is told besides its task: `(chain, rule)`. A step whose result a flow
@@ -500,7 +523,8 @@ impl Engine {
         }
         let (alive, working, dialog) = {
             let r = &self.rt[&id];
-            (r.alive, r.alive && r.armed && !r.finished && r.status == Status::Busy, r.alive && r.attn)
+            // (asleep at its usage limit it would drop a message: it waits like one for a busy agent)
+            (r.alive, r.alive && r.armed && !r.finished && (r.status == Status::Busy || r.limit.is_some()), r.alive && r.attn)
         };
         let queue_it = match mode {
             SendMode::Queue => true,
@@ -647,7 +671,7 @@ fn answer_in(parser: &mut vt100::Parser, c: &Step, chrome: &[String]) -> Option<
 
 /// What the agent said since `before`, without the echo of what was typed to it. `None` when
 /// nothing new is on the screen (so an old line of an earlier turn is never mistaken for this one's).
-fn new_since(parser: &mut vt100::Parser, before: &[String], typed: &str, chrome: &[String]) -> Option<String> {
+pub(super) fn new_since(parser: &mut vt100::Parser, before: &[String], typed: &str, chrome: &[String]) -> Option<String> {
     let after = term::lines(parser);
     let said = term::extract_response(before, &after, typed, chrome);
     (!said.trim().is_empty()).then_some(said)

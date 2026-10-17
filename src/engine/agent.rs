@@ -418,6 +418,7 @@ impl Engine {
         rt.cur = None;
         rt.issue = None;
         rt.waiting = None;
+        rt.limit = None;
         rt.ui = true;
     }
 
@@ -429,6 +430,8 @@ impl Engine {
     }
 
     pub(super) fn cmd_stop(&mut self, id: String) -> Value {
+        // what it did until it was stopped is a step that can be looked at, and undone
+        self.cp_end(&id);
         self.kill(&id);
         if self.rt.get(&id).is_some_and(|r| !r.finished) {
             self.set_status(&id, Status::Stopped);
@@ -500,13 +503,14 @@ impl Engine {
                 }
                 let before = term::lines(&mut rt.parser);
                 rt.cur = Some(Step::new(typed.clone(), before));
-                rt.asked = typed;
+                rt.asked = typed.clone();
                 rt.finished = false;
                 rt.waiting = None;
                 rt.last_change = Instant::now();
                 rt.ui = true;
                 self.set_status(id, Status::Busy);
                 self.state_dirty = true;
+                self.cp_begin(id, &typed);
             }
             _ => {}
         }

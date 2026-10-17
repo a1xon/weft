@@ -430,6 +430,10 @@ impl Engine {
     /// Take a card off the canvas: its process ends, nobody waits on it any more, its links go.
     /// `worktree`: its git worktree goes too (filed work keeps it, so it can come back to it).
     pub(super) fn drop_node(&mut self, id: &str, worktree: bool) {
+        if worktree {
+            // (gone for good: its snapshots go with it; filed work keeps them)
+            self.cp_forget(id);
+        }
         // an agent that took over works in this agent's worktree: it must not vanish under it
         let shared = self.worktree_shared(id);
         // a note somebody asked this agent for, or an agent waiting on it, must not hang

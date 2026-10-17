@@ -112,6 +112,19 @@ impl Engine {
         let queue: Vec<Value> =
             rt.queue.iter().map(|q| json!({"id": q.id, "text": head_chars(q.shown.trim(), 240), "src": q.src})).collect();
         let out = rt.output.as_deref().map(|o| head_chars(o.trim(), 1500));
+        // steps that changed files (and the one running): the dots under the card (see rewind.rs)
+        let cps: Vec<Value> = rt
+            .cps
+            .iter()
+            .filter(|c| !c.files.is_empty() || c.after.is_empty())
+            .map(|c| json!({"n": c.n, "what": c.what, "at": c.at, "files": c.files.len(), "names": c.files.iter().take(8).collect::<Vec<_>>(),
+                            "open": c.after.is_empty() && !c.rewind, "undone": c.undone, "rewind": c.rewind}))
+            .collect();
+        let ci = if rt.gate.ci_sha.is_empty() && rt.gate.ci_runs.is_empty() {
+            Value::Null
+        } else {
+            json!({"sha": rt.gate.ci_sha, "watching": rt.gate.ci, "runs": rt.gate.ci_runs.iter().map(CiRun::to_json).collect::<Vec<_>>()})
+        };
         json!({
             "t": "rt", "id": id, "status": self.eff_status(id, blocked), "alive": rt.alive, "armed": rt.armed,
             "runs": rt.runs, "since": rt.since, "arrived": arrived, "need": need, "ok": rt.ok,
@@ -124,6 +137,7 @@ impl Engine {
             "archive_at": filing.get(id),
             "issue": rt.issue.as_deref().map(|i| head_chars(i, 4000)),
             "waiting": rt.waiting.as_ref().map(|w| json!({"what": head_chars(&w.what, 200), "checks": w.checks})),
+            "limit": rt.limit.as_ref().map(|l| json!({"until": l.until, "said": head_chars(&l.said, 300), "known": l.known})),
             "step_wait": rt.step_wait.as_ref().and_then(|h| self.node(h)).map(|n| n.name.clone()),
             "eta": rt.checks.eta.as_ref().map(|e| json!({"at": e.at, "set": e.set, "total": e.total, "note": e.note})),
             "feed": rt.checks.feed.iter().rev().take(24).collect::<Vec<_>>().into_iter().rev().map(|f| json!({
@@ -137,6 +151,8 @@ impl Engine {
             "hand_phase": match rt.hand.phase { HandPhase::None => "", HandPhase::Settle => "settle", HandPhase::Asking => "asking" },
             "gate_phase": rt.gate.phase, "gate_round": rt.gate.round, "gate_shots": rt.gate.shots,
             "gate_out": head_chars(rt.gate.out.trim(), 1800),
+            "ci": ci,
+            "cps": cps,
             "gate_to": rt.gate.targets.iter().filter_map(|t| self.node(t).map(|n| n.name.clone())).collect::<Vec<_>>(),
         })
     }

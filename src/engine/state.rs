@@ -324,6 +324,14 @@ pub(super) struct Rt {
     pub(super) issue: Option<String>,
     /// the agent said it waits for something (`STATUS: WAITING`)
     pub(super) waiting: Option<Waiting>,
+    /// its CLI ran into the usage limit: it sleeps until then (see limits.rs), and how often this step did
+    pub(super) limit: Option<Limit>,
+    pub(super) limit_sleeps: u32,
+    /// its steps as snapshots of its folder, before and after (see rewind.rs); the last number given;
+    /// and what the next prompt tells it about a rewind the person did
+    pub(super) cps: Vec<Cp>,
+    pub(super) cp_seq: u32,
+    pub(super) rewound: Option<String>,
     /// a message pasted that has not been seen taken yet
     pub(super) typing: Option<Typing>,
     /// what the person typed into the terminal from the page since their last Enter
@@ -412,6 +420,10 @@ pub(super) struct GateRound {
     pub(super) failed: bool,
     /// bumped when a round restarts: a capture or test run that finishes late is dropped
     pub(super) gen: u64,
+    /// a CI check: its watch of the runs is going on, the commit it looks at, and what the runs show
+    pub(super) ci: bool,
+    pub(super) ci_sha: String,
+    pub(super) ci_runs: Vec<CiRun>,
 }
 
 impl GateRound {
@@ -676,6 +688,11 @@ impl Rt {
             attn: false,
             issue: None,
             waiting: None,
+            limit: None,
+            limit_sleeps: 0,
+            cps: Vec::new(),
+            cp_seq: 0,
+            rewound: None,
             typing: None,
             keyed: String::new(),
             briefed: false,
@@ -730,6 +747,11 @@ impl Rt {
             hand_from: if self.hand.phase != HandPhase::None { self.hand.from.clone() } else { None },
             armed: self.armed,
             issue: self.issue.clone(),
+            limit: self.limit.clone(),
+            limit_sleeps: self.limit_sleeps,
+            cps: self.cps.clone(),
+            cp_seq: self.cp_seq,
+            rewound: self.rewound.clone(),
             briefed: self.briefed,
             ruled: self.ruled,
             finished: self.finished,
@@ -776,6 +798,12 @@ impl Rt {
         self.hand.from = s.hand_from;
         self.armed = s.armed;
         self.issue = s.issue;
+        self.limit = s.limit;
+        self.limit_sleeps = s.limit_sleeps;
+        // (a snapshot that was being taken when the daemon stopped never arrives)
+        self.cps = s.cps.into_iter().filter(|c| !c.before.is_empty()).collect();
+        self.cp_seq = s.cp_seq;
+        self.rewound = s.rewound;
         self.briefed = s.briefed;
         // (an older build gave the rule in full only together with the brief)
         self.ruled = s.ruled || s.briefed;
@@ -988,6 +1016,8 @@ impl Rt {
         self.cur = None;
         self.issue = None;
         self.waiting = None;
+        self.limit = None;
+        self.limit_sleeps = 0;
         self.typing = None;
         self.ok = None;
         self.output = None;
@@ -1029,6 +1059,16 @@ pub(super) struct Saved {
     pub(super) armed: bool,
     #[serde(default)]
     pub(super) issue: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) limit: Option<Limit>,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub(super) limit_sleeps: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) cps: Vec<Cp>,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub(super) cp_seq: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) rewound: Option<String>,
     #[serde(default)]
     pub(super) briefed: bool,
     #[serde(default)]
@@ -1099,6 +1139,10 @@ pub(super) struct Saved {
     pub(super) talk_inbox: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(super) talk_said: Vec<TalkMsg>,
+}
+
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
 }
 
 pub(super) struct Watch {

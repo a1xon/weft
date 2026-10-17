@@ -35,7 +35,7 @@ fn titles_are_short_and_do_not_end_on_stop_words() {
     assert_eq!(title_from("   \n  ", "Agent"), "Agent");
 }
 
-fn engine() -> Engine {
+pub(super) fn engine() -> Engine {
     // every engine gets its own scratch folder: tests run in parallel and write files
     static N: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let scratch =
@@ -62,12 +62,12 @@ fn node(id: &str, name: &str, prompt: &str) -> Node {
     serde_json::from_value(json!({"id": id, "name": name, "prompt": prompt, "addenda": []})).unwrap()
 }
 
-fn add(e: &mut Engine, id: &str, name: &str, prompt: &str) {
+pub(super) fn add(e: &mut Engine, id: &str, name: &str, prompt: &str) {
     e.flow.nodes.push(node(id, name, prompt));
     e.rt.insert(id.into(), Rt::new(80, 24));
 }
 
-fn link(e: &mut Engine, id: &str, from: &str, to: &str, on: On) {
+pub(super) fn link(e: &mut Engine, id: &str, from: &str, to: &str, on: On) {
     e.flow.edges.push(Edge { id: id.into(), from: from.into(), to: to.into(), on });
 }
 
@@ -278,7 +278,7 @@ fn script_continues_until_the_queue_drains() {
     assert!(e.rt["n2"].queue[0].text.contains("result two"));
 }
 
-fn add_kind(e: &mut Engine, id: &str, name: &str, agent: &str, prompt: &str) {
+pub(super) fn add_kind(e: &mut Engine, id: &str, name: &str, agent: &str, prompt: &str) {
     let n: Node = serde_json::from_value(json!({"id": id, "name": name, "agent": agent, "prompt": prompt, "addenda": []})).unwrap();
     e.flow.nodes.push(n);
     e.rt.insert(id.into(), Rt::new(80, 24));
@@ -377,7 +377,7 @@ fn commit_subjects_are_short_and_use_the_template() {
     assert!(commit_subject(&n, "a", &long).chars().count() <= 73);
 }
 
-fn alive_agent(e: &mut Engine, id: &str, name: &str) {
+pub(super) fn alive_agent(e: &mut Engine, id: &str, name: &str) {
     add(e, id, name, "build it");
     e.rt.get_mut(id).unwrap().alive = true;
 }
@@ -898,6 +898,7 @@ fn agents_run_in_yolo_mode_unless_switched_off() {
         yolo_arg: String::new(),
         working: vec![],
         busy: vec![],
+        limits: vec![],
         effort_models: vec![],
         title_cmd: String::new(),
     };
@@ -2349,11 +2350,11 @@ fn the_archive_file_stays_out_of_git() {
     write_atomic(&p, b"run/\nshots/\nstate.json").unwrap();
     ensure_weft_gitignore(&dir);
     ensure_weft_gitignore(&dir);
-    assert_eq!(std::fs::read_to_string(&p).unwrap(), "run/\nshots/\nstate.json\narchive.json\narchive/\n");
-    // and one from before the packs gets theirs
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "run/\nshots/\nstate.json\narchive.json\narchive/\ncp/\n");
+    // and one from before the packs (and the step snapshots) gets theirs
     write_atomic(&p, b"run/\narchive.json\n").unwrap();
     ensure_weft_gitignore(&dir);
-    assert_eq!(std::fs::read_to_string(&p).unwrap(), "run/\narchive.json\narchive/\n");
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "run/\narchive.json\narchive/\ncp/\n");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

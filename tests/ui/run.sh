@@ -22,7 +22,7 @@ cat > "$SB/cfg/weft/config.json" <<JSON
              "models_cmd": "printf 'sim-fast\\tSim Fast\\nsim-deep\\tSim Deep\\n'"},
   "agy":    {"cmd": "python3 $ROOT/examples/sim-agent.py --name agy --think 2.5",
              "models_cmd": "printf 'sim-fast\\tSim Fast\\nsim-deep\\tSim Deep\\n'"} },
-  "titles": false }
+  "titles": false, "gh": "python3 $ROOT/examples/fake-gh.py" }
 JSON
 }
 fresh() {
@@ -38,7 +38,7 @@ fresh() {
   "$BIN" open "$SB/proj" --no-open | tail -1 | tr -d ' ' > "$SB/url.txt"
 }
 # dev: `dev` plays the page following edits to its files (src/dev.rs)
-for t in ${TESTS:-story features pad folders boards tree repos next watch eta bar aim place dial archive chain tidy nets talk marks quit peek plea fix joins dev}; do
+for t in ${TESTS:-story features pad folders boards tree repos next watch eta limit ci rewind bar aim place dial archive chain tidy nets talk marks quit peek plea fix joins dev}; do
   echo "== $t"; fresh
   SANDBOX="$SB" node "$HERE/$t.cjs"
 done

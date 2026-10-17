@@ -282,12 +282,22 @@ function statusText(n, r) {
   if (isGate(k)) {
     const who = (r.gate_to && r.gate_to[0]) ? r.gate_to[0] : 'the agent';
     const round = r.gate_round > 1 ? ` \u00b7 round ${r.gate_round}` : '';
+    if (n.ci) {
+      const runs = (r.ci && r.ci.runs) || [], fin = runs.filter(x => x.status === 'completed').length;
+      if (st === 'busy' && r.gate_phase === 'running') return `watching CI${runs.length ? ` \u00b7 ${fin}/${runs.length} done` : ' \u00b7 waiting for runs'}${round}`;
+      if (st === 'busy') return `${who} is fixing what CI found${round}`;
+      if (st === 'attention') return /^CI failed/.test(r.gate_out || '') ? 'CI failed \u00b7 your call' : 'CI \u00b7 your call';
+      if (st === 'done') return `CI passed ${age(r.since)} ago`;
+      if (st === 'failed') return `rejected ${age(r.since)} ago`;
+      return r.need ? `waits for the push \u00b7 ${r.arrived.length}/${r.need} in` : 'waits for a push';
+    }
     if (st === 'attention') return k === 'tests' && r.gate_green === false ? 'tests failed \u00b7 your call' : k === 'shot' ? 'confirm the screenshot' : 'waiting for you';
     if (st === 'busy') return r.gate_phase === 'running' ? `running${k === 'tests' ? ' the suite' : ''}${round}` : `asking ${who}${round}`;
     if (st === 'done') return `${k === 'gate' ? 'approved' : 'passed'} ${age(r.since)} ago`;
     if (st === 'failed') return `rejected ${age(r.since)} ago`;
     return r.need ? `holds \u00b7 ${r.arrived.length}/${r.need} in` : 'holds the flow';
   }
+  if (r.limit) return limitText(r.limit);
   if (r.bg && st === 'busy') return `waiting on background work \u00b7 ${clock(r.since)}`;
   if (r.hand_wait) return r.hand_phase === 'asking' ? `taking over \u00b7 ${r.hand_wait} is writing the note` : `taking over \u00b7 waiting for ${r.hand_wait} to finish`;
   switch (st) {
@@ -316,6 +326,7 @@ function renderNode(id) {
   renderFilm(id, n, r);
   renderPlea(id, n, r);
   renderEta(id, n, r);
+  renderCps(id, n, r);
   renderFiling(id, n, r);
   const k = kindOf(n);
   const st = r ? r.status : 'new';
@@ -328,7 +339,7 @@ function renderNode(id) {
   if (el.nm.textContent !== n.name && !el.renaming) { el.nm.textContent = n.name; el.nm.title = n.name + ' · double-click to rename'; }
   const isStep = n.agent === 'step';
   el.root.dataset.step = String(isStep);
-  el.ag.textContent = isStep ? '↻ same agent' : k === 'git' ? 'git · ' + gitOpLabel(n) : k === 'tests' && n.write_tests === false ? 'gate · check' : agentTag(n.agent) + tuneTag(n);
+  el.ag.textContent = isStep ? '↻ same agent' : k === 'git' ? 'git · ' + gitOpLabel(n) : k === 'tests' && n.ci ? 'gate · CI' : k === 'tests' && n.write_tests === false ? 'gate · check' : agentTag(n.agent) + tuneTag(n);
   if (isStep) el.ag.title = `answered by ${hostOf(n).name} in its own session`;
   else el.ag.title = tuneTag(n) ? `${agentTag(n.agent)}${n.model ? ' · model ' + n.model : ''}${n.effort ? ' · reasoning ' + n.effort : ''}${manages(n.agent) && !yoloOf(n) ? ' · asks before it acts' : ''} (click to change)` : 'change what runs this';
   el.stx.textContent = statusText(n, r);
@@ -377,6 +388,18 @@ function renderNode(id) {
     } else {
       key = 'shot0:' + st; build = () => ({ cls: 'ans hint', kids: [st === 'done' ? 'confirmed.' : st === 'failed' ? 'rejected.' : n.subject ? `holds the flow until you confirm a screenshot of ${n.subject}.` : 'asks the agent upstream for a screenshot and holds the flow until you confirm it.'] });
     }
+  } else if (k === 'tests' && n.ci) {
+    const ci = (r && r.ci) || null, runs = (ci && ci.runs) || [], out = (r && r.gate_out) || '';
+    key = 'ci:' + st + (r ? r.gate_phase + r.gate_round : '') + JSON.stringify(ci) + out;
+    const pill = x => h('a', { class: 'cipill ' + (x.status !== 'completed' ? 'run' : ['success', 'skipped', 'neutral'].includes(x.conclusion) ? 'ok' : 'bad'),
+      href: x.url || null, target: '_blank', rel: 'noopener', title: `${x.name}: ${x.conclusion || x.status.replace('_', ' ')}` },
+      h('i', {}, x.status !== 'completed' ? '\u25cc' : ['success', 'skipped', 'neutral'].includes(x.conclusion) ? '\u2713' : '\u2717'), x.name);
+    build = () => ({ cls: 'ans kv', kids: nn([
+      h('span', { class: 'kvl' }, 'CI of ', h('b', {}, ci && ci.sha ? ci.sha.slice(0, 7) : 'the pushed commit')),
+      runs.length ? h('span', { class: 'cipills' }, ...runs.map(pill)) : null,
+      out && !(ci && ci.watching) ? h('span', { class: 'commit', style: 'white-space:pre-wrap;color:' + (/^CI failed/.test(out) ? 'var(--rd)' : 'var(--i1)') }, out.split('\n').slice(0, 6).join('\n'))
+        : runs.length ? null : h('span', { class: 'src' }, st === 'done' ? 'passed.' : 'once what is before it is pushed, waits for its CI runs. red goes back to the agent that did the work, which fixes and pushes.'),
+    ]) });
   } else if (k === 'tests') {
     const out = (r && r.gate_out) || '';
     key = 'tests:' + (n.cmd || '') + st + (r ? r.gate_phase + r.gate_round : '') + out;

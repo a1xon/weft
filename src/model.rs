@@ -176,6 +176,9 @@ pub struct Node {
     /// The cards that failed and this agent was asked to fix (see engine/fix.rs). Not a link.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fixes: Vec<String>,
+    /// tests gate: wait for the CI runs of the pushed commit instead of running a command (see engine/ci.rs).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ci: bool,
 }
 
 /// What a watch collects.
@@ -420,6 +423,10 @@ pub struct AgentCfg {
     /// has been taken.
     #[serde(default)]
     pub busy: Vec<String>,
+    /// Screen substrings (any case) that mean the CLI ran into its usage limit: the agent sleeps
+    /// until the time the same lines name, then carries on (see engine/limits.rs).
+    #[serde(default)]
+    pub limits: Vec<String>,
     /// The reasoning level applies only to these models (substrings; "" = the CLI's default
     /// model). Empty = every model.
     #[serde(default)]
@@ -472,6 +479,10 @@ pub struct Config {
     pub rest_s: f64,
     /// Cards are named by their agent's `title_cmd` (until you rename one yourself).
     pub titles: bool,
+    /// An agent at its usage limit whose CLI names no reset time is woken to try again this often (seconds).
+    pub limit_retry_s: f64,
+    /// GitHub's CLI, which a CI check reads the runs of a commit with (`gh run list`, `gh run view`).
+    pub gh: String,
 }
 
 impl Default for Config {
@@ -497,6 +508,8 @@ impl Default for Config {
             archive_flow_s: 900.0,
             rest_s: rest_default(),
             titles: true,
+            limit_retry_s: 1200.0,
+            gh: "gh".into(),
         }
     }
 }
@@ -560,6 +573,9 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             // "✻ Brewed for 3s · done 7:07 · 1 shell still running": it will wake up when it ends
             working: strings(&["shell still running", "shells still running"]),
             busy: strings(&["esc to interrupt"]),
+            // "You've hit your session limit · resets 3pm (Europe/Berlin)" (not the fast-mode one:
+            // that only slows it down)
+            limits: strings(&["you've hit your", "usage limit reached", "reached your weekly usage limit"]),
             // no tools: the request must not turn into work
             title_cmd: r#"claude -p "$WEFT_TITLE_REQ" --model haiku --effort low --no-session-persistence --tools """#.into(),
             ..AgentCfg::default()
@@ -584,6 +600,8 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             yolo_arg: "--dangerously-bypass-approvals-and-sandbox".into(),
             working: strings(&["background terminal"]),
             busy: strings(&["esc to interrupt"]),
+            // "You've hit your usage limit. ... or try again at 3:04 PM."
+            limits: strings(&["you've hit your usage limit"]),
             title_cmd: r#"codex exec -m gpt-6-luna -c model_reasoning_effort=low -s read-only --ephemeral --skip-git-repo-check "$WEFT_TITLE_REQ""#
                 .into(),
             ..AgentCfg::default()
@@ -604,6 +622,8 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             efforts: strings(&["low", "medium", "high"]),
             effort_models: vec![String::new()],
             yolo_arg: "--dangerously-skip-permissions".into(),
+            // its wording is not known for sure: the usual quota messages of Google's models
+            limits: strings(&["usage limit reached", "exhausted your", "quota exceeded", "you've hit your"]),
             // the reasoning level is in the model's name (an --effort beside it drops the model)
             title_cmd: r#"agy -p "$WEFT_TITLE_REQ" --model gemini-3.8-flash-low"#.into(),
             ..AgentCfg::default()
@@ -727,11 +747,11 @@ pub fn ensure_weft_gitignore(dir: &Path) {
     let p = dir.join(".weft").join(".gitignore");
     match fs::read_to_string(&p) {
         Err(_) => {
-            let _ = write_atomic(&p, b"run/\nshots/\nstate.json\narchive.json\narchive/\n");
+            let _ = write_atomic(&p, b"run/\nshots/\nstate.json\narchive.json\narchive/\ncp/\n");
         }
         // a folder from before the archive (or its packs) existed
         Ok(have) => {
-            let miss: Vec<&str> = ["archive.json", "archive/"].into_iter().filter(|w| !have.lines().any(|l| l.trim() == *w)).collect();
+            let miss: Vec<&str> = ["archive.json", "archive/", "cp/"].into_iter().filter(|w| !have.lines().any(|l| l.trim() == *w)).collect();
             if !miss.is_empty() {
                 let sep = if have.is_empty() || have.ends_with('\n') { "" } else { "\n" };
                 let _ = write_atomic(&p, format!("{have}{sep}{}\n", miss.join("\n")).as_bytes());

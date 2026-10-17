@@ -54,6 +54,7 @@ function nodeMenu(id, x, y) {
   const n = S.nodes.get(id), r = S.rt.get(id), k = kindOf(n);
   const items = [];
   if (r && r.status === 'failed' && S.fixOn) items.push(...fixItems(id));
+  if (r && r.limit) items.push(...limitItems(id));
   if (k === 'agent' && n.agent === 'step') {
     const host = hostOf(n);
     items.push(
@@ -67,6 +68,7 @@ function nodeMenu(id, x, y) {
     items.push(
       { label: 'open terminal', hint: 'enter', run: () => openFocus(id) },
       { label: 'read the result', hint: 'r', run: () => openFly(id, 'result') },
+      ...(cpsOf(r).length ? [{ label: 'what its steps changed', hint: 'diff · undo', run: () => openStep(id, cpsOf(r)[cpsOf(r).length - 1].n) }] : []),
       { label: 'options', hint: ',', run: () => openFly(id, 'options') },
       { cap: 'watch it' },
       { k: hasShotWatch(n) ? '\u25cf' : ' ', label: hasShotWatch(n) ? 'screenshots: ask for one now' : 'screenshots', run: () => hasShotWatch(n) ? send('check_now', { node: id, check: n.checks.find(c => c.kind === 'shot').id }) : attachCheck(id, 'shot') },
@@ -198,6 +200,7 @@ function setAgent(k) {
 /* "git:commit", "git:push" and "git:pr" are the git node with an op */
 function splitKind(k) {
   if (k === 'check') return ['tests', checkGate()];
+  if (k === 'ci') return ['tests', ciGate()];
   const m = /^git:(commit|push|pr)$/.exec(k || '');
   return m ? ['git', { git_op: m[1] }] : [k, {}];
 }
@@ -236,6 +239,7 @@ async function spawnAt(agent0, x, y, opts = {}) {
       : kindFields.git_op === 'pr' ? 'open PR: link the push before it, then press arm. An agent that did the work writes and opens it.'
         : 'push: link commits (or agents) into it, then press arm. It waits for all of them.', { ms: 7000 });
     else if (k === 'shot') toast('info', 'screenshot gate: it asks the agent upstream, shows the image here and waits for you.', { ms: 7000 });
+    else if (k === 'tests' && kindFields.ci) toast('info', 'CI: once what is before it is pushed, it waits for the CI runs of that commit (with gh). Red goes back to the agent that did the work, which fixes and pushes.', { ms: 8000 });
     else if (k === 'tests' && kindFields.write_tests === false) toast('info', kindFields.cmd ? `check: weft runs \`${kindFields.cmd}\`; red goes back to the agent. Change it in options.` : 'check: the agent runs the checks; red goes back to it. Set a command in options.', { ms: 8000 });
     else if (k === 'tests') toast('info', 'tests gate: the agent writes and runs tests. Set a command in options to run the suite yourself.', { ms: 8000 });
   }

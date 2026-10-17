@@ -88,6 +88,41 @@ STATUS line (DONE, ISSUE or FAILED as it turned out); if not, end with a STATUS 
     )
 }
 
+/// Typed when the usage limit an agent ran into has reset: it carries on with the step it was in,
+/// and reports the way it was asked to then.
+pub fn limit_resume(exe: &str, signal: bool, rule: bool) -> String {
+    let report = if signal {
+        format!(" When you are finished, report with `{exe} done` as before.")
+    } else if rule {
+        " Finish your final message with the STATUS line as before.".to_string()
+    } else {
+        String::new()
+    };
+    format!("{TAG} Your usage limit has reset. Carry on with the task where you stopped.{report}")
+}
+
+/// The person undid some of an agent's steps (see engine/rewind.rs): said before its next prompt.
+pub fn rewound(asked: &[String], files: &[String]) -> String {
+    let what = match asked {
+        [] => "some of your earlier work".to_string(),
+        [one] => format!("what you did for \"{one}\""),
+        many => format!("what you did in your last {} steps (from \"{}\" on)", many.len(), many[0]),
+    };
+    let shown: Vec<&str> = files.iter().take(12).map(String::as_str).collect();
+    let more = if files.len() > shown.len() { format!(" and {} more", files.len() - shown.len()) } else { String::new() };
+    format!(
+        "{TAG} Note: the person undid {what}. These files are back to how they were before it: {}{more}. Commits were not touched. Take it into account and do not redo it unless you are asked to.",
+        shown.join(", ")
+    )
+}
+
+/// The person took back a rewind: the agent's own changes are there again.
+pub fn rewound_back(files: &[String]) -> String {
+    let shown: Vec<&str> = files.iter().take(12).map(String::as_str).collect();
+    let more = if files.len() > shown.len() { format!(" and {} more", files.len() - shown.len()) } else { String::new() };
+    format!("{TAG} Note: the person put your changes back after undoing them: {}{more} are as you left them.", shown.join(", "))
+}
+
 /// What the status line of an agent says.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Verdict {
@@ -268,6 +303,16 @@ pub fn gate_fix(exe: &str, why: &str) -> String {
         why.trim(),
         separate(),
         answer(exe, "what you fixed")
+    )
+}
+
+/// A CI check went red: the agent that did the work fixes it and pushes, so CI runs on a new commit.
+pub fn ci_fix(exe: &str, why: &str) -> String {
+    format!(
+        "{TAG} Request: CI failed on what was pushed.\n\n{}\n\nFind the cause and fix it (in the code, or in the CI setup if that is what is wrong); run the failing part locally if you can. Then commit the fix and push it (`git push`, never with force): CI runs again on the new commit. {}\n\nThen {}",
+        why.trim(),
+        separate(),
+        answer(exe, "what you fixed and the commit you pushed")
     )
 }
 

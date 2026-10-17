@@ -9,6 +9,8 @@ const hasEta = n => !!n && (n.checks || []).some(c => c.kind === 'eta');
 const hasPing = n => !!n && (n.checks || []).some(c => c.kind === 'ping');
 function renderEta(id, n, r) {
   const el = nodeEls.get(id); if (!el) return;
+  if (r && r.limit) return renderLimit(el, id, r.limit);
+  if (el.eta && el.eta._lim) { el.eta.remove(); el.eta = null; }
   const live = hasEta(n) && r && (r.eta || r.status === 'busy' || r.status === 'starting');
   if (!live) { if (el.eta) { el.eta.remove(); el.eta = null; } return; }
   if (!el.eta) {
@@ -21,6 +23,7 @@ function renderEta(id, n, r) {
 }
 function tickEta(el) {
   const b = el.eta; if (!b) return;
+  if (b._lim) return tickLimit(b);
   const e = b._e, now = Date.now();
   const t = b.querySelector('.et'), note = b.querySelector('.en'), bar = b.querySelector('.bar');
   if (!e) { t.textContent = '…'; note.textContent = 'estimating'; bar.style.width = '0'; b.className = 'eta wait'; return; }
@@ -53,6 +56,39 @@ setInterval(() => {
   for (const el of nodeEls.values()) if (el.eta) tickEta(el);
   renderEtaTop();
 }, 1000);
+/* usage limit (engine/limits.rs): the agent sleeps until its CLI's limit resets, then carries on. The box
+   where an ETA would be counts down to that moment; a click offers to try now or to hand the work over */
+const hhmm = ms => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const limitText = l => `usage limit \u00b7 ${l.known ? 'resumes' : 'tries again'} ${hhmm(l.until)}`;
+function renderLimit(el, id, l) {
+  if (el.eta && !el.eta._lim) { el.eta.remove(); el.eta = null; }
+  if (!el.eta) {
+    el.eta = h('div', { class: 'eta lim', title: 'it hit its usage limit: click to try now or hand over',
+      onclick: ev => { ev.stopPropagation(); const b = el.eta.getBoundingClientRect(); popup(limitItems(id), b.left, b.bottom + 6); } },
+      h('span', { class: 'el' }, 'LIMIT'), h('b', { class: 'et' }), h('span', { class: 'en' }), h('i', { class: 'bar' }));
+    el.eta._lim = true;
+    el.root.append(el.eta);
+  }
+  el.eta._e = l;
+  el.eta.title = `${l.said}\n\nclick: try now, or hand the work over`;
+  tickLimit(el.eta);
+}
+function tickLimit(b) {
+  const l = b._e, left = l.until - Date.now();
+  b.querySelector('.et').textContent = etaClock(Math.max(0, left));
+  b.querySelector('.en').textContent = `${l.known ? 'resumes' : 'tries again'} ${hhmm(l.until)}`;
+}
+/* what a sleeping agent's box and menu offer: wake it now, or a fresh agent of another CLI takes over */
+function limitItems(id) {
+  const n = S.nodes.get(id); if (!n) return [];
+  const others = agentEntries().filter(([k]) => k !== n.agent && k !== 'sh');
+  return [
+    { cap: 'at its usage limit' },
+    { label: 'try now', hint: 'instead of at the reset', run: () => req('limit_wake', { id }).then(r => { if (!r.ok) toast('warn', r.error || 'it is awake already'); }) },
+    ...others.map(([k, a]) => ({ label: `hand over to ${a.label || k}`, hint: 'it takes the links', run: () => takeoverFrom(id, k, '') })),
+    { sep: true },
+  ];
+}
 /* ping: a notification when a watched agent is done or needs you */
 const baseTitle = document.title;
 function notifyPing(n, r) {

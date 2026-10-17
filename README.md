@@ -67,6 +67,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 | drag a card's bottom-right corner | resize it: a taller card shows more rows of its terminal; double-click the corner for the default size |
 | the wheel in an open terminal | scroll back: an agent that reads the mouse (Claude Code) scrolls its own transcript, anything else weft's history; *jump to latest* goes back down |
 | click a card's answer, or `R` | the whole **result**, full size and laid out as the agent's terminal showed it: indents and tables kept (a markdown table from `weft done` is drawn as a table), long lines wrapped under their own indent; `+`/`-` text size, `Esc` back. `weft result <node>` prints the same text in your terminal |
+| click a dot in a card's *steps* row | what that step changed, as a diff; **undo this step** or **rewind to before it** puts its files back (below) |
 | marquee or shift-click, then `G` | gather several results into one agent |
 | right-click anything | what it can do |
 | click **N failed** in the top bar | a fresh agent finds out why, fixes the cause and runs the failed cards again (below) |
@@ -151,6 +152,13 @@ One chip, two placements. Drop a check from the tray (bottom left):
     scripts, `go.mod`, pytest or unittest, Gradle, Maven, mix, a `make test` target), and whatever
     you type in a network's box is remembered for that folder. A check is a tests gate that only
     runs (its options say *just run*), so a gate after it still asks the agent behind both.
+  * *CI*: after a push or a pull request, the CI runs of the pushed commit must pass (GitHub
+    Actions, read with `gh run list --commit`). The card shows one pill per run, live. Red sends
+    the end of each failed run's log (`gh run view --log-failed`) to the agent that did the work.
+    That agent fixes it, commits and pushes, and the runs of the new commit are waited for: a few
+    times, then you decide. Green passes on what CI said. It never pushes by itself: a commit that
+    is not on the remote yet, or a repository `gh` cannot see, stops it for you. When no run
+    starts within 3 minutes (no workflows, or none for this change) it passes and says so.
 * **on an agent: a watch.** Nothing is blocked. While the agent works, evidence collects in a
   grid under its card: newest first, small, each with its own **steer field** and ✓.
   * *Enter* in a field steers the agent right now ("the header is cut off"); ✓ approves.
@@ -244,6 +252,30 @@ HEAD, project folder), the commits, the files changed, the pull request link if 
 for every agent that took part what it was asked, what it said and which commit came of it
 (budgeted to stay inside the 8 000 byte limit of piped results). Whatever you link after the
 chain, a tester, a reviewer, a deploy script, starts from that, not from a bare "done".
+
+### Rewind: what a step changed, and undo
+
+Every step an agent takes (a prompt, an answer to a gate, what you typed in its terminal) is
+bracketed by two snapshots of its folder. A step that changed files is a dot above the card's
+footer (*steps*); the one still running pulses. Hover a dot to see the files; a click shows the
+step's diff full size, coloured as a terminal shows it.
+
+* **Undo this step** puts the files that step changed back as they were before it: edited files
+  get their old content, files it made are removed, files it deleted come back. A file that changed
+  after the step (another agent, or the same one later) is left as it is, and the toast names it.
+* **Rewind to before it** does the same for that step and every step after it.
+* **The undo is a step too** (↺): undoing it puts the changes back. Commits are never touched,
+  only the files; undone work shows up as uncommitted changes.
+* The agent hears about it with its next prompt: which work was undone, which files are back, and
+  not to redo it unless asked.
+
+It works the same for every CLI (an agent's own undo, where it has one, knows only its own
+edits). The snapshots live in a shadow repository per repository under `.weft/cp/` (git-ignored)
+that borrows the real repository's objects. Nothing in the real repository changes: not the
+folder, not its index, not its branches or refs. Only content the repository does not have yet is
+stored. Ignored files, weft's own `.weft/` and untracked files over 8 MB are left out. A card keeps
+its last 24 steps; a step that changed nothing leaves no dot. Deleting a card drops its snapshots.
+An agent that is working cannot be rewound: wait for it, or stop it first.
 
 ### The archive
 
@@ -450,7 +482,7 @@ you use most sit in the **top bar**; all of them are in the **library** (also `/
 | **fix a bug** | reproduce it (failing test) and find the cause → the same agent fixes the cause → [check] → commit → push | – |
 | **three plans** | three agents plan on their own → the first compares, takes the best and builds it → [check] → commit → push | – |
 | *pull requests* | | |
-| **PR + review** | build → [check] → commit on a branch of its own → push → open PR → a second agent reviews the pull request and comments on it | – |
+| **PR + review** | build → [check] → commit on a branch of its own → push → open PR → [CI] (red goes back to the builder, which fixes and pushes) → a second agent reviews the pull request and comments on it | – |
 | **answer my review** | check out your PR, sort every comment: do / answer / push back → you approve → do it → [check] → commit → push → reply on every thread, ask for review again | once |
 | **review their PR** | correctness ‖ design and security (another model) ‖ a test run in a separate worktree → one merged review → you approve → posted as one review | once |
 | *drop on an agent* | | |
@@ -574,6 +606,22 @@ long its output pauses. weft's own copy of the screen is checked against tmux's 
 sits on a screen that has not changed for 20 seconds: if the pane does not show it, the copy is
 replaced by what tmux shows. A marker on a screen that has not moved for `background_s` is dropped.
 
+### Usage limits
+
+When an agent's CLI stops at its usage limit ("You've hit your session limit · resets 3pm", "try
+again at 3:04 PM", "try again in 2 hours"), the card is not done and its message is no result. The
+agent sleeps: a violet **LIMIT** countdown sits where an ETA would, the status line says *usage
+limit · resumes 15:02*, and the cards after it wait. Nothing is typed into it meanwhile (the CLI
+would drop it), queued prompts included. At the reset time (plus a minute and a half) weft tells it
+to carry on with its task. A click on the countdown (or its menu) offers **try now**, or **hand
+over** to another CLI: a fresh agent of that CLI gets the original task, what the sleeper said and
+what git says, and takes its links. The sleeper is stopped, so it never wakes up in the same files.
+
+The patterns are `limits` per agent in `config.json` (Claude Code, Codex and the usual quota
+messages for Antigravity are built in). A message that names no time is tried again every
+`limit_retry_s` (1200 s); after 30 sleeps in one step the card asks you. A step that gave its
+status line finished the normal way, whatever it said about limits.
+
 ### When something fails
 
 A click on **N failed** in the top bar (or *fix it* in a failed card's menu) starts a fresh agent
@@ -662,7 +710,9 @@ leaves the agent alone). Model and reasoning are plain flags appended to the com
 `effort_arg` hold the template (`--model {}`, `--effort {}`; for Codex `-m {}` and
 `-c model_reasoning_effort={}`), `models` / `efforts` the choices, `models_cmd` a command that
 lists what the CLI offers (`id<TAB>label` lines or a JSON catalog). `attention` lists screen
-substrings that mean "a human is needed".
+substrings that mean "a human is needed", `limits` the ones that mean "it stopped at its usage limit"
+(see [Usage limits](#usage-limits); `limit_retry_s` is how often one without a reset time is tried
+again). `gh` names GitHub's CLI for the [CI check](#checks-gates-and-watches) (default `gh`).
 
 **Card names.** A card is named by its own agent's CLI with the smallest model at the lowest
 reasoning: `title_cmd` (claude `-p --model haiku --effort low`, codex `exec -m gpt-6-luna -c
@@ -731,6 +781,9 @@ src/engine/        the single actor that owns all state
     agent.rs       the process side: spawn in tmux, type, stop
     checks.rs      watches: screenshots, tests, changes, the ETA countdown
     gates.rs       the gates on a link: approve, screenshot, tests
+    ci.rs          the CI check: the runs of the pushed commit (gh), red to the agent that did the work
+    limits.rs      an agent at its usage limit sleeps until the reset its CLI names, then carries on
+    rewind.rs      every step snapshotted before and after in a shadow repository: its diff, and undo
     git.rs         commit, push and open PR as steps; repo.rs is the git plumbing under them
     handover.rs    a fresh agent takes over another one's work
     fix.rs         what failed, fixed: a stronger agent told what failed, and `weft retry`
@@ -765,6 +818,13 @@ state, and nothing inside `repo.rs` knows what a node is.
 * Dialogs shown on first start (trust, update, login) are held with *needs you*, but only for
   patterns weft knows. Add yours under `attention`.
 * Two agents editing one folder collide. Tick *own git worktree* on agents that run in parallel.
+* A step's "before" snapshot is taken as its prompt goes out, not before: an edit the agent makes in
+  its first moment can land in it. Two agents working in one folder show each other's edits in
+  their steps; undo leaves what changed since alone, but cannot tell whose an edit was.
+* The CI check reads GitHub Actions runs with `gh` (`gh` in `config.json` names another one). It
+  looks at one repository, the folder of the work, and at the runs of one commit.
+* Usage limits are read from the CLI's own words (`limits` per agent). A CLI that words it
+  differently is not caught; add its phrase there.
 * Linux/macOS with tmux ≥ 3.2. tmux 3.6 crashes on `window-size manual` with a control client;
   weft never sets it.
 

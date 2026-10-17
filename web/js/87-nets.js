@@ -9,7 +9,7 @@ const NET_COL = NW + 150, NET_ROW = NH + 80;
 const NET_ROLES = ['@main', '@alt', '@alt2'];
 /* what a saved card keeps (no place, no state: those belong to where it is put down) */
 const NET_FIELDS = ['name', 'prompt', 'cmd', 'finish', 'quiet_s', 'join', 'worktree', 'model', 'effort', 'yolo', 'addenda',
-  'git_op', 'branch', 'remote', 'push', 'message', 'subject', 'write_tests', 'retries', 'confirm', 'w', 'h'];
+  'git_op', 'branch', 'remote', 'push', 'message', 'subject', 'write_tests', 'retries', 'confirm', 'ci', 'w', 'h'];
 /* {{check}} is the folder's check command (in a gate's command; in a prompt it reads "`cmd`", or
    "the build and tests" when there is none), {{branch}} a branch named after the task */
 const NB_ = (c, r = 0) => ({ key: 'a', agent: '@main', prompt: '{{task}}', c, r, checks: ['eta'], does: 'builds what you ask' });
@@ -17,6 +17,7 @@ const NK_ = (key, c, r = 0, x = {}) => ({ key, agent: 'tests', name: 'check', wr
 const NC_ = (c, r = 0, key = 'c', x = {}) => ({ key, agent: 'git', git_op: 'commit', c, r, does: 'the agent that did the work commits it', ...x });
 const NP_ = (c, r = 0, key = 'p') => ({ key, agent: 'git', git_op: 'push', c, r, does: 'pushes the branch (waits for you unless armed)' });
 const NG_ = (key, c, r, does) => ({ key, agent: 'gate', c, r, does });
+const NI_ = (key, c, r = 0) => ({ key, agent: 'tests', name: 'CI', write_tests: false, ci: true, c, r, does: 'the CI runs of the pushed commit must pass, red goes back' });
 const T_PLAN = 'Work out how to do this before any code is written. Read what you need, then write a short, concrete plan: the approach, the files you will change, the risks, and how you will check that it works. Do not modify any files yet.\n\nThe task: {{task}}';
 const T_REVIEW = 'Review the change another agent just made. It is not committed yet: `git status` and `git diff` show it.\n\nThe task was: {{task}}\n\nLook for bugs, missed edge cases, regressions and anything the task asked for that is missing. Do not modify any files. List concrete findings, most important first, each with file:line and how to fix it. If it is good as it is, say so.';
 const T_FIX = 'A second agent reviewed your change; its findings are below. Fix the ones you agree with, and say in one line each why you leave any out. Keep the build and the tests green.';
@@ -163,15 +164,16 @@ const NET_BUILTIN = [
   },
   // ---------------------------------------------------------------- pull requests
   {
-    id: 'pr', group: 'pull requests', title: 'build → check → PR → review', short: 'PR + review', ask: 'what should it build?',
-    about: 'An agent builds it, the check must pass, and it commits on a branch of its own; the branch is pushed and the agent opens a pull request. A second agent reviews the pull request and posts its review there.',
+    id: 'pr', group: 'pull requests', title: 'build → check → PR → CI → review', short: 'PR + review', ask: 'what should it build?',
+    about: 'An agent builds it, the check must pass, and it commits on a branch of its own; the branch is pushed and the agent opens a pull request. CI must pass on it (red goes back to the builder, which fixes and pushes). A second agent reviews the pull request and posts its review there.',
     nodes: [
       NB_(0), NK_('k', 1), NC_(2, 0, 'c', { branch: '{{branch}}', does: 'commits on a branch named after the task' }), NP_(3),
       { key: 'q', agent: 'git', git_op: 'pr', c: 4, r: 0, does: 'the builder opens the pull request' },
-      { key: 'v', agent: '@alt', name: 'review the PR', role: 'reviewer', c: 5, r: 0, does: 'reviews it, comments on the PR',
+      NI_('i', 5),
+      { key: 'v', agent: '@alt', name: 'review the PR', role: 'reviewer', c: 6, r: 0, does: 'reviews it, comments on the PR',
         prompt: 'A pull request was just opened for the work described below. Review it: `gh pr diff` and `gh pr view` show it. Look for bugs, missing tests and anything that does not do what the task asked. Post your review on the pull request with `gh pr review --comment` (do not approve or merge it), then sum it up here.\n\nThe task was: {{task}}' },
     ],
-    links: [['a', 'k'], ['k', 'c', 'ok'], ['c', 'p'], ['p', 'q'], ['q', 'v']],
+    links: [['a', 'k'], ['k', 'c', 'ok'], ['c', 'p'], ['p', 'q'], ['q', 'i'], ['i', 'v', 'ok']],
   },
   {
     id: 'answer', group: 'pull requests', title: 'review comments → sort → do → reply', short: 'answer my review', ask: 'which pull request? (number or link)',
@@ -242,6 +244,7 @@ const NETS = NET_BUILTIN.map(t => netNorm(t, false));
    {{task}}, {{check}} and {{branch}} */
 const netTask = new Map();
 ICON.check = I('<path d="M3 4.5l3.2 3.5L3 11.5M8.5 12h4.5"/>');
+ICON.ci = I('<path d="M12.8 6.2A5 5 0 0 0 3.6 5.4M3.2 9.8a5 5 0 0 0 9.2.8"/><path d="M12.9 2.6v3.6H9.3M3.1 13.4V9.8h3.6"/>');
 /* the folder new agents start in, as the launch pad says, and what the daemon knows about a folder
    (the project's folder and its facts where the page has no folder picker) */
 const netProj = () => (S.project && S.project.dir) || '';
@@ -265,6 +268,8 @@ function rememberCheck(dir, cmd) {
 }
 /* a check gate as a card: the folder's command must pass, red goes back to the agent */
 const checkGate = dir => ({ name: 'check', write_tests: false, cmd: checkFor(dir || netDir()) });
+/* a CI check as a card: the runs of the pushed commit must pass (engine/ci.rs) */
+const ciGate = () => ({ name: 'CI', write_tests: false, ci: true });
 /* a branch named after the task: issue-42 for an issue, else weft/<first words> */
 function branchFor(task) {
   const m = /(?:issues?\/|#|^\s*)(\d+)\b/.exec(task || '');
@@ -279,7 +284,7 @@ const netUses = id => (S.prefs.netUse || {})[id] || 0;
 /* the top bar holds the two you use most (before you have used any: the first two) */
 const topNets = () => allNets().map((n, i) => [n, i]).sort((a, b) => netUses(b[0].id) - netUses(a[0].id) || a[1] - b[1]).slice(0, 2).map(x => x[0]);
 /* a tests gate that only runs a command: a check */
-const isCheck = t => t.agent === 'tests' && t.write_tests === false;
+const isCheck = t => t.agent === 'tests' && t.write_tests === false && !t.ci;
 const netKind = t => (t.agent === 'step' ? 'step' : isGate(t.agent) ? 'check' : KINDS.includes(t.agent) ? t.agent : 'agent');
 const isRole = a => NET_ROLES.includes(a);
 /* the agents that start the network: agents nothing but a note leads into */
@@ -304,7 +309,7 @@ function netLabel(t, roles) {
   if (k === 'git') return GIT_VERB[t.git_op || ''];
   if (k === 'step') return '↻ ' + (t.name || 'then');
   if (k === 'note') return t.name || 'note';
-  if (k === 'check') return isCheck(t) ? 'check' : { gate: 'approve', shot: 'screenshot', tests: 'tests' }[t.agent];
+  if (k === 'check') return t.ci ? 'CI' : isCheck(t) ? 'check' : { gate: 'approve', shot: 'screenshot', tests: 'tests' }[t.agent];
   const ag = roleAgent(t.agent, roles), nm = netName(t, ag);
   return nm && !nm.includes(ag) ? `${ag} · ${nm}` : nm || ag;
 }
@@ -395,7 +400,7 @@ function drawGhost(net, at, roles, skip) {
     }
     netGhost.replaceChildren(svg, ...net.nodes.filter(t => t.key !== skip).map(t =>
       h('div', { class: 'ngc ' + netKind(t), style: `left:${t.x}px;top:${t.y}px;width:${t.w || NW}px;height:${t.h || NH}px` },
-        h('b', {}, h('i', { html: ICON[isCheck(t) ? 'check' : { agent: 'ready', step: 'play', check: t.agent, git: 'git', note: 'note' }[netKind(t)]] }), netLabel(t, roles)),
+        h('b', {}, h('i', { html: ICON[t.ci ? 'ci' : isCheck(t) ? 'check' : { agent: 'ready', step: 'play', check: t.agent, git: 'git', note: 'note' }[netKind(t)]] }), netLabel(t, roles)),
         h('span', {}, netDoes(t)))));
   }
   netGhost.style.transform = `translate(${at.x}px,${at.y}px)`;
