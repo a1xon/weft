@@ -21,7 +21,11 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   // (default: the same way), optionally look, click
   let early = 0;
   const drag = async (id, dx, dy, look, pick = [dx, dy]) => {
-    const o = await port(id), x = o.x + o.width / 2, y = o.y + o.height / 2;
+    // a new card sits where its line was let go, maybe near the edge: pan so the drag stays in the window
+    let o = await port(id);
+    const py = Math.max(0, 60 - (o.y + dy)) - Math.max(0, o.y + dy - 840), px = Math.max(0, 60 - (o.x + dx)) - Math.max(0, o.x + dx - 1640);
+    if (px || py) { await p.evaluate(([px, py]) => { S.v.x += px; S.v.y += py; applyView(); }, [px, py]); o = await port(id); }
+    const x = o.x + o.width / 2, y = o.y + o.height / 2;
     await p.mouse.move(x, y); await p.mouse.down(); await p.mouse.move(x + dx, y + dy, { steps: 12 });
     if (await dialOpen()) early++;
     await p.mouse.up();

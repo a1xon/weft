@@ -33,7 +33,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++
   const o1 = await p.locator('.nw[data-id="n1"] .port.out').boundingBox();
   await G('alt-drag from the diamond to empty space', async () => {
     await p.keyboard.down('Alt');
-    await p.mouse.move(o1.x + 6, o1.y + 6); await p.mouse.down(); await p.mouse.move(1250, 450, { steps: 8 });
+    await p.mouse.move(o1.x + 6, o1.y + 6); await p.mouse.down(); await p.mouse.move(o1.x + 8, o1.y + 300, { steps: 8 });
     await p.screenshot({ path: W + '/v3-2-dragging.png' });
     await p.mouse.up(); await p.keyboard.up('Alt');
   });
