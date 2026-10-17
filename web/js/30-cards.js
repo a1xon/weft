@@ -25,7 +25,7 @@ function mkNode(n) {
   el.fd = h('button', { class: 'fdtag', hidden: true });
   el.gear = h('button', { class: 'ib', title: 'options ( , )', html: ICON.gear });
   el.ask = h('div', { class: 'ask', title: 'click to edit' });
-  el.ans = h('div', { class: 'ans', title: 'click to unfold the full result' });
+  el.ans = h('div', { class: 'ans', title: 'click to read the whole result' });
   el.pvin = h('div', { class: 'pvin' });
   el.live = h('div', { class: 'live', title: 'click to open the terminal large' }, el.pvin);
   el.lA = h('button', { class: 'lt' }, 'result');

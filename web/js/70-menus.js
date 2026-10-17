@@ -65,7 +65,7 @@ function nodeMenu(id, x, y) {
   } else if (k === 'agent') {
     items.push(
       { label: 'open terminal', hint: 'enter', run: () => openFocus(id) },
-      { label: 'unfold result', hint: 'r', run: () => openFly(id, 'result') },
+      { label: 'read the result', hint: 'r', run: () => openFly(id, 'result') },
       { label: 'options', hint: ',', run: () => openFly(id, 'options') },
       { cap: 'watch it' },
       { k: hasShotWatch(n) ? '\u25cf' : ' ', label: hasShotWatch(n) ? 'screenshots: ask for one now' : 'screenshots', run: () => hasShotWatch(n) ? send('check_now', { node: id, check: n.checks.find(c => c.kind === 'shot').id }) : attachCheck(id, 'shot') },

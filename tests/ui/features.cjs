@@ -114,11 +114,14 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await p.locator('.nw[data-id="' + gid + '"] .fb.go').click(); await sleep(500);
   ok((await st(gid)) === 'done', 'approve lets the flow move on');
 
-  // --- I: unfold a result under the card (no side panel)
+  // --- I: a result is read full size (tests/ui/reader.cjs); a gate's unfolds at the card (no side panel)
   await p.locator('.nw[data-id="n1"] .ans').click(); await sleep(500);
-  ok(await p.locator('#fly').isVisible(), 'clicking a result unfolds it attached to the card');
-  const fb = await p.locator('#fly').boundingBox(), cb = await p.locator('.nw[data-id="n1"]').boundingBox();
-  ok(Math.abs(fb.x - cb.x) < 40 && fb.y > cb.y, 'the flyout sits right under its card (' + Math.round(fb.x - cb.x) + 'px off, below)');
+  ok(await p.locator('#reader').isVisible() && (await p.locator('#reader .rbody > .cli').innerText()).length > 0, 'clicking a result opens it full size');
+  await p.keyboard.press('Escape'); await sleep(200);
+  await p.evaluate(id => select([id]), gid); await p.keyboard.press('r'); await sleep(500);
+  ok(await p.locator('#fly').isVisible() && await p.locator('#reader').isHidden(), 'a gate\'s result (its approval) unfolds attached to the card');
+  const fb = await p.locator('#fly').boundingBox(), cb = await p.locator('.nw[data-id="' + gid + '"]').boundingBox();
+  ok(Math.abs(fb.x - cb.x) < 40 && (fb.y >= cb.y + cb.height - 2 || fb.y + fb.height <= cb.y + 2), 'the flyout sits right at its card, under it or above when there is no room (' + Math.round(fb.x - cb.x) + 'px off)');
   await p.screenshot({ path: W + '/f-5-flyout.png' });
   await p.keyboard.press('Escape'); await sleep(200);
 

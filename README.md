@@ -66,6 +66,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 | `Alt`-drag a card | clone it |
 | drag a card's bottom-right corner | resize it: a taller card shows more rows of its terminal; double-click the corner for the default size |
 | the wheel in an open terminal | scroll back: an agent that reads the mouse (Claude Code) scrolls its own transcript, anything else weft's history; *jump to latest* goes back down |
+| click a card's answer, or `R` | the whole **result**, full size and laid out as the agent's terminal showed it: indents and tables kept (a markdown table from `weft done` is drawn as a table), long lines wrapped under their own indent; `+`/`-` text size, `Esc` back. `weft result <node>` prints the same text in your terminal |
 | marquee or shift-click, then `G` | gather several results into one agent |
 | right-click anything | what it can do |
 | drag finished cards onto the **archive** (bottom left) | they are filed: off the canvas, their terminals end, their results kept (below) |

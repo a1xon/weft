@@ -1,0 +1,41 @@
+/* ------------------------------------------------------------------ reader: a result, full size */
+#reader{position:fixed;inset:0;z-index:54;display:flex;justify-content:center;background:rgba(2,3,6,.82);padding:20px}
+#reader .win{--bd:var(--cy2);--fill:var(--s1);--c:14px;display:flex;flex-direction:column;width:100%;max-width:1500px;height:100%;
+  filter:drop-shadow(0 0 30px rgba(92,200,255,.16));animation:rise .14s ease-out}
+#reader .fh2{flex-wrap:wrap;gap:8px 10px;padding:10px 12px 10px 16px}
+#reader .fh2 .nm{flex:none;max-width:40vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#reader .fh2 .stx{flex:1;min-width:120px}
+#reader .rz{display:flex;gap:4px}
+.rcli{padding:3px 7px;border:1px dashed var(--l2);color:var(--i3);font:calc(11.5px*var(--fs)) var(--mono)}
+.rcli:hover{color:var(--cy);border-color:var(--cy2)}
+#reader .rbody{flex:1;min-height:0;overflow:auto;margin:0 12px 12px;padding:16px 22px 48px;background:var(--tbg);border:1px solid var(--l0);outline:none}
+#reader .rbody:focus-visible{border-color:rgba(92,200,255,.4)}
+
+/* the text as the terminal laid it out: 1ch is one terminal column */
+.cli{max-width:124ch;padding-left:14px;border-left:2px solid var(--l2);color:var(--tfg);
+  font:400 calc(14px*var(--fs)*var(--rz,1))/1.5 var(--mono);font-variant-ligatures:none}
+.cli.ok{border-left-color:var(--gr)}.cli.bad{border-left-color:var(--rd)}.cli.dim{color:var(--i2)}
+.cli .cl{white-space:pre-wrap;overflow-wrap:anywhere}
+.cli .hx{color:var(--i0);font-weight:700}
+.cli b{color:var(--i0);font-weight:700}
+.cli .ic{color:var(--c12)}
+.cli a{color:var(--cy);text-decoration:underline;text-underline-offset:2px}
+.cli .bx,.cli .cb{white-space:pre;overflow-x:auto}
+.cli .bx{line-height:1.3}
+.cli .cb{margin:2px 0;padding:2px 1ch;background:var(--s1);color:var(--c14)}
+.cli .mtw{overflow-x:auto;margin:2px 0}
+.cli .mt{border-collapse:collapse;font:inherit}
+.cli .mt th,.cli .mt td{padding:0 1ch;border:1px solid var(--l3);vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere}
+.cli .mt th{color:var(--i0);font-weight:700}
+
+.rask{max-width:124ch;margin:0 0 16px}
+#reader .rfresh{margin:0 0 12px;color:var(--cy)}
+.rask summary,.rsteps summary{cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--i3);font:calc(12px*var(--fs)) var(--mono)}
+.rask summary:hover,.rsteps summary:hover{color:var(--i1)}
+.rask .rk{color:var(--i4)}
+.rask .cli{margin-top:6px;font-size:calc(12.5px*var(--fs)*var(--rz,1))}
+.rsteps{max-width:124ch;margin-top:28px}
+.rsteps h3{margin:0 0 8px;color:var(--i3);font:600 calc(11.5px*var(--fs)) var(--display);letter-spacing:.08em}
+.rsteps details{margin:0 0 6px}
+.rsteps .cli{margin:6px 0 12px}
+@media (max-width:700px){#reader{padding:6px}#reader .rbody{margin:0 6px 6px;padding:10px 10px 32px}}

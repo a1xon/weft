@@ -378,7 +378,29 @@ pub fn extract_response(before: &[String], after: &[String], prompt: &str, chrom
     while k < before.len() && k < after.len() && before[k] == after[k] {
         k += 1;
     }
-    response_rows(&after[k..], prompt, chrome).join("\n")
+    dedent(&response_rows(&after[k..], prompt, chrome).join("\n"))
+}
+
+/// The line a working agent animates: "· Actualizing… (1s · ↓ 25 tokens · thinking with low effort)".
+fn is_spinner(t: &str) -> bool {
+    let mut c = t.chars();
+    let (Some(g), Some(' ')) = (c.next(), c.next()) else { return false };
+    let rest = c.as_str();
+    "·✢✳✶✻✽*".contains(g) && rest.split_once('…').is_some_and(|(w, _)| !w.is_empty() && w.chars().all(char::is_alphabetic))
+}
+
+/// A row of border glyphs with a table's corners or joints in it (`├────┼────┤`): part of an answer.
+/// The rules around an input box are plain `─` (or round-cornered), and stay furniture.
+fn is_table_rule(t: &str) -> bool {
+    t.chars().any(|c| "┌┐└┘├┤┬┴┼".contains(c)) && t.chars().all(|c| BORDER.contains(c))
+}
+
+/// `text` without the indent all its lines share (an agent indents its whole answer under its
+/// message marker); deeper indents stay, blank lines too.
+pub fn dedent(text: &str) -> String {
+    let indent = |l: &str| l.len() - l.trim_start_matches(' ').len();
+    let cut = text.lines().filter(|l| !l.trim().is_empty()).map(indent).min().unwrap_or(0);
+    text.lines().map(|l| l.get(cut.min(indent(l))..).unwrap_or("")).collect::<Vec<_>>().join("\n")
 }
 
 /// The rows of `rows` that are the agent's words: no blank runs, echo of `prompt`, tool calls,
@@ -394,7 +416,7 @@ pub fn response_rows(rows: &[String], prompt: &str, chrome: &[String]) -> Vec<St
             }
             continue;
         }
-        if is_noise(t, chrome) || is_tool_call(t) || t.contains("[Pasted text") {
+        if (is_noise(t, chrome) && !is_table_rule(t)) || is_tool_call(t) || is_spinner(t) || t.contains("[Pasted text") {
             continue;
         }
         if matches!(t.chars().next(), Some('❯' | '›')) {
@@ -404,8 +426,13 @@ pub fn response_rows(rows: &[String], prompt: &str, chrome: &[String]) -> Vec<St
         if n.is_empty() || (n.chars().count() >= 8 && want.iter().any(|w| w.contains(n.as_str()) || n.contains(w.as_str()))) {
             continue;
         }
-        let t = t.trim_start_matches(|c: char| "●⏺•".contains(c)).trim_start();
-        out.push(t.to_string());
+        // the row as the agent laid it out: its message marker becomes a space, so what stands under
+        // it (a table, a nested list, code) keeps its columns ([`dedent`] takes the shared indent off)
+        let l = l.trim_end();
+        out.push(match l.chars().next() {
+            Some(c) if "●⏺•".contains(c) => format!(" {}", &l[c.len_utf8()..]),
+            _ => l.to_string(),
+        });
     }
     while out.last().is_some_and(|l| l.is_empty()) {
         out.pop();
@@ -441,6 +468,14 @@ pub fn merge_frame(acc: &mut Vec<String>, frame: &[String]) {
         content > 0 && same + usize::from(grows) >= need
     });
     let Some(m) = overlap else {
+        // Its first rows were collected further up and it reaches at least as far down as what was
+        // collected after them: the program redrew those rows in place (Claude Code redraws a table
+        // for every row it streams). The frame is the newer version of all of them.
+        if let Some(p) = redrawn_from(acc, frame) {
+            acc.truncate(p);
+            acc.extend(frame.iter().cloned());
+            return;
+        }
         // Nothing in common with the rows collected: the window moved on by more than its height
         // (or the old rows were never on it). With no row in common nothing can be duplicated, so
         // the frame goes on after a gap; one that shares some rows but cannot be placed is left out.
@@ -458,6 +493,14 @@ pub fn merge_frame(acc: &mut Vec<String>, frame: &[String]) {
         }
     }
     acc.extend(frame[m..].iter().cloned());
+}
+
+/// Where `frame` starts in `acc`, when its first three rows with words in them (and what lies between)
+/// are rows of `acc` and the frame is long enough to stand for everything collected from there on.
+fn redrawn_from(acc: &[String], frame: &[String]) -> Option<usize> {
+    let head = frame.iter().enumerate().filter(|(_, r)| r.chars().any(char::is_alphanumeric)).nth(2).map(|(i, _)| i + 1)?;
+    let from = acc.len().saturating_sub(frame.len());
+    (from..=acc.len().checked_sub(head)?).rev().find(|&p| acc[p..p + head] == frame[..head])
 }
 
 /// Put a `capture-pane` snapshot (`-e -p -J`) of a `rows`x`cols` pane on a fresh screen, row for
@@ -741,6 +784,64 @@ All five slug tests now pass."
         merge_frame(&mut acc, &s(&["entirely different", "and more"]));
         assert_eq!(acc.len(), 9);
         assert_eq!(acc[8], "and more");
+    }
+
+    #[test]
+    fn a_table_redrawn_in_place_is_kept_once() {
+        // Claude Code redraws a table for every row it streams, wider as the cells grow
+        let text = ["Here are the planets.", "Three of them, by size.", "Sorted by moons:", ""];
+        let v1 = ["┌──────┬───┐", "│ Earth │ 1 │", "└──────┴───┘"];
+        let v2 = ["┌─────────┬────┐", "│ Earth   │ 1  │", "├─────────┼────┤", "│ Jupiter │ 95 │", "└─────────┴────┘"];
+        let mut acc = s(&["intro line", "more intro"]);
+        acc.extend(s(&text));
+        acc.extend(s(&v1));
+        let mut frame = s(&text);
+        frame.extend(s(&v2));
+        merge_frame(&mut acc, &frame);
+        let mut want = s(&["intro line", "more intro"]);
+        want.extend(s(&text));
+        want.extend(s(&v2));
+        assert_eq!(acc, want, "the newer table replaces the older one");
+        // a frame from further up (the transcript scrolled back) does not cut what came after it
+        merge_frame(&mut acc, &s(&["intro line", "more intro", "Here are the planets."]));
+        assert_eq!(acc, want);
+    }
+
+    #[test]
+    fn the_spinner_is_not_part_of_the_answer() {
+        let rows = s(&["· Actualizing… (1s · ↓ 25 tokens · thinking with low effort)", "✶ Pondering…", "● The answer.", "· a dot list item… with words"]);
+        assert_eq!(response_rows(&rows, "a question", &[]), s(&["  The answer.", "· a dot list item… with words"]));
+    }
+
+    #[test]
+    fn an_answer_keeps_its_tables_and_indents() {
+        // Claude Code 2.1.300 drawing a markdown table, a nested list and code (a real screen, cut narrower)
+        let after = s(&[
+            "❯ Reply with a table of planets",
+            "",
+            "● ┌─────────┬───────┐",
+            "  │ Planet  │ Moons │",
+            "  ├─────────┼───────┤",
+            "  │ Earth   │ 1     │",
+            "  └─────────┴───────┘",
+            "",
+            "  - Planets",
+            "    - Inner, rocky",
+            "",
+            "  moons = {\"Earth\": 1}",
+            "",
+            "✻ Crunched for 6s · done 17:13",
+            "──────────────────────",
+            "❯",
+            "──────────────────────",
+            "  ⏵⏵ bypass permissions on (shift+tab to cycle)",
+        ]);
+        let chrome = s(&["bypass permissions"]);
+        let want = "┌─────────┬───────┐\n│ Planet  │ Moons │\n├─────────┼───────┤\n│ Earth   │ 1     │\n└─────────┴───────┘\n\n- Planets\n  - Inner, rocky\n\nmoons = {\"Earth\": 1}";
+        assert_eq!(extract_response(&[], &after, "Reply with a table of planets", &chrome), want);
+        let rows = response_rows(&after, "Reply with a table of planets", &chrome);
+        assert_eq!(response_rows(&rows, "Reply with a table of planets", &chrome), rows, "applying it again changes nothing");
+        assert_eq!(dedent("  a\n\n    b\n  c"), "a\n\n  b\nc");
     }
 
     #[test]

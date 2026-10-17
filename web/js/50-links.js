@@ -31,6 +31,7 @@ function renderRt(id) {
   for (const e of outgoing(id)) updateJunction(e.to);
   if (S.sel.has(id)) { renderOmni(); renderQueue(); }
   if (S.fly && S.fly.id === id) updateFlyLive();
+  if (RD.id === id) updateReaderLive();
   if (S.focus === id) updateFocusHead();
 }
 function renderTicker() {
@@ -67,6 +68,7 @@ function applyFlow(nodes, edges) {
     nodeEls.delete(id); S.rt.delete(id); S.sel.delete(id);
     if (S.fly && S.fly.id === id) closeFly();
     if (S.focus === id) closeFocus();
+    if (RD.id === id) closeReader();
   }
   const seenE = new Set();
   for (const e of edges) { seenE.add(e.id); S.edges.set(e.id, e); }

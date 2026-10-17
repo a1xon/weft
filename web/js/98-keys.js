@@ -52,12 +52,14 @@ addEventListener('keydown', e => {
     if (menuEl) return closeMenu();
     if (!modal.hidden) { modal.hidden = true; return; }
     if (!focusEl.hidden && t.id !== 'term') return closeFocus();
+    if (!readerEl.hidden && focusEl.hidden) return closeReader();
     if (pad.open) return padEsc();
     if (S.fly && !typing) return closeFly();
     if (!typing) select([]);
     return;
   }
   if (typing || !focusEl.hidden || !modal.hidden || pad.open) return;
+  if (!readerEl.hidden) return readerKey(e);
   const p = primary();
   if ((e.key === 'n' || e.key === 'N') && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); return openPad(); }
   if (e.key === 'Delete' || e.key === 'Backspace') {

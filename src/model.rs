@@ -514,6 +514,7 @@ fn default_chrome() -> Vec<String> {
         "Update installed",
         "/clear to save",
         "Compacted while idle",
+        "ctrl+g to edit in",
     ]
     .iter()
     .map(|s| s.to_string())

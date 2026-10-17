@@ -160,7 +160,7 @@ impl Step {
     /// put in the wrong place must not win over what is on the screen.
     pub(super) fn rebuilt(&self, tail: Option<&str>) -> Option<String> {
         let rows = self.acc.get(self.base..).filter(|r| r.iter().any(|l| !l.is_empty()))?;
-        let text = rows.join("\n").trim().to_string();
+        let text = term::dedent(rows.join("\n").trim_matches('\n'));
         let Some(tail) = tail else { return Some(text) };
         let end = |s: &str| s.lines().map(str::trim).filter(|l| !l.is_empty()).rev().take(3).map(String::from).collect::<Vec<_>>();
         (text.len() > tail.len() && end(&text) == end(tail)).then_some(text)

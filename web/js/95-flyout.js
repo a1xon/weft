@@ -6,7 +6,11 @@ const insideFly = () => {
   const a = document.activeElement;
   return !!a && a !== fly && fly.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName);
 };
-function openFly(id, tab) { S.fly = { id, tab }; renderFly(); placeFly(); }
+function openFly(id, tab) {
+  const n = S.nodes.get(id);
+  if (tab === 'result' && n && !isGate(kindOf(n))) return openReader(id); // a gate's result is its approval
+  S.fly = { id, tab }; renderFly(); placeFly();
+}
 function closeFly() { S.fly = null; fly.hidden = true; fly.replaceChildren(); }
 function placeFly() {
   if (!S.fly || fly.hidden) return;
@@ -23,7 +27,7 @@ function renderFly() {
   if (!d || !S.nodes.has(d.id)) { fly.hidden = true; return; }
   const n = S.nodes.get(d.id);
   fly.hidden = false;
-  const tab = (t, label) => h('button', { class: 'tab' + (d.tab === t ? ' on' : ''), onclick: () => { S.fly.tab = t; renderFly(); } }, label);
+  const tab = (t, label) => h('button', { class: 'tab' + (d.tab === t ? ' on' : ''), onclick: () => t === 'result' ? openFly(d.id, t) : (S.fly.tab = t, renderFly()) }, label);
   fly.replaceChildren(
     h('div', { class: 'fh' }, h('span', { class: 'ttl' }, n.name), tab('result', 'result'), tab('options', 'options'),
       h('button', { class: 'ib', 'aria-label': 'Close', html: ICON.x, onclick: closeFly })),
@@ -50,7 +54,6 @@ function seg(options, value, onPick) {
       ev.currentTarget.setAttribute('aria-pressed', 'true'); onPick(v);
     } }, label)));
 }
-let resultSeq = 0;
 function gateResult(n, rt) {
   const id = n.id, k = kindOf(n), review = rt && rt.gate_phase === 'review';
   const b = (label, cls, fn, dis) => h('button', { class: 'btn sm ' + cls, disabled: !!dis, onclick: fn }, label);
@@ -86,38 +89,8 @@ function gateResult(n, rt) {
     k === 'shot' ? h('p', { class: 'note' }, 'You can also paste an image (ctrl+v) or drop one on the card.') : null));
   return parts;
 }
-async function renderResultTab(n) {
-  const box = $('#fbody'); const seq = ++resultSeq;
-  if (isGate(kindOf(n))) { box.replaceChildren(...nn(gateResult(n, S.rt.get(n.id)))); placeFly(); return; }
-  box.replaceChildren(h('div', { class: 'sec' }, h('div', { class: 'note' }, 'loading…')));
-  const r = await req('result', { id: n.id });
-  if (seq !== resultSeq || !S.fly || S.fly.tab !== 'result' || S.fly.id !== n.id) return;
-  const rt = S.rt.get(n.id);
-  const others = [...S.nodes.values()].filter(x => x.id !== n.id && kindOf(x) !== 'note');
-  const steps = r.steps || [];
-  const k = kindOf(n);
-  box.replaceChildren(...nn([
-    h('div', { class: 'sec' }, h('h3', {}, 'status'),
-      h('div', { class: 'kvr', style: 'color:var(--i1)' }, statusText(n, rt)),
-      rt && rt.fresh ? h('p', { class: 'note', style: 'color:var(--cy)' }, 'You started this run by chatting, so it has not been handed on. Drag ◇ to another agent, or use the button below.') : null),
-    k === 'agent' ? h('div', { class: 'sec' }, h('h3', {}, 'last prompt'), h('div', { class: 'pre dim' }, r.asked || '(none yet)')) : null,
-    h('div', { class: 'sec' }, h('h3', {}, 'result'),
-      h('div', { class: 'pre ' + (r.status === false ? 'bad' : r.text ? 'ok' : '') }, r.text || (rt && rt.gate) || '(no result yet)'),
-      h('div', { class: 'row2' },
-        h('button', { class: 'btn sm', disabled: !r.text, onclick: () => { navigator.clipboard && navigator.clipboard.writeText(r.text); toast('ok', 'copied'); } }, 'copy'),
-        h('button', { class: 'btn sm pri', disabled: !r.text || !others.length, onclick: ev => {
-          const b = ev.currentTarget.getBoundingClientRect();
-          popup([{ cap: 'hand this result to…' }, ...others.map(o => ({ label: o.name, hint: agentTag(o.agent), run: () => { send('handover', { from: n.id, to: o.id }); toast('ok', `handed to ${o.name}`); } }))], b.left, b.bottom + 4);
-        } }, 'hand over to…'),
-        h('button', { class: 'btn sm', disabled: !r.text, onclick: () => spawnLinked(n.id, 'next') }, 'new agent from this'))),
-    steps.length > 1 ? h('div', { class: 'sec' }, h('h3', {}, `steps (${steps.length})`),
-      ...steps.map((s, i) => h('div', { style: 'margin-bottom:8px' },
-        h('div', { class: 'note', style: 'margin:0 0 3px' }, h('span', { class: 'stepn' }, `${i + 1}. `), (s.ok ? '✓ ' : '✕ ') + (s.prompt || '').split('\n')[0].slice(0, 90)),
-        h('div', { class: 'pre ' + (s.ok ? 'ok' : 'bad'), style: 'max-height:120px' }, s.text)))) : null,
-    k === 'agent' ? h('div', { class: 'sec' }, h('div', { class: 'row2' },
-      h('button', { class: 'btn sm', onclick: () => openFocus(n.id) }, 'open terminal'),
-      h('button', { class: 'btn sm', onclick: () => runNode(n.id) }, rt && rt.alive ? 'send prompt again' : 'run'))) : null,
-  ]));
+function renderResultTab(n) {
+  $('#fbody').replaceChildren(...nn(gateResult(n, S.rt.get(n.id))));
   placeFly();
 }
 function renderOptionsTab(n) {

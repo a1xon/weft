@@ -1,7 +1,7 @@
 /* dev: not part of weft proper (see src/dev.rs). The page was read from web/ on disk; this
    follows the edits there. A style sheet is swapped in place. A changed script or shell reloads
    the page, but not while you type or drag (a tag top left says it is waiting), and puts
-   back what was open: selection, flyout, terminal, launch pad. An error in the page's script
+   back what was open: selection, flyout, reader, terminal, launch pad. An error in the page's script
    shows in a bar that names its file and line. Its own <script>, so it runs even when the
    page's script does not parse, and reloads once that is fixed. */
 (cfg => {
@@ -114,7 +114,7 @@
   function keep() {
     let k = null;
     try {
-      k = { sel: [...S.sel], fly: S.fly, focus: S.focus, pad: pad.open };
+      k = { sel: [...S.sel], fly: S.fly, focus: S.focus, pad: pad.open, read: typeof RD === 'object' ? RD.id : null };
       localStorage.setItem('weft-view:' + S.project.dir, JSON.stringify(S.v));
     } catch {}
     try {
@@ -138,6 +138,7 @@
         const ids = (k.sel || []).filter(id => S.nodes.has(id));
         if (ids.length) select(ids);
         if (k.fly && S.nodes.has(k.fly.id)) openFly(k.fly.id, k.fly.tab);
+        if (k.read && S.nodes.has(k.read)) openReader(k.read);
         if (k.focus && S.nodes.has(k.focus)) openFocus(k.focus);
         if (k.pad && !pad.open) openPad();
         if (!k.pad && pad.open) closePad();

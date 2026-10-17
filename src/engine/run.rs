@@ -147,11 +147,7 @@ impl Engine {
         match act {
             Act::Settle | Act::Done => self.step_done(id, true, None, How::Quiet),
             Act::Fail(why) => {
-                let said = self.rt.get_mut(id).and_then(|r| {
-                    let c = r.cur.as_ref()?;
-                    let tail = new_since(&mut r.parser, &c.before, &c.typed(), &chrome);
-                    c.rebuilt(tail.as_deref()).or(tail)
-                });
+                let said = self.rt.get_mut(id).and_then(|r| answer_in(&mut r.parser, r.cur.as_ref()?, &chrome));
                 let why = if why.is_empty() { "the agent said it could not do it".to_string() } else { why };
                 let out = match said.map(|t| words::strip_status(&t)).filter(|t| !t.is_empty()) {
                     Some(t) => format!("{why}\n\n{t}"),
@@ -250,13 +246,11 @@ impl Engine {
                 None if how == How::Exit && exit_node => term::transcript_clean(&mut rt.parser, 80, &chrome),
                 None => {
                     // what weft typed into the session afterwards (a reminder, a question) is not part of the answer
-                    let (before, typed) = cur.as_ref().map(|c| (c.before.clone(), c.typed())).unwrap_or_default();
-                    let tail = new_since(&mut rt.parser, &before, &typed, &chrome);
-                    // the rows that scrolled out of the window on the way are in the frames, not on the screen
-                    let whole = cur.as_ref().and_then(|c| c.rebuilt(tail.as_deref()));
-                    whole
-                        .or(tail)
-                        .map(|t| words::strip_status(&t))
+                    let said = match cur.as_ref() {
+                        Some(c) => answer_in(&mut rt.parser, c, &chrome),
+                        None => new_since(&mut rt.parser, &[], "", &chrome),
+                    };
+                    said.map(|t| words::strip_status(&t))
                         .filter(|t| !t.is_empty())
                         .unwrap_or_else(|| term::transcript_clean(&mut rt.parser, 80, &chrome))
                 }
@@ -636,6 +630,17 @@ impl Engine {
         self.state_dirty = true;
         json!({"ok": true})
     }
+}
+
+/// What the agent said in step `c`. While the echo of what was typed is still on the screen, the
+/// whole answer is there as the agent left it. Once it scrolled away, the rows that left the window
+/// are only in the frames collected on the way (see `Step::rebuilt`).
+fn answer_in(parser: &mut vt100::Parser, c: &Step, chrome: &[String]) -> Option<String> {
+    let tail = new_since(parser, &c.before, &c.typed(), chrome);
+    if c.echoed_in(&term::lines(parser)) {
+        return tail;
+    }
+    c.rebuilt(tail.as_deref()).or(tail)
 }
 
 /// What the agent said since `before`, without the echo of what was typed to it. `None` when
