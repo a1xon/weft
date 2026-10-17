@@ -1,11 +1,15 @@
 /* ------------------------------------------------------------ tidy
-   Lines the canvas up. Each flow runs left to right in columns, and a card sits on the same row as
-   the cards it is linked to wherever it can: a chain is one straight line, a fork fans out around
-   the card it starts from, a join sits level with the middle of what it waits for. Links do not
-   cross where another order of the cards avoids it, and none runs through a card: a link that
-   skips columns gets a lane of its own. Flows are stacked in the order they had; lone cards line
-   up in rows under them. ctrl+z puts everything back. */
-const TIDY = { gx: 130, gy: 56, lane: 42, flows: 120 };
+   Lays the canvas out the way a person would. Each flow runs left to right in columns, and a card
+   sits level with the cards it is linked to wherever it can: a chain is one straight line, a fork
+   fans out around the card it starts from, a join sits level with the middle of what it waits for.
+   Links do not cross where another order of the cards avoids it, and none runs through a card: a
+   link that skips columns gets a lane of its own. Each column stacks only its own cards, so a tall
+   card pushes nothing else down. Agents that talk stand side by side under their arches; lone cards
+   gather in a block of their own (one per folder while the canvas works in several). Those groups
+   are then packed to suit the window: the arrangement that shows the cards largest, or one nearly
+   as large that keeps closer to where things stood (what was on top stays on top), with more room
+   between groups than inside one. ctrl+z puts everything back. */
+const TIDY = { gx: 130, gy: 56, lane: 42, apartX: 260, apartY: 180, loose: 70 };
 
 let glideRun = 0, gliding = false;
 function tidy() {
@@ -47,44 +51,150 @@ function tidyLayout() {
   const link = (a, b) => { if (a !== b && box.has(a) && box.has(b)) links.set(a + '\n' + b, [a, b]); };
   for (const e of S.edges.values()) link(e.from, e.to);
   for (const n of ns) if (n.takeover) link(n.takeover, n.id);
-  // flows: the cards joined by links
+  // pieces: the cards joined by links (a flow, laid out on its own), or a card alone
   const nb = new Map(ns.map(n => [n.id, []]));
   for (const [a, b] of links.values()) { nb.get(a).push(b); nb.get(b).push(a); }
-  const seen = new Set(), flows = [], loose = [];
+  const pieceOf = new Map(), pieces = [];
   for (const n of ns) {
-    if (seen.has(n.id)) continue;
-    const ids = [n.id]; seen.add(n.id);
-    for (let i = 0; i < ids.length; i++) for (const m of nb.get(ids[i])) if (!seen.has(m)) { seen.add(m); ids.push(m); }
-    if (ids.length > 1) flows.push(ids.map(id => box.get(id))); else loose.push(box.get(n.id));
+    if (pieceOf.has(n.id)) continue;
+    const ids = [n.id]; pieceOf.set(n.id, pieces.length);
+    for (let i = 0; i < ids.length; i++) for (const m of nb.get(ids[i])) if (!pieceOf.has(m)) { pieceOf.set(m, pieces.length); ids.push(m); }
+    const bs = ids.map(id => box.get(id));
+    pieces.push({ ...(bs.length > 1 ? settledFlow(bs, [...links.values()]) : { at: new Map([[n.id, { x: 0, y: 0 }]]), w: bs[0].w, h: bs[0].h }), was: around(bs) });
   }
-  const top = f => Math.min(...f.map(b => b.y)), left = f => Math.min(...f.map(b => b.x));
-  flows.sort((a, b) => top(a) - top(b) || left(a) - left(b));
-  loose.sort((a, b) => a.y - b.y || a.x - b.x);
-  const X0 = Math.min(...ns.map(n => n.x)), Y0 = Math.min(...ns.map(n => n.y));
-  const at = new Map(), snap = v => Math.round(v / 10) * 10;
-  let y = Y0, wide = 0;
-  for (const f of flows) {
-    const L = layoutFlow(f, [...links.values()]);
-    for (const [id, p] of L.at) at.set(id, { x: snap(X0 + p.x), y: snap(y + p.y) });
-    y += L.h + TIDY.flows; wide = Math.max(wide, L.w);
+  // groups: pieces that talk to each other (nothing fires along a talk, it only keeps them together)
+  const up = pieces.map((_, i) => i), root = i => (up[i] === i ? i : (up[i] = root(up[i])));
+  const pairs = [];
+  for (const t of S.talks ? S.talks.values() : []) {
+    if (!box.has(t.a) || !box.has(t.b)) continue;
+    const a = pieceOf.get(t.a), b = pieceOf.get(t.b);
+    if (a !== b) { pairs.push([a, b]); up[root(a)] = root(b); }
   }
-  if (loose.length) {
-    // spaced like the flows' columns, as wide as the widest flow (a balanced grid when there is none),
-    // rows filled evenly (3+2, not 4+1)
-    const n = loose.length, cw = Math.max(...loose.map(b => b.w)) + TIDY.gx;
-    let cols = wide ? Math.max(1, Math.floor((wide + TIDY.gx) / cw)) : n <= 4 ? n : Math.ceil(n / Math.ceil(Math.sqrt(n / 1.8)));
-    cols = Math.ceil(n / Math.ceil(n / cols));
-    for (let i = 0; i < n; i += cols) {
-      const row = loose.slice(i, i + cols);
-      row.forEach((b, j) => at.set(b.id, { x: snap(X0 + j * cw), y: snap(y) }));
-      y += Math.max(...row.map(b => b.h)) + TIDY.gy;
+  const groups = new Map();
+  pieces.forEach((_, i) => { const r = root(i); if (!groups.has(r)) groups.set(r, []); groups.get(r).push(i); });
+  // the folder a group works in (where most of its cards do), while the canvas works in several
+  const folder = ids => {
+    const count = new Map();
+    if (FD.many) for (const id of ids) if (kindOf(S.nodes.get(id)) !== 'note') { const d = workDirs(S.nodes.get(id)).join('|'); count.set(d, (count.get(d) || 0) + 1); }
+    return [...count].reduce((a, b) => (b[1] > a[1] ? b : a), ['', 0])[0];
+  };
+  const items = [], loose = new Map();
+  for (const g of groups.values()) {
+    const it = g.length > 1 ? talkRow(g, pieces, pairs) : pieces[g[0]];
+    if (it.at.size > 1) { items.push({ ...it, dir: folder([...it.at.keys()]) }); continue; }
+    const id = [...it.at.keys()][0], d = folder([id]);
+    if (!loose.has(d)) loose.set(d, []);
+    loose.get(d).push(box.get(id));
+  }
+  for (const [dir, cards] of loose) items.push({ cards: inReadingOrder(cards, b => b), was: around(cards), dir });
+  // in the order they stood, one folder's groups after another
+  const order = inReadingOrder(items, it => it.was), first = new Map();
+  for (const it of order) if (!first.has(it.dir)) first.set(it.dir, first.size);
+  const at = compose(order.sort((a, b) => first.get(a.dir) - first.get(b.dir)), box);
+  // from the top left corner of what was there, on a 10 px raster (the corner too, or a second tidy
+  // would round differently)
+  const snap = v => Math.round(v / 10) * 10, X0 = snap(Math.min(...ns.map(n => n.x))), Y0 = snap(Math.min(...ns.map(n => n.y)));
+  for (const [id, p] of at) at.set(id, { x: X0 + snap(p.x), y: Y0 + snap(p.y) });
+  return at;
+}
+const around = bs => {
+  const x = Math.min(...bs.map(b => b.x)), y = Math.min(...bs.map(b => b.y));
+  return { x, y, w: Math.max(...bs.map(b => b.x + b.w)) - x, h: Math.max(...bs.map(b => b.y + b.h)) - y };
+};
+/* the order things stood in: rows of what starts about level with the row's first, each left to right */
+function inReadingOrder(list, rect) {
+  const s = [...list].sort((a, b) => rect(a).y - rect(b).y || rect(a).x - rect(b).x), out = [];
+  for (let i = 0; i < s.length;) {
+    const lim = rect(s[i]).y + Math.min(rect(s[i]).h, NH) * 0.75;
+    let j = i + 1;
+    while (j < s.length && rect(s[j]).y < lim) j++;
+    out.push(...s.slice(i, j).sort((a, b) => rect(a).x - rect(b).x)); i = j;
+  }
+  return out;
+}
+/* agents that talk, side by side in one row (their arches rise less than the room between groups),
+   everyone next to someone they talk to where it can be */
+function talkRow(g, pieces, pairs) {
+  const next = new Map(g.map(i => [i, []]));
+  for (const [a, b] of pairs) if (next.has(a)) { next.get(a).push(b); next.get(b).push(a); }
+  const byX = (a, b) => pieces[a].was.x - pieces[b].was.x, order = [];
+  const walk = i => { if (order.includes(i)) return; order.push(i); for (const j of next.get(i).sort(byX)) walk(j); };
+  walk([...g].sort(byX)[0]);
+  const at = new Map();
+  let x = 0, h = 0;
+  for (const i of order) {
+    const p = pieces[i];
+    for (const [id, q] of p.at) at.set(id, { x: x + q.x, y: q.y });
+    x += p.w + TIDY.gx; h = Math.max(h, p.h);
+  }
+  return { at, w: x - TIDY.gx, h, was: around(g.map(i => pieces[i].was)) };
+}
+/* lone cards in rows of up to `cols`, the rows filled evenly (4 + 3, not 6 + 1), in the order they stood */
+function looseBlock(cards, cols) {
+  const at = new Map(), rows = Math.ceil(cards.length / cols);
+  let y = 0, w = 0, i = 0;
+  for (let r = 0; r < rows; r++) {
+    const row = cards.slice(i, i += Math.ceil((cards.length - i) / (rows - r)));
+    let x = 0;
+    for (const b of row) { at.set(b.id, { x, y }); x += b.w + TIDY.loose; }
+    w = Math.max(w, x - TIDY.loose); y += Math.max(...row.map(b => b.h)) + TIDY.gy;
+  }
+  return { at, w, h: y - TIDY.gy };
+}
+/* the groups, in reading order, packed into one picture: every width the rows could take and every
+   shape of the lone blocks is tried. The picture that the window shows largest wins, unless one
+   nearly as large keeps the cards closer to where they stood. Positions from 0,0. */
+function compose(items, box) {
+  const G = TIDY.apartX, aw = innerWidth - 120, ah = Math.min(innerHeight - 200, barTop() - 80) - 40;
+  const most = Math.min(10, Math.max(1, ...items.map(it => (it.cards ? it.cards.length : 1))));
+  const X0 = Math.min(...[...box.values()].map(b => b.x)), Y0 = Math.min(...[...box.values()].map(b => b.y));
+  const tries = [];
+  for (let cols = 1; cols <= most; cols++) {
+    const shaped = items.map(it => (it.cards ? looseBlock(it.cards, cols) : it));
+    const widths = new Set([Math.max(...shaped.map(it => it.w))]);
+    for (let i = 0; i < shaped.length; i++) for (let j = i, w = -G; j < shaped.length; j++) widths.add(w += shaped[j].w + G);
+    for (const W of widths) {
+      const P = shelves(shaped, W);
+      const at = new Map();
+      shaped.forEach((it, i) => { for (const [id, q] of it.at) at.set(id, { x: P.xy[i].x + q.x, y: P.xy[i].y + q.y }); });
+      const x0 = Math.min(...[...at.values()].map(p => p.x)), y0 = Math.min(...[...at.values()].map(p => p.y));
+      let moved = 0;
+      for (const [id, p] of at) { const b = box.get(id); moved += Math.hypot(p.x - x0 - (b.x - X0), p.y - y0 - (b.y - Y0)); }
+      tries.push({ at, x0, y0, k: Math.min(1.1, aw / (P.w + JX), ah / P.h), moved });
     }
   }
-  return at;
+  const top = Math.max(...tries.map(t => t.k));
+  const pick = tries.filter(t => t.k >= top * 0.97).reduce((a, b) => (b.moved < a.moved - 1 ? b : a));
+  return new Map([...pick.at].map(([id, p]) => [id, { x: p.x - pick.x0, y: p.y - pick.y0 }]));
+}
+/* rows in the given order, each as full as width W allows, the boxes in a row level at the top and
+   TIDY.apartX / apartY apart. (Rows keep the order: a second tidy reads the same order back.) */
+function shelves(list, W) {
+  const xy = [];
+  let x = 0, y = 0, tall = 0, w = 0;
+  for (const it of list) {
+    if (x > 0 && x + it.w > W) { x = 0; y += tall + TIDY.apartY; tall = 0; }
+    xy.push({ x, y });
+    w = Math.max(w, x + it.w); x += it.w + TIDY.apartX; tall = Math.max(tall, it.h);
+  }
+  return { xy, w, h: y + tall };
+}
+
+/* a flow laid out again from where it lands until it stays put, the way the next tidy would see it:
+   tidy on a tidy canvas moves nothing */
+function settledFlow(bs, links) {
+  const snap = v => Math.round(v / 10) * 10;
+  let L = layoutFlow(bs, links);
+  for (let i = 0; i < 4; i++) {
+    const again = layoutFlow(bs.map(b => ({ ...b, x: snap(L.at.get(b.id).x), y: snap(L.at.get(b.id).y) })), links);
+    if (bs.every(b => again.at.get(b.id).x === L.at.get(b.id).x && again.at.get(b.id).y === L.at.get(b.id).y)) break;
+    L = again;
+  }
+  return L;
 }
 
 /* one flow (layered, Sugiyama style): columns, then the order in each column (fewest crossings),
-   then rows (each card level with the median of its neighbours). Positions relative to 0,0. */
+   then heights (each card level with the median of its neighbours). Positions relative to 0,0. */
 function layoutFlow(list, links) {
   const V = new Map(list.map(b => [b.id, { ...b, real: true, ins: [], outs: [], up: [], down: [] }]));
   const es = links.filter(([a, b]) => V.has(a) && V.has(b));
@@ -186,12 +296,15 @@ function layoutFlow(list, links) {
   }
   layers = best;
 
-  // rows: each card as close as it can be to the (weighted) median row of its neighbours, the order
-  // in its column kept. Per column that is an L1 isotonic fit (pool adjacent violators); a tie
-  // stays where it is. A lane outweighs a fan: a link drawn from one row to another across columns
-  // would cut through the cards in between, so a long link must run straight from end to end.
-  const row = new Map();
-  layers.forEach(ly => ly.forEach((id, i) => row.set(id, i)));
+  // heights: each card as close as it can be to the (weighted) median height of its neighbours, the
+  // order in its column kept and each column stacking only its own cards (a tall card pushes nothing
+  // in the next column). Per column that is an L1 isotonic fit (pool adjacent violators) on the top
+  // minus the room the cards above need; a tie stays where it is. A lane outweighs a fan: a link drawn
+  // from one height to another across columns would cut through the cards in between, so a long link
+  // must run straight from end to end.
+  const room = id => (nodes.get(id).real ? nodes.get(id).h : TIDY.lane) + TIDY.gy;
+  const top = new Map();
+  for (const ly of layers) ly.reduce((t, id) => (top.set(id, t), t + room(id)), 0);
   const settle = b => {
     const c = Math.round(b.cur.reduce((s, x) => s + x, 0) / b.cur.length);
     if (!b.pts.length) return (b.s = c);
@@ -200,39 +313,42 @@ function layoutFlow(list, links) {
     for (const [v, w] of p) { acc += w; if (lo === null && acc >= half) lo = v; if (acc > half) { hi = v; break; } }
     b.s = Math.min(hi, Math.max(lo, c));
   };
-  for (let it = 0; it < 60; it++) {
+  for (let it = 0; it < 80; it++) {
     let moved = false;
     for (const ly of it % 2 ? [...layers].reverse() : layers) {
       const blocks = [];
-      ly.forEach((id, i) => {
+      ly.reduce((off, id) => {
         const n = nodes.get(id);
-        const b = { ids: [id], cur: [row.get(id) - i], pts: [...n.up, ...n.down].map(d => [row.get(d.id) - i, d.w]) };
+        const b = { ids: [id], cur: [top.get(id) - off], pts: [...n.up, ...n.down].map(d => [top.get(d.id) - off, d.w]) };
         settle(b); blocks.push(b);
         while (blocks.length > 1 && blocks.at(-2).s > blocks.at(-1).s) {
           const z = blocks.pop(), a = blocks.at(-1);
           a.ids.push(...z.ids); a.cur.push(...z.cur); a.pts.push(...z.pts); settle(a);
         }
-      });
-      let i = 0;
-      for (const b of blocks) for (const id of b.ids) { const r = b.s + i++; if (r !== row.get(id)) { row.set(id, r); moved = true; } }
+        return off + room(id);
+      }, 0);
+      let off = 0;
+      for (const b of blocks) for (const id of b.ids) { const t = b.s + off; off += room(id); if (t !== top.get(id)) { top.set(id, t); moved = true; } }
     }
     if (!moved) break;
   }
 
-  // sizes: a row as tall as its tallest card (a lane is thin), a column as wide as its widest; a
-  // column whose card has a junction in front of it leaves room for it
-  const r0 = Math.min(...row.values()), rowH = [], colW = [], colGap = [];
+  // columns as wide as their widest card; a column whose card has a junction in front of it leaves
+  // room for it
+  const colW = [], colGap = [];
   for (const [id, n] of nodes) {
-    const r = row.get(id) - r0, c = L.get(id);
-    rowH[r] = Math.max(rowH[r] || 0, n.real ? n.h : TIDY.lane);
+    const c = L.get(id);
     colW[c] = Math.max(colW[c] || 0, n.real ? n.w : TIDY.lane);
     if (n.real && incoming(id).length >= 2) colGap[c] = JX + 15;
   }
-  const ys = [], xs = [];
-  let y = 0, x = 0;
-  for (let r = 0; r < rowH.length; r++) { ys[r] = y; if (rowH[r]) y += rowH[r] + TIDY.gy; }
+  const xs = [];
+  let x = 0;
   for (let c = 0; c < colW.length; c++) { x += colGap[c] || 0; xs[c] = x; x += colW[c] + TIDY.gx; }
-  const at = new Map();
-  for (const [id, n] of nodes) if (n.real) at.set(id, { x: xs[L.get(id)], y: ys[row.get(id) - r0] });
-  return { at, w: x - TIDY.gx, h: y - TIDY.gy };
+  const t0 = Math.min(...top.values()), at = new Map();
+  let h = 0;
+  for (const [id, n] of nodes) {
+    h = Math.max(h, top.get(id) - t0 + room(id) - TIDY.gy);
+    if (n.real) at.set(id, { x: xs[L.get(id)], y: top.get(id) - t0 });
+  }
+  return { at, w: x - TIDY.gx, h };
 }

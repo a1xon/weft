@@ -1,6 +1,8 @@
 // tidy: a messy canvas lines up. A chain is one straight row, a fork fans out around its start, a
 // link that skips columns runs straight along a free lane, no link crosses another or runs through
-// a card, flows stack, lone cards line up under them, the daemon keeps it, a second tidy changes
+// a card, a tall card pushes only its own column, agents that talk stand side by side, lone cards
+// gather in a block of their own, the groups keep more room between them than cards inside a flow
+// and fill the wide window instead of one tall column; the daemon keeps it, a second tidy changes
 // nothing, ctrl+z undoes it.
 const { chromium } = require(process.env.PLAYWRIGHT);
 const fs = require('fs');
@@ -18,10 +20,11 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
 
   // drafts (nothing runs), dropped anywhere. One flow: plan fans out to three, all three feed review,
   // review goes on to ship; plan also hands straight to ship (a link that skips columns); a note
-  // feeds review. Another flow: fan out to x y z, all three join. Two lone cards.
+  // feeds review; b is tall. Another flow: fan out to x y z, all three join. Two lone cards, two agents
+  // that talk to each other.
   await p.evaluate(async () => {
     const spots = { plan: [900, 700], a: [100, 100], b: [1400, 300], c: [300, 900], review: [60, 500], ship: [700, 80], note: [1200, 1000], lone1: [500, 400], lone2: [1700, 800],
-      fan: [400, 1500], x: [1300, 1900], y: [100, 1700], z: [800, 1400], join: [200, 2000] };
+      fan: [400, 1500], x: [1300, 1900], y: [100, 1700], z: [800, 1400], join: [200, 2000], tA: [2500, 200], tB: [100, 2400] };
     const id = {};
     for (const [name, [x, y]] of Object.entries(spots)) {
       const node = name === 'note' ? { name, agent: 'note', prompt: 'context', x, y } : { name, agent: 'claude', prompt: 'do ' + name, draft: true, x, y };
@@ -29,9 +32,11 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
     }
     for (const [f, t] of [['plan', 'a'], ['plan', 'b'], ['plan', 'c'], ['a', 'review'], ['b', 'review'], ['c', 'review'], ['review', 'ship'], ['plan', 'ship'], ['note', 'review'],
       ['fan', 'x'], ['fan', 'y'], ['fan', 'z'], ['x', 'join'], ['y', 'join'], ['z', 'join']]) await req('edge_add', { from: id[f], to: id[t] });
+    await req('talk_add', { a: id.tA, b: id.tB });
+    send('node_set', { id: id.b, patch: { h: 500 } });
     return id;
   });
-  await p.waitForFunction(n => S.edges.size === n, 15);
+  await p.waitForFunction(n => S.edges.size === n && S.talks.size === 1 && nh([...S.nodes.values()].find(m => m.name === 'b')) === 500, 15);
   const at = () => p.evaluate(() => Object.fromEntries([...S.nodes.values()].map(n => [n.name, { x: n.x, y: n.y, w: nw(n), h: nh(n) }])));
   const before = await at();
 
@@ -44,24 +49,29 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(L.fan.x < L.x.x && L.x.x === L.y.x && L.y.x === L.z.x && L.z.x < L.join.x, 'the other flow: fan | x y z | join');
   const ys = ['x', 'y', 'z'].map(k => L[k].y).sort((u, v) => u - v);
   ok(L.fan.y === ys[1] && L.join.y === ys[1], 'fan and join sit level with the middle of the three');
-  ok(L.fan.x === L.plan.x && L.fan.y > Math.max(L.plan.y, L.a.y, L.b.y, L.c.y, L.note.y), 'flows are stacked, starting in the same column');
   ok(L.note.x < L.review.x && L.note.x >= L.a.x, 'the note stands right before the card it feeds');
-  ok(L.lone1.y === L.lone2.y && L.lone1.y > Math.max(...Object.entries(L).filter(([k]) => !k.startsWith('lone')).map(([, v]) => v.y + v.h)), 'lone cards line up in a row under the flows');
+  ok(L.c.y - L.b.y - 500 >= 50 && L.c.y - L.b.y - 500 <= 60 && L.review.y === L.b.y, 'the tall card pushes only its own column: c right under it, review level with it');
+  ok(L.tA.y === L.tB.y && Math.abs(L.tA.x - L.tB.x) === L.tA.w + 130, 'the two agents that talk stand side by side');
+  ok(L.lone1.x === L.lone2.x || L.lone1.y === L.lone2.y, 'the lone cards line up in a block of their own');
+  const group = k => (['plan', 'a', 'b', 'c', 'review', 'ship', 'note'].includes(k) ? 1 : ['fan', 'x', 'y', 'z', 'join'].includes(k) ? 2 : k.startsWith('lone') ? 3 : 4);
   const cards = Object.entries(L);
+  const near = [];
+  for (const [k, u] of cards) for (const [j, v] of cards) if (k < j && group(k) !== group(j) && Math.max(v.x - u.x - u.w, u.x - v.x - v.w, v.y - u.y - u.h, u.y - v.y - v.h) < 170) near.push(k + '~' + j);
+  ok(!near.length, 'the groups keep more room between them than cards inside a flow ' + near.join(', '));
+  const wide = Math.max(...cards.map(([, v]) => v.x + v.w)) - Math.min(...cards.map(([, v]) => v.x)), tall = Math.max(...cards.map(([, v]) => v.y + v.h)) - Math.min(...cards.map(([, v]) => v.y));
+  ok(wide > tall, `and fill the wide window rather than one tall column (${wide} x ${tall})`);
   ok(!cards.some(([k, u]) => cards.some(([j, v]) => k < j && u.x < v.x + v.w && v.x < u.x + u.w && u.y < v.y + v.h && v.y < u.y + u.h)), 'no card overlaps another');
 
   // the links as drawn: none through a card that is not its end, none crossing another
   const geo = await p.evaluate(() => {
-    const out = [];
-    for (const e of S.edges.values()) {
-      const path = document.getElementById('p-' + e.id), len = path.getTotalLength();
-      out.push({ from: S.nodes.get(e.from).name, to: S.nodes.get(e.to).name, pts: Array.from({ length: 61 }, (_, i) => { const q = path.getPointAtLength(len * i / 60); return [q.x, q.y]; }) });
-    }
+    const out = [], along = path => { const len = path.getTotalLength(); return Array.from({ length: 61 }, (_, i) => { const q = path.getPointAtLength(len * i / 60); return [q.x, q.y]; }); };
+    for (const e of S.edges.values()) out.push({ from: S.nodes.get(e.from).name, to: S.nodes.get(e.to).name, pts: along(document.getElementById('p-' + e.id)) });
+    for (const t of S.talks.values()) out.push({ from: S.nodes.get(t.a).name, to: S.nodes.get(t.b).name, pts: along(document.getElementById('tp-' + t.id)) });
     return out;
   });
   const through = [];
   for (const g of geo) for (const [x, y] of g.pts.slice(1, -1)) for (const [k, c] of cards) if (k !== g.from && k !== g.to && x > c.x && x < c.x + c.w && y > c.y && y < c.y + c.h) through.push(`${g.from}->${g.to} through ${k}`);
-  ok(!through.length, 'no link runs through a card ' + [...new Set(through)].join(', '));
+  ok(!through.length, 'no link (and no talk) runs through a card ' + [...new Set(through)].join(', '));
   const side = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
   const hit = (P, Q) => { for (let i = 0; i < 60; i++) for (let j = 0; j < 60; j++) if (side(P[i], P[i + 1], Q[j]) * side(P[i], P[i + 1], Q[j + 1]) < 0 && side(Q[j], Q[j + 1], P[i]) * side(Q[j], Q[j + 1], P[i + 1]) < 0) return true; return false; };
   const crossed = [];
