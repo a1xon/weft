@@ -65,6 +65,7 @@ function onMsg(m) {
     case 'boards': onBoards(m.list); break;
     case 'board': onBoardName(m.name); break;
     case 'idle': S.idle = m.since || null; refreshFiling(); break;
+    case 'hold': S.hold = !!m.on; renderHold(); refreshFiling(); break;
     case 'hand': bead(m.edge, m.ok); break;
     case 'ack': { const f = S.acks.get(m.rid); if (f) { S.acks.delete(m.rid); f(m.r); } break; }
   }
@@ -76,6 +77,7 @@ function loadState(m) {
   if (m.build && mine && mine !== '__BUILD__' && mine !== m.build) { location.reload(); return; }
   S.project = m.project; S.cfg = m.cfg; S.lib = m.library;
   S.idle = m.idle || null;
+  S.hold = !!m.hold;
   S.nets = m.networks;   // (undefined from a daemon that keeps none: the built-in networks still work)
   S.prefs = m.cfg.prefs && typeof m.cfg.prefs === 'object' ? m.cfg.prefs : {};
   S.models = m.models || {};

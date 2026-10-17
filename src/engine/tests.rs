@@ -2256,6 +2256,33 @@ fn the_archive_clock_only_runs_while_someone_works_on_the_canvas() {
 }
 
 #[test]
+fn held_archiving_stops_every_countdown_until_it_is_let_go() {
+    let mut e = engine();
+    add(&mut e, "n1", "fix login", "fix the login");
+    finished(&mut e, "n1", true, 60);
+    let now = now_ms();
+    e.active.spans = vec![(now - 9 * 60_000, now + 60_000)];
+    e.cmd_archive_hold(true);
+    assert!(e.flow.hold);
+    let stand = e.active.stand(now_ms());
+    assert!(stand <= now_ms() && stand + 1000 > now, "the clock stopped when it was held");
+    // someone keeps working: the clock still stands, nothing is filed
+    e.worked();
+    assert_eq!(e.active.stand(now_ms() + 60_000), stand);
+    e.archive_look = 0;
+    e.tick_archive();
+    assert!(e.node("n1").is_some(), "nothing files itself while archiving is held");
+    assert_eq!(e.idle_shown, Some(stand), "the browsers show the countdowns stand");
+    // let go: what was left runs from now
+    let left = e.filing_map(&e.blocked_map())["n1"] - stand;
+    e.cmd_archive_hold(false);
+    assert!(!e.flow.hold);
+    assert_eq!(e.idle_shown, None);
+    let at = e.filing_map(&e.blocked_map())["n1"];
+    assert!(at.abs_diff(now_ms() + left) < 1000);
+}
+
+#[test]
 fn what_is_still_at_work_stays_on_the_canvas_when_dropped_on_the_archive() {
     let mut e = engine();
     add(&mut e, "n1", "busy one", "go");

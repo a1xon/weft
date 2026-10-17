@@ -252,6 +252,9 @@ in the bottom left corner.
   there and it stops (the countdowns dim) until you are back, so nothing leaves while you are away.
 * **Keep.** A finished card shows when it will go (`⊟ 24m` in its footer); a click on that keeps it
   on the canvas (`kept`), and with it its whole flow. *Keep on the canvas* is in its menu too.
+* **Hold archiving.** The *archiving* lock in the top bar pauses every countdown at once (amber,
+  *archiving held*); nothing files itself until a second click lets it go, and the time that was left
+  runs from then on. The board remembers it across restarts.
 * **Read and bring back.** A click on the archive unfolds what is filed, newest first: what each
   card was asked and what it said, a search once there is more than a handful. *Bring back* puts
   the cards where they were (or next to that, if something is there now) with their results and

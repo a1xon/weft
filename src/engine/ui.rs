@@ -243,6 +243,7 @@ impl Engine {
                     "prefs": self.cfg.prefs, "yolo": self.cfg.yolo,
                     "archive_s": self.cfg.archive_s, "archive_flow_s": self.cfg.archive_flow_s},
             "idle": self.idle_shown,
+            "hold": self.flow.hold,
             "models": self.models.iter().map(|(a, l)| (a.clone(), l.iter().map(|(id, label)| json!({"id": id, "label": label})).collect::<Vec<_>>())).collect::<HashMap<_, _>>(),
             "library": self.cfg.library,
             "networks": self.cfg.networks,

@@ -371,6 +371,10 @@ pub enum Cmd {
     },
     /// Someone is at the canvas (a browser says so while they use it): the archive clock runs.
     Here {},
+    /// Hold archiving (the lock in the top bar): every countdown stands until it is let go.
+    ArchiveHold {
+        on: bool,
+    },
     /// Something the person marked on a web page (the browser extension, see marks.rs): a new
     /// agent starts on `text` (in `cwd`, `agent` or the person's last one; `draft`: only placed),
     /// or the agent `to` is asked.
@@ -490,6 +494,7 @@ impl Engine {
             Cmd::ArchiveGet { group } => self.cmd_archive_get(group),
             Cmd::ArchiveDel { group } => self.cmd_archive_del(group),
             Cmd::Here {} => json!({"ok": true}),
+            Cmd::ArchiveHold { on } => self.cmd_archive_hold(on),
             Cmd::Mark { text, to, agent, cwd, draft } => self.cmd_mark(text, to, agent, cwd, draft),
         }
     }

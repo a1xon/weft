@@ -4,6 +4,8 @@
    unless a card of it is kept. A click unfolds what is there, newest first: read it, bring it back,
    or forget it. A daemon without an archive (an older build) shows none of this. */
 ICON.archive = I('<path d="M2.4 3.2h11.2v3H2.4z"/><path d="M3.4 6.2v6.6h9.2V6.2"/><path d="M6.2 8.8h3.6"/>');
+ICON.lock = I('<path d="M3.6 7.2h8.8v6.2H3.6z"/><path d="M5.4 7.2V5a2.6 2.6 0 0 1 5.2 0v2.2"/><path d="M8 9.6v1.6"/>');
+ICON.unlock = I('<path d="M3.6 7.2h8.8v6.2H3.6z"/><path d="M5.4 7.2V5a2.6 2.6 0 0 1 5.1-.7"/>');
 ICON.keep = I('<path d="M5.4 2.4h5.2M6.4 2.4v4.2L4.4 9h7.2l-2-2.4V2.4M8 9v4.8"/>');
 const AR = { groups: null, open: false, q: '', unfold: null, full: new Map(), over: false, sure: null, leave: null };
 const archEl = $('#arch');
@@ -41,6 +43,7 @@ function pulseArch() {
 function renderArch() {
   const on = archOn();
   archEl.hidden = !on;
+  renderHold();
   document.body.classList.toggle('hasarch', on);
   if (!on) { AR.open = false; return; }
   const cards = AR.groups.reduce((s, g) => s + g.nodes.length, 0);
@@ -214,6 +217,28 @@ function freeOffset(ns) {
   return { dx: right - x0, dy: 0 };
 }
 
+/* ---- the lock in the top bar: archiving held, every countdown stands until it is let go */
+const holdEl = $('#bHold');
+function renderHold() {
+  holdEl.hidden = !archOn();
+  const on = !!S.hold;
+  const key = on ? 'h' : 'r';
+  if (holdEl._key === key) return;
+  holdEl._key = key;
+  holdEl.classList.toggle('held', on);
+  document.body.classList.toggle('archheld', on);
+  holdEl.setAttribute('aria-pressed', String(on));
+  holdEl.innerHTML = (on ? ICON.lock : ICON.unlock) + `<span>${on ? 'archiving held' : 'archiving'}</span>`;
+  holdEl.title = on ? 'archiving is held: no countdown runs and nothing goes to the archive by itself. click to let the countdowns run again'
+    : 'finished cards go to the archive by themselves after a while. click to hold that: every countdown pauses';
+}
+holdEl.addEventListener('click', async () => {
+  const on = !S.hold;
+  S.hold = on; renderHold(); refreshFiling();
+  const r = await req('archive_hold', { on });
+  if (!r.ok) { S.hold = !on; renderHold(); refreshFiling(); toast('err', r.error || 'could not change that'); }
+});
+
 /* ---- on the card: when it files itself, and keep */
 /* the clock runs while someone works on the canvas: stopped (S.idle: since when), what is left stays */
 function filingLeft(at) {
@@ -234,7 +259,7 @@ function renderFiling(id, n, r) {
   el.fil.hidden = false;
   el.fil.classList.toggle('on', kept);
   const left = kept ? '' : filingLeft(at);
-  const paused = !kept && !!S.idle;
+  const paused = !kept && (!!S.idle || !!S.hold);
   const key = kept ? 'k' : 'a' + left + (paused ? 'p' : '');
   if (el.fil._key === key) return;
   el.fil._key = key;
@@ -243,7 +268,7 @@ function renderFiling(id, n, r) {
   const flow = !kept && [...S.rt.values()].filter(x => x.archive_at === at).length > 1;
   el.fil.title = kept ? 'kept on the canvas: it does not go to the archive by itself, nor does its flow. click to let it go'
     : `finished: goes to the archive ${left === 'soon' ? 'any moment' : 'in ' + left}${flow ? ', with the rest of its flow' : ''}`
-      + (paused ? ' of work here (the clock waits while nobody is at the canvas)' : '') + '. click to keep it on the canvas';
+      + (S.hold && !kept ? ' once archiving is let go (it is held: the countdown pauses)' : paused ? ' of work here (the clock waits while nobody is at the canvas)' : '') + '. click to keep it on the canvas';
 }
 function refreshFiling() {
   if (!archOn()) return;

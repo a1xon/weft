@@ -2,7 +2,7 @@
 //! or a flow goes there by itself once nothing in it is left to happen: a lone card `archive_s` after
 //! it was done, a flow of several cards `archive_flow_s` after its last step. That clock runs only
 //! while someone works on the canvas: two minutes without a sign of them and it stops until they are
-//! back. A kept card stays, and so does its flow. Filed work can come back with its results and links; its process ended when it was
+//! back, and not at all while archiving is held (`Flow::hold`, the lock in the top bar). A kept card stays, and so does its flow. Filed work can come back with its results and links; its process ended when it was
 //! filed (the next prompt starts a new one), its worktree is kept.
 
 use super::*;
@@ -72,6 +72,13 @@ impl Active {
             sum += b - a;
         }
         self.spans.drain(..from);
+    }
+
+    /// The clock stops now (archiving is held).
+    pub(super) fn halt(&mut self, now: u64) {
+        if let Some(last) = self.spans.last_mut() {
+            last.1 = last.1.min(now);
+        }
     }
 
     /// Where the clock stands: now while it runs, else the moment it stopped.
@@ -220,15 +227,34 @@ impl Engine {
 
     /// Someone did something on the canvas: the archive clock runs (on).
     pub(super) fn worked(&mut self) {
+        if self.flow.hold {
+            return;
+        }
         let keep = (self.cfg.archive_s.max(self.cfg.archive_flow_s).max(0.0) * 1000.0) as u64;
         self.active.touch(now_ms(), keep);
+    }
+
+    /// Hold archiving or let it go: while it is held the clock stands, whoever works here.
+    pub(super) fn cmd_archive_hold(&mut self, on: bool) -> Value {
+        if on != self.flow.hold {
+            self.flow.hold = on;
+            save_json(&self.flow_path, &self.flow);
+            if on {
+                self.active.halt(now_ms());
+            } else {
+                self.worked();
+            }
+            self.bcast(&json!({"t": "hold", "on": on}));
+            self.tick_idle();
+        }
+        json!({"ok": true, "hold": on})
     }
 
     /// The archive clock stopped or runs again: the browsers show it, and every countdown moves.
     pub(super) fn tick_idle(&mut self) {
         let now = now_ms();
         let stand = self.active.stand(now);
-        let idle = (stand < now).then_some(stand);
+        let idle = (self.flow.hold || stand < now).then_some(stand);
         if idle != self.idle_shown {
             self.idle_shown = idle;
             self.bcast(&json!({"t": "idle", "since": idle}));

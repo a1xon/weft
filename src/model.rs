@@ -328,6 +328,9 @@ pub struct Flow {
     pub edges: Vec<Edge>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub talks: Vec<Talk>,
+    /// Archiving is held (the lock in the top bar): no countdown runs, nothing files itself.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hold: bool,
 }
 
 /// How a library snippet is used.
