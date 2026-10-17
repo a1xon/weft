@@ -27,6 +27,36 @@ pub const REPORT_ADDENDUM: &str = "\
 weft only knows that you are finished when you run one of these commands as your very last action. \
 The text you give is handed to the next step and shown to the person.
 
+DONE (finished and checked, and nothing is left for the person to answer or decide):
+{{weft}} done <<'EOF'
+<summary: results, changed files, what you decided and why, what is left>
+EOF
+
+ISSUE (the person has to answer or decide something: a question, a choice between options, something you leave to them \
+(\"your call\"), access or information you need). Your work stays open and they answer you in this session. One question \
+per line, each with its options under it:
+{{weft}} issue <<'EOF'
+<where you are, in a line or two>
+<the questions>
+EOF
+
+A DONE that still asks the person something is held as an ISSUE until they answer: ask it with ISSUE, and do not end a DONE \
+with an offer (\"want me to ...?\").
+
+FAILURE (you tried and it cannot be done):
+{{weft}} fail \"<why it cannot be done>\"
+
+Do not end your turn to wait for something (\"I will get back to you when it is done\"): nothing will resume you. \
+If you are waiting for a build, a test run or a background job, keep checking it here until it has finished, then report. \
+Report once, and only when it is true.";
+
+/// Earlier wordings of [`REPORT_ADDENDUM`]: a library entry still saying one of them was never
+/// changed by the person, and follows the current one (`model::load_config`).
+pub const REPORT_ADDENDUM_BEFORE: [&str; 1] = ["\
+## How to report back to weft
+weft only knows that you are finished when you run one of these commands as your very last action. \
+The text you give is handed to the next step and shown to the person.
+
 DONE (finished, and you checked it):
 {{weft}} done <<'EOF'
 <summary: results, changed files, decisions, what is left>
@@ -40,7 +70,15 @@ FAILURE (you tried and it cannot be done):
 
 Do not end your turn to wait for something (\"I will get back to you when it is done\"): nothing will resume you. \
 If you are waiting for a build, a test run or a background job, keep checking it here until it has finished, then report. \
-Report once, and only when it is true.";
+Report once, and only when it is true."];
+
+/// Follows the person's answer to a report that asked them something: that report is not the result.
+pub fn answered() -> String {
+    format!(
+        "{TAG} That answers what your last report asked. Act on it, then report again with a complete summary of the whole task: \
+it replaces your last report. Ask only what is still open."
+    )
+}
 
 /// The first lines of the first message weft types into a session that is a step of a chain.
 pub fn intro() -> String {
@@ -58,8 +96,8 @@ pub fn status_rule(first: bool) -> String {
     if first {
         format!(
             "{TAG} Finish your final message with one last line: STATUS: <WORD>, where <WORD> is DONE (finished, and you checked it), \
-ISSUE (you need an answer or a decision from the person before you can go on: add it; an offer to do more is not one), \
-WAITING (you are waiting for something: add what for; weft wakes you to check) or FAILED (it cannot be done: add why). \
+ISSUE (the person has to answer or decide something: add the questions; a DONE message that still asks them something is \
+held as an ISSUE; an offer to do more is not one), WAITING (you are waiting for something: add what for; weft wakes you to check) or FAILED (it cannot be done: add why). \
 Nothing resumes you after your final message, so do not end it with a promise to report later."
         )
     } else {
@@ -193,7 +231,7 @@ pub fn nudge(exe: &str) -> String {
         "{TAG} Your turn ended, but you have not reported to weft: this step is still open and nobody has received a result.\n\
 - Finished and checked? Report it:\n\n{exe} done <<'EOF'\n<summary: results, changed files, decisions, what is left>\nEOF\n\n\
 - Waiting for a build, a test run or a job? Do not end your turn: keep checking it here until it has finished, then report.\n\
-- Cannot go on without the person? Run: {exe} issue \"<what you need from them>\"\n\
+- A question or a decision for the person, or something you need from them? Run: {exe} issue \"<the questions>\"\n\
 - Cannot be done? Run: {exe} fail \"<why it cannot be done>\""
     )
 }
@@ -783,9 +821,10 @@ mod tests {
 
     #[test]
     fn the_addendum_teaches_the_commands_and_forbids_waiting_by_ending_the_turn() {
-        for w in ["done <<'EOF'", "{{weft}} issue", "{{weft}} fail", "I will get back to you", "nothing will resume you"] {
+        for w in ["done <<'EOF'", "{{weft}} issue", "{{weft}} fail", "I will get back to you", "nothing will resume you", "held as an ISSUE"] {
             assert!(REPORT_ADDENDUM.contains(w), "{w}");
         }
+        assert!(!REPORT_ADDENDUM_BEFORE.contains(&REPORT_ADDENDUM), "the current wording is not an old one");
     }
 
     #[test]

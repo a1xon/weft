@@ -127,6 +127,9 @@ async function submitOmni(mode) {
   const ids = [...S.sel];
   omniTa.value = ''; growOmni(); closePalette();
   const single = ids.length === 1 ? S.nodes.get(ids[0]) : null;
+  // an open reader follows the card that answers this; a new agent is shown on the canvas
+  const handing = single && kindOf(single) === 'agent' && single.agent !== 'sh' && S.omniMode === 'hand';
+  if (ids.length === 0 || handing || (single && kindOf(single) !== 'agent')) readerSent(null);
   if (ids.length === 0) {
     const last = S.nodes.get(S.lastNode);
     const spot = last ? { x: last.x + nw(last) + 150, y: last.y } : (() => { const c = toWorld(innerWidth / 2 - NW / 2, innerHeight / 2 - NH); return { x: c.x, y: c.y }; })();
@@ -140,8 +143,9 @@ async function submitOmni(mode) {
   } else for (const id of ids) {
     // a busy agent gets the prompt as a card queued after its work; steering goes in right away
     const n = hostOf(S.nodes.get(id));
-    if (mode !== 'now' && busyAgent(n)) queueStep(n, text);
-    else send('send', { id, text, mode });
+    if (sendAnswers(n.id, text)) { if (ids.length === 1) readerSent(n.id, text); continue; }
+    if (mode !== 'now' && busyAgent(n)) queueStep(n, text).then(sid => ids.length === 1 && sid && readerSent(sid, text));
+    else { send('send', { id, text, mode }); if (ids.length === 1) readerSent(n.id, text); }
   }
 }
 const busyAgent = n => { const r = n && S.rt.get(n.id); return !!(r && kindOf(n) === 'agent' && n.agent !== 'sh' && (r.status === 'busy' || r.status === 'starting')); };
@@ -173,7 +177,7 @@ function onOmniKey(e) {
     // enter is a new line. Only a command chosen from the palette takes a plain enter.
     if (paletteOpen()) { e.preventDefault(); return palettePick(); }
     if (e.ctrlKey || e.metaKey || e.altKey) { e.preventDefault(); submitOmni(e.altKey ? 'now' : 'auto'); }
-  } else if (e.key === 'Escape') { if (!closePalette()) { omniTa.value = ''; growOmni(); omniTa.blur(); } e.stopPropagation(); }
+  } else if (e.key === 'Escape') { if (!closePalette() && !readerBack()) { omniTa.value = ''; growOmni(); omniTa.blur(); } e.stopPropagation(); }
   else if (e.key === 'Tab' && !S.sel.size && !omniTa.value.startsWith('/')) {
     e.preventDefault();
     const ks = agentEntries().map(x => x[0]); const i = ks.indexOf(S.lastAgent);

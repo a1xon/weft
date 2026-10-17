@@ -6,6 +6,7 @@
 // a card's row for the browsers is one json! with many keys (engine/ui.rs `rt_json`)
 #![recursion_limit = "256"]
 
+mod asks;
 mod boards;
 mod browser;
 mod client;
@@ -592,13 +593,19 @@ fn report(args: &[String], default: Report) -> Result<i32, String> {
         }
     }
     let id = if node.starts_with('n') && node[1..].chars().all(|c| c.is_ascii_digit()) { node } else { client::resolve(&node)? };
-    client::call(json!({"op": "done", "id": id, "ok": kind != Report::Fail, "issue": kind == Report::Issue, "text": text}))?;
+    let r = client::call(json!({"op": "done", "id": id, "ok": kind != Report::Fail, "issue": kind == Report::Issue, "text": text}))?;
+    let held = r["held"].as_u64().unwrap_or(0);
     println!(
         "{}",
         match kind {
-            Report::Done => "weft: DONE reported",
-            Report::Fail => "weft: FAILURE reported",
-            Report::Issue => "weft: ISSUE reported. Stop now: the person's answer will arrive in this session.",
+            Report::Done if held > 0 => format!(
+                "weft: your report still asks the person {} ({held}), so it waits for their answer like an ISSUE. Stop now: \
+their answer will arrive in this session.",
+                if held == 1 { "something" } else { "several things" }
+            ),
+            Report::Done => "weft: DONE reported".into(),
+            Report::Fail => "weft: FAILURE reported".into(),
+            Report::Issue => "weft: ISSUE reported. Stop now: the person's answer will arrive in this session.".into(),
         }
     );
     Ok(0)

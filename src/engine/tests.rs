@@ -3975,3 +3975,107 @@ fn a_card_that_waits_for_this_one_in_a_loop_does_not_hold_it() {
     assert!(!e.rt["r"].inputs.is_empty(), "the draft holds a's result");
     assert_eq!(shown(&e, "a"), Status::Done);
 }
+
+/// An agent at work on the person's task (`task`), asked to report with `weft done`, whose
+/// result goes on to "b".
+fn tasked_agent(e: &mut Engine) {
+    deferring_agent(e, Step { task: true, ..with_command() });
+    add(e, "b", "next", "{{inputs}}");
+    link(e, "e1", "a", "b", On::Done);
+    let r = e.rt.get_mut("a").unwrap();
+    r.pane = Some("%1".into());
+    r.cause = Cause::Flow;
+    r.runs = 1;
+}
+
+const ASKING: &str = "Built the export and pushed nothing.\n\nYOUR DECISIONS\n- Push fcea8566?\n- The old reels: re-render them now or after the re-analysis?";
+
+#[test]
+fn a_done_report_that_still_asks_the_person_waits_for_their_answer() {
+    let mut e = engine();
+    tasked_agent(&mut e);
+    let r = e.cmd_done("a".into(), true, ASKING.into(), false);
+    assert_eq!(r["held"], 2, "the agent is told its report waits: {r}");
+    assert!(!e.rt["a"].finished, "a report that asks something is not the end of the step");
+    assert_eq!(e.rt["a"].status, Status::Attention);
+    assert_eq!(e.rt["a"].issue.as_deref(), Some("Push fcea8566?\nThe old reels: re-render them now or after the re-analysis?"));
+    assert!(e.rt["b"].inputs.is_empty() && e.rt["b"].queue.is_empty(), "nothing goes on while it asks");
+    // minutes of quiet are the person's turn
+    let t0 = Instant::now();
+    e.eval("a", t0);
+    e.eval("a", t0 + Duration::from_secs(600));
+    assert!(!e.rt["a"].finished && e.rt["a"].status == Status::Attention);
+    // the page gets each question with its answers, and the report is what the reader shows
+    let blocked = HashMap::new();
+    let v = e.rt_json("a", &blocked, &HashMap::new());
+    assert_eq!(v["report"], true);
+    assert_eq!(v["asks"][0]["text"], "Push fcea8566?");
+    assert_eq!(v["asks"][0]["yn"], true);
+    assert_eq!(v["asks"][1]["opts"].as_array().map(Vec::len), Some(2), "{}", v["asks"]);
+    assert_eq!(e.cmd_result("a".into())["text"], ASKING);
+    // it survives a restart of the daemon
+    let mut again = Rt::new(80, 24);
+    again.restore(e.rt["a"].to_saved());
+    assert_eq!(again.cur.as_ref().and_then(|c| c.report.as_deref()), Some(ASKING));
+    // the person lets it go as it is: the report is the result, and it goes on
+    assert_eq!(e.cmd_skip("a".into())["ok"], true);
+    assert!(e.rt["a"].finished && e.rt["a"].issue.is_none() && e.rt["a"].status == Status::Done);
+    assert_eq!(e.rt["a"].output.as_deref(), Some(ASKING));
+    assert!(e.rt["b"].queue.iter().any(|q| q.text.contains("Push fcea8566?")), "the next card got the report");
+    assert_eq!(e.cmd_skip("a".into())["ok"], false, "there is nothing left to let go");
+}
+
+#[test]
+fn the_answer_to_a_held_report_continues_its_run_and_settles_what_it_quoted() {
+    let mut e = engine();
+    tasked_agent(&mut e);
+    e.cmd_done("a".into(), true, ASKING.into(), false);
+    // (typed into its session: tmux is there only for this, or "b" would be started for real later)
+    let (t, _typed) = Tmux::sink();
+    e.tmux = Some(t);
+    e.cmd_send("a".into(), "> Push fcea8566?\nyes\n\n> The old reels: re-render them now or after the re-analysis?\nafter".into(), SendMode::Auto, true);
+    e.tmux = None;
+    let c = e.rt["a"].cur.as_ref().expect("the answer is a step of the same run");
+    assert!(c.task && c.report.is_none());
+    assert_eq!(c.answered.len(), 2, "{:?}", c.answered);
+    assert!(c.prompt.contains("report again with a complete summary"), "the agent is told its next report replaces the last");
+    assert_eq!(e.cmd_result("a".into())["text"], ASKING, "while it works on the answers, the report answered is what is read");
+    assert_eq!((e.rt["a"].runs, e.rt["a"].status), (1, Status::Busy));
+    assert!(e.rt["a"].issue.is_none());
+    // its next report repeats the list it was answered on: that holds nothing now
+    let again = format!("Pushed fcea8566.\n\n{ASKING}");
+    assert_eq!(e.cmd_done("a".into(), true, again.clone(), false)["held"], 0);
+    assert!(e.rt["a"].finished && e.rt["a"].output.as_deref() == Some(again.as_str()));
+    assert!(e.rt["b"].queue.iter().any(|q| q.text.contains("Pushed fcea8566")));
+}
+
+#[test]
+fn only_the_persons_own_task_is_held_for_its_questions() {
+    // a request of weft's own (a commit, a handover note) answers weft, which checks it itself
+    let mut e = engine();
+    deferring_agent(&mut e, with_command());
+    assert_eq!(e.cmd_done("a".into(), true, "Committed 1a2b3c. Should I push it too?".into(), false)["held"], 0);
+    assert!(e.rt["a"].finished);
+    // an offer holds nothing; a failure is a failure
+    let mut e = engine();
+    tasked_agent(&mut e);
+    e.cmd_done("a".into(), true, "All tests pass.\n\nLet me know if you want a PR.".into(), false);
+    assert!(e.rt["a"].finished && e.rt["a"].ok == Some(true));
+    let mut e = engine();
+    tasked_agent(&mut e);
+    e.cmd_done("a".into(), false, "Should I retry with sudo?".into(), false);
+    assert!(e.rt["a"].finished && e.rt["a"].ok == Some(false));
+}
+
+#[test]
+fn a_lone_card_that_goes_quiet_on_a_question_asks_the_person() {
+    let mut e = engine();
+    deferring_agent(&mut e, Step { task: true, rule: true, lone: true, ..Step::new("go".into(), vec![]) });
+    says(&mut e, "Fixed the flicker. Safari still drops the first frame; I did not touch that.\nWant me to fix Safari as well?");
+    let t0 = Instant::now();
+    e.eval("a", t0);
+    e.eval("a", t0 + Duration::from_secs(5));
+    assert!(!e.rt["a"].finished, "it asked, so it is not done");
+    assert_eq!(e.rt["a"].issue.as_deref(), Some("Want me to fix Safari as well?"));
+    assert!(e.rt["a"].cur.as_ref().and_then(|c| c.report.as_deref()).is_some_and(|r| r.contains("Fixed the flicker")));
+}

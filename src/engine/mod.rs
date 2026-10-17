@@ -15,6 +15,7 @@
 //!   with a settled agent wait for you to hand the result over.
 
 use crate::{
+    asks,
     model::*,
     term,
     tmux::{self, TEv, Tmux},

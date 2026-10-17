@@ -85,7 +85,7 @@ impl Engine {
         rt.status
     }
 
-    fn rt_json(&self, id: &str, blocked: &HashMap<String, String>, filing: &HashMap<String, u64>) -> Value {
+    pub(super) fn rt_json(&self, id: &str, blocked: &HashMap<String, String>, filing: &HashMap<String, u64>) -> Value {
         let rt = &self.rt[id];
         let node = self.node(id);
         let incoming: Vec<&Edge> = self.flow.edges.iter().filter(|e| e.to == id).collect();
@@ -170,6 +170,13 @@ impl Engine {
         });
         // (set afterwards: the macro above is at its recursion limit)
         v["held"] = json!(rt.held.as_ref().map(|(h, why)| json!({"id": h, "name": self.node(h).map(|n| n.name.clone()), "why": why})));
+        // what it asks the person, with the answers it suggests: from a report it gave (`report`: it can be let
+        // go as it is) or from its ISSUE
+        if rt.issue.is_some() {
+            let report = rt.cur.as_ref().and_then(|c| c.report.as_deref().map(|r| c.asks_in(r)));
+            v["report"] = json!(report.is_some());
+            v["asks"] = json!(report.unwrap_or_else(|| asks::in_issue(rt.issue.as_deref().unwrap_or(""))));
+        }
         v
     }
 
@@ -394,7 +401,8 @@ impl Engine {
         match self.rt.get(&id) {
             Some(rt) => json!({
                 "ok": true,
-                "text": rt.output.clone().unwrap_or_default(),
+                // a report that waits for the person's answers is what they read (and, while it works on them, the one answered)
+                "text": rt.cur.as_ref().and_then(|c| c.report.clone().or_else(|| c.earlier.clone())).or_else(|| rt.output.clone()).unwrap_or_default(),
                 "status": rt.ok,
                 "steps": rt.steps,
                 "asked": rt.asked,

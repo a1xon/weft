@@ -10,6 +10,14 @@
 .pq{max-height:240px;overflow:auto;padding:9px 11px;font:calc(13px*var(--fs))/1.6 var(--mono);color:var(--i0);white-space:pre-wrap;word-break:break-word;
   background:var(--void);border-left:2px solid var(--vi);user-select:text;cursor:text}
 .pq.scr{font:calc(12px*var(--fs))/1.36 var(--mono);color:var(--tfg);white-space:pre-wrap;overflow-wrap:anywhere;padding:7px 9px}
+/* the questions it asks, one per row, each with its quick answers (chips: 56-reader.css) */
+.pq.asks{white-space:normal;display:flex;flex-direction:column;gap:9px;max-height:320px}
+.pqa{display:flex;gap:9px;align-items:flex-start}
+.pqa .pn{flex:none;min-width:2ch;color:var(--vi);font-weight:700}
+.pqt{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.pqx{white-space:pre-wrap;word-break:break-word}
+.pqa.qd .pqx{color:var(--i3)}
+.plea .pskip{border-color:rgba(183,140,255,.5);color:var(--vi)}
 .popts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .popts:empty{display:none}
 .popts .opt{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

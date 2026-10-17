@@ -364,6 +364,10 @@ pub enum Cmd {
         #[serde(default)]
         issue: bool,
     },
+    /// The person lets a report that asked them something go as it is: it is the result (run.rs).
+    Skip {
+        id: String,
+    },
     Watch {
         id: Option<String>,
     },
@@ -523,6 +527,7 @@ impl Engine {
             Cmd::Key { id, k } => self.cmd_key(id, k),
             Cmd::Text { id, text, paste } => self.cmd_text(id, text, paste),
             Cmd::Done { id, ok, text, issue } => self.cmd_done(id, ok, text, issue),
+            Cmd::Skip { id } => self.cmd_skip(id),
             Cmd::Watch { id } => self.cmd_watch(client, id),
             Cmd::Scroll { id, offset } => self.cmd_scroll(client, id, offset),
             Cmd::Wheel { id, n, row, col } => self.cmd_wheel(client, id, n, row, col),

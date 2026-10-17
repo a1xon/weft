@@ -114,6 +114,15 @@ pub(super) struct Step {
     pub(super) asked: bool,
     /// its output ends with its last word (DONE, FAILED, ISSUE): nothing it left running holds it
     pub(super) closed: bool,
+    /// the person's own task, not one of weft's requests: a report that still asks them something
+    /// waits for their answer (see `Engine::finish_task`)
+    pub(super) task: bool,
+    /// the report it gave while it asked the person something: the step's result if they let it go
+    pub(super) report: Option<String>,
+    /// the questions the person answered on the way (quoted in their answer): asked again, they hold nothing
+    pub(super) answered: Vec<String>,
+    /// the report they answered: what is read while the agent works on their answers
+    pub(super) earlier: Option<String>,
     /// what weft typed into the session after the prompt: part of the echo, not of the answer
     pub(super) extra: String,
     /// The conversation as the screen showed it while this step ran, rebuilt row by row: a program
@@ -181,6 +190,17 @@ impl Step {
             format!("{}\n{}", self.prompt, self.extra)
         }
     }
+
+    /// What `report` asks the person that they have not answered yet (offers included: they hold
+    /// nothing, but are shown with the rest).
+    pub(super) fn asks_in(&self, report: &str) -> Vec<asks::Ask> {
+        asks::asks(report).into_iter().filter(|a| !self.answered.contains(&asked_key(&a.text))).collect()
+    }
+}
+
+/// A question as it is compared with the ones answered: case and spacing aside.
+pub(super) fn asked_key(q: &str) -> String {
+    q.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
 }
 
 /// A message weft pasted into a session, until it has been seen taken. The Enter that submits it

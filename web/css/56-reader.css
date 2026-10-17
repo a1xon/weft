@@ -1,5 +1,7 @@
 /* ------------------------------------------------------------------ reader: a result, full size */
-#reader{position:fixed;inset:0;z-index:54;display:flex;justify-content:center;background:rgba(2,3,6,.82);padding:20px}
+#reader{position:fixed;inset:0;z-index:53;display:flex;justify-content:center;background:rgba(2,3,6,.82);padding:20px}
+/* the prompt bar stays over a result (under the terminal), and the text can scroll clear of it */
+#dock.over{z-index:54}
 #reader .win{--bd:var(--cy2);--fill:var(--s1);--c:14px;display:flex;flex-direction:column;width:100%;max-width:1500px;height:100%;
   filter:drop-shadow(0 0 30px rgba(92,200,255,.16));animation:rise .14s ease-out}
 #reader .fh2{flex-wrap:wrap;gap:8px 10px;padding:10px 12px 10px 16px}
@@ -10,6 +12,7 @@
 .rcli:hover{color:var(--cy);border-color:var(--cy2)}
 #reader .rbody{flex:1;min-height:0;overflow:auto;margin:0 12px 12px;padding:16px 22px 48px;background:var(--tbg);border:1px solid var(--l0);outline:none}
 #reader .rbody:focus-visible{border-color:rgba(92,200,255,.4)}
+#reader .rbody:not(.diff){padding-bottom:max(48px,calc(var(--dockh,0px) + 12px))}
 
 /* the text as the terminal laid it out: 1ch is one terminal column */
 .cli{max-width:124ch;padding-left:14px;border-left:2px solid var(--l2);color:var(--tfg);
@@ -29,7 +32,29 @@
 .cli .mt th{color:var(--i0);font-weight:700}
 
 .rask{max-width:124ch;margin:0 0 16px}
-#reader .rfresh{margin:0 0 12px;color:var(--cy)}
+#reader .rfresh,#reader .rwork{margin:0 0 12px;color:var(--cy)}
+
+/* questions the answer asks you: a violet line beside them, quick answers that go into the bar */
+.cli .qb{position:relative}
+.cli .qb::before{content:"";position:absolute;left:-16px;top:.2em;bottom:.2em;width:2px;background:var(--vi)}
+.cli .qb.qd::before{opacity:.35}
+.qa{display:inline-flex;flex-wrap:wrap;gap:4px;font:calc(11px*var(--fs))/1.4 var(--mono)}
+.cli .qa{margin-left:1.5ch;text-indent:0;white-space:normal;vertical-align:1px;opacity:.8;transition:opacity .12s;font-size:calc(11px*var(--fs)*var(--rz,1))}
+.cli .qa.row{display:flex;align-items:center;margin:3px 0 0}
+.cli .qa .qt{flex:0 1 auto;min-width:0;max-width:60ch;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--i3);margin-right:4px}
+.cli .qb:hover .qa,.cli .qa:focus-within,.cli .qb.flash .qa{opacity:1}
+.qc{padding:1px 7px;border:1px solid rgba(183,140,255,.45);background:rgba(183,140,255,.06);color:var(--i1);font:inherit;white-space:nowrap;max-width:36ch;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.qc:hover,.qc:focus-visible{border-color:var(--vi);color:var(--vi);outline:none}
+.qc.qm{border-color:var(--l2);background:transparent;color:var(--i2)}
+.qc.qs{border-style:dashed}
+.qc.on{background:var(--vi);border-color:var(--vi);color:var(--void)}
+.cli .qb.flash{animation:qflash 1.2s ease-out}
+@keyframes qflash{from{background:rgba(183,140,255,.16)}to{background:transparent}}
+#reader .rq{border-color:rgba(183,140,255,.5);color:var(--vi)}
+#reader .rq:hover,#reader .rskip:hover{border-color:var(--vi)}
+#reader .rissue{max-width:124ch;margin:0 0 18px;padding:10px 0 4px;border-bottom:1px solid var(--l1)}
+#reader .rissue h3{margin:0 0 8px;color:var(--vi);font:600 calc(12px*var(--fs)) var(--mono);text-transform:uppercase;letter-spacing:.04em}
+@media (prefers-reduced-motion:reduce){.cli .qb.flash{animation:none}}
 .rask summary,.rsteps summary{cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--i3);font:calc(12px*var(--fs)) var(--mono)}
 .rask summary:hover,.rsteps summary:hover{color:var(--i1)}
 .rask .rk{color:var(--i4)}

@@ -76,7 +76,8 @@ impl Engine {
     /// can have stopped because it waits for something it announced ("I will get back to you"), or
     /// because it has a question. A prompt to an agent was asked to end with a `STATUS:` line, and
     /// that line is read from its output:
-    /// * DONE: the result goes on; FAILED: the failure links fire;
+    /// * DONE: the result goes on, unless it still asks the person something (`finish_task`);
+    ///   FAILED: the failure links fire;
     /// * ISSUE: the card asks the person and nothing moves on;
     /// * WAITING: weft checks on the agent now and then, and wakes it;
     /// * no line: a step of a chain is asked once for it, and after that silence is the end; a lone
@@ -152,7 +153,9 @@ impl Engine {
             }
         };
         match act {
-            Act::Settle | Act::Done => self.step_done(id, true, None, How::Quiet),
+            Act::Settle | Act::Done => {
+                self.finish_task(id, None, How::Quiet);
+            }
             Act::Fail(why) => {
                 let said = self.rt.get_mut(id).and_then(|r| answer_in(&mut r.parser, r.cur.as_ref()?, &chrome));
                 let why = if why.is_empty() { "the agent said it could not do it".to_string() } else { why };
@@ -253,6 +256,45 @@ impl Engine {
         if let Some(rt) = self.rt.get_mut(id) {
             rt.ui = true;
         }
+    }
+
+    /// The agent says it is done with a step (with a report, a status line, or by going quiet). A
+    /// step of the person's task whose answer still asks them something ("Should I push?", a list
+    /// of decisions for them, "your call") is not done: it stays open and the card asks them, so
+    /// nothing goes on and nothing is filed while the question hangs. They answer in the same
+    /// session, or let it go as it is (`cmd_skip`). Returns how many things it asks them.
+    fn finish_task(&mut self, id: &str, text: Option<String>, how: How) -> usize {
+        let chrome = self.cfg.chrome.clone();
+        let said = match self.rt.get_mut(id) {
+            Some(Rt { cur: Some(c), parser, .. }) if c.task => {
+                text.clone().filter(|t| !t.trim().is_empty()).or_else(|| answer_in(parser, c, &chrome).map(|t| words::strip_status(&t)))
+            }
+            _ => None,
+        };
+        let open: Vec<String> = match (said.as_deref(), self.rt.get(id).and_then(|r| r.cur.as_ref())) {
+            (Some(t), Some(c)) => c.asks_in(t).into_iter().filter(|a| a.kind != asks::Kind::Offer).map(|a| a.text).collect(),
+            _ => vec![],
+        };
+        if open.is_empty() {
+            self.step_done(id, true, said.filter(|t| !t.trim().is_empty()).or(text), how);
+            return 0;
+        }
+        if let Some(c) = self.rt.get_mut(id).and_then(|r| r.cur.as_mut()) {
+            c.report = said;
+        }
+        self.raise_issue(id, open.join("\n"));
+        open.len()
+    }
+
+    /// The person lets a report that asked them something go as it is: it is the step's result,
+    /// and goes on.
+    pub(super) fn cmd_skip(&mut self, id: String) -> Value {
+        let report = self.rt.get(&id).and_then(|r| r.cur.as_ref()).and_then(|c| c.report.clone());
+        let Some(report) = report else {
+            return json!({"ok": false, "error": "it asks nothing that can be left"});
+        };
+        self.step_done(&id, true, Some(report), How::Signal);
+        json!({"ok": true})
     }
 
     /// One step finished. Continue the script, or settle the agent.
@@ -450,6 +492,17 @@ impl Engine {
                 item.text = format!("{note}\n\n{}", item.text);
             }
         }
+        // the answer to a report that asked the person something: the questions they quoted are settled,
+        // and the next report has to stand on its own (it replaces that one)
+        let task = agent && plain && !self.weft_asks(&item.src);
+        let (mut answered, mut earlier) = (Vec::new(), None);
+        if let Some(c) = self.rt.get(id).and_then(|r| r.cur.as_ref()).filter(|c| task && c.report.is_some()) {
+            answered = c.answered.clone();
+            earlier = c.report.clone();
+            answered.extend(item.shown.lines().filter_map(|l| l.trim().strip_prefix('>')).map(asked_key));
+            item.text.push_str("\n\n");
+            item.text.push_str(&words::answered());
+        }
         let Some(rt) = self.rt.get_mut(id) else { return };
         let cause = if item.src == Src::Flow { Cause::Flow } else { Cause::User };
         rt.reply_to = match &item.src {
@@ -469,7 +522,7 @@ impl Engine {
         tm.send_bytes(&pane, &term::paste_payload(rt.parser.screen(), &item.text));
         rt.typing = Some(Typing { turn: rt.turn, ..Typing::new(&item.text, true, rt.parser.screen(), Instant::now()) });
         let before = term::lines(&mut rt.parser);
-        rt.cur = Some(Step { expect_signal, rule, lone: !consumed, ..Step::new(item.text.clone(), before) });
+        rt.cur = Some(Step { expect_signal, rule, lone: !consumed, task, answered, earlier, ..Step::new(item.text.clone(), before) });
         rt.issue = None;
         rt.waiting = None;
         rt.limit = None;
@@ -630,7 +683,11 @@ impl Engine {
             let r = &self.rt[&id];
             (r.cur.is_some() || (r.armed && !r.finished), r.finished)
         };
-        if running || !finished {
+        if (running || !finished) && ok {
+            // a report that still asks the person something is held for their answer: the agent stops
+            let held = self.finish_task(&id, Some(text), How::Signal);
+            return json!({"ok": true, "held": held});
+        } else if running || !finished {
             self.step_done(&id, ok, Some(text), How::Signal);
         } else if !text.trim().is_empty() {
             // a late report after the screen already went quiet: keep the better text

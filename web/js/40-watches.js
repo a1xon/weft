@@ -16,7 +16,9 @@ function tidyUnder(el) {
   if (!any && el.under) { el.under.remove(); el.under = null; }
 }
 /* needs you: the agent's question (or the dialog on its screen), readable and scrollable, with the
-   answer box right under it. The answer goes into the step that asked; the card goes back to work. */
+   answer box right under it. The answer goes into the step that asked; the card goes back to work.
+   Each question it asks comes with quick answers that write into that box (94-reader.js); a report
+   that asked them can also be let go as it is ("skip all"). */
 const DIALOG_OPT = /^\s*(?:[❯›>]\s*)?(\d)[.)]\s+(\S.*?)\s*$/;
 function renderPlea(id, n, r) {
   const el = nodeEls.get(id); if (!el) return;
@@ -26,15 +28,32 @@ function renderPlea(id, n, r) {
     return;
   }
   if (!el.plea) { el.plea = mkPlea(id); underOf(el).prepend(el.plea); tidyUnder(el); }
-  const p = el.plea, ask = !!r.issue;
+  const p = el.plea, ask = !!r.issue, asks = ask ? r.asks || [] : [];
   const rows = ask ? [] : (r.pv || []);
-  const key = ask ? 'i:' + r.issue : 'd:' + rows.join('\n');
+  const key = ask ? 'i:' + r.issue + '\u0001' + !!r.report + '\u0001' + JSON.stringify(asks) : 'd:' + rows.join('\n');
   if (p._key === key) return;
   p._key = key;
   p.dataset.mode = ask ? 'ask' : 'dialog';
-  p.hd.textContent = ask ? `${n.name} asks you` : `${n.name} waits at a dialog`;
+  // Claude Code's own question tool is a question, not a permission
+  const tool = !ask && rows.some(x => /Enter to select|Ready to submit your answers/.test(x.replace(/<[^>]*>/g, '')));
+  p.hd.textContent = ask ? (r.report ? `${n.name} asks you before it is done` : `${n.name} asks you`) : tool ? `${n.name} asks you` : `${n.name} waits at a dialog`;
   p.row.hidden = !ask;
-  if (ask) {
+  p.skip.hidden = !(ask && r.report);
+  p.read.hidden = !(ask && r.report);
+  p.qs = [];
+  if (ask && asks.length) {
+    // one row per question, its quick answers under it
+    p.q.className = 'pq asks';
+    p.qs = asks.map(a => ({ ...a }));
+    p.q.replaceChildren(...p.qs.map((q, i) => {
+      q.box = h('div', { class: 'pqa' }, h('span', { class: 'pn' }, String(i + 1)),
+        h('div', { class: 'pqt' }, h('div', { class: 'pqx' }, q.text), q.bar = h('div', { class: 'qa' }, askChips(q, p.ta, () => markAsks(p.qs, p.ta.value)))));
+      return q.box;
+    }));
+    markAsks(p.qs, p.ta.value);
+    p.opts.replaceChildren();
+    p.tip.textContent = `pick or write an answer to each · enter sends them to ${n.name}` + (r.report ? ' · skip all: it is done as it is' : '');
+  } else if (ask) {
     p.q.className = 'pq';
     p.q.textContent = r.issue;
     p.opts.replaceChildren();
@@ -66,15 +85,18 @@ function mkPlea(id) {
   p.row = h('div', { class: 'prow' }, h('span', { class: 'prompt' }, '>_'), p.ta, p.go);
   p.tip = h('div', { class: 'ptip' });
   const term = h('button', { class: 'fbtn', title: 'open its terminal', onclick: ev => { ev.stopPropagation(); openFocus(id); } }, 'terminal');
-  p.append(h('div', { class: 'fh2' }, p.hd, h('span', { class: 'sp' }), term), p.q, p.opts, p.row, p.tip);
+  p.read = h('button', { class: 'fbtn', hidden: true, title: 'its whole report, with the questions marked where they stand', onclick: ev => { ev.stopPropagation(); openReader(id); } }, 'read it all');
+  p.skip = h('button', { class: 'fbtn pskip', hidden: true, title: 'nothing to answer: the report is the result as it stands, and goes on',
+    onclick: ev => { ev.stopPropagation(); send('skip', { id }); p.ta.value = ''; grow(); } }, 'skip all');
+  p.append(h('div', { class: 'fh2' }, p.hd, h('span', { class: 'sp' }), p.skip, p.read, term), p.q, p.opts, p.row, p.tip);
   const grow = () => { p.ta.style.height = 'auto'; p.ta.style.height = Math.min(140, p.ta.scrollHeight) + 'px'; };
   const answer = () => {
     const text = p.ta.value.trim(); if (!text) return;
-    send('send', { id, text, mode: 'auto' });
+    if (!sendAnswers(id, text)) send('send', { id, text, mode: 'auto' });
     p.ta.value = ''; grow();
     p.tip.textContent = 'sent';
   };
-  p.ta.addEventListener('input', grow);
+  p.ta.addEventListener('input', () => { grow(); if (p.qs && p.qs.length) markAsks(p.qs, p.ta.value); });
   p.ta.addEventListener('keydown', e => {
     e.stopPropagation();
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); answer(); }

@@ -21,6 +21,7 @@ Prompt directives it understands (case-insensitive):
                    says it has reset
 
     FAIL_TASK      do the work badly: report failure
+    REPORT_FILE=P  report DONE with the text of file P (a report that may still ask the person things)
     SLOW           think three times longer
 
 A prompt from weft asks it to end with "STATUS: <WORD>" (DONE, ISSUE, WAITING, FAILED); it does.
@@ -473,6 +474,14 @@ def work(prompt):
             summary = body[0][2:]
         if JOBS_ASKED in prompt and action is None and ok:
             summary += "\n\n" + "\n".join(JOBS)
+        mr = re.search(r"REPORT_FILE=(\S+)", prompt)
+        if mr and action is None and ok:
+            try:
+                summary = open(mr.group(1)).read()
+            except OSError:
+                pass
+        elif "that answers what your last report asked" in low and action is None:
+            summary = "Did what you answered. Nothing is left to decide."
         say("\x1b[2m●\x1b[0m Bash(" + os.path.basename(m.group(1)) + (" done" if ok else " fail") + ")")
         cmd = [m.group(1), "done" if ok else "fail"]
         subprocess.run(cmd, input=summary.encode(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

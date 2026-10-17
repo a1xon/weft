@@ -134,6 +134,13 @@ pub async fn connect(sock: &str, session: &str, cols: u16, rows: u16, ev: mpsc::
 }
 
 impl Tmux {
+    /// A tmux that only collects what it would be told (unit tests that type into a session).
+    #[cfg(test)]
+    pub fn sink() -> (Tmux, mpsc::UnboundedReceiver<Vec<u8>>) {
+        let (ctl, rx) = mpsc::unbounded_channel();
+        (Tmux { sock: "test".into(), session: "test".into(), ctl }, rx)
+    }
+
     /// Fire-and-forget command on the control stream. Callers must only pass
     /// validated tokens (pane ids, key names, hex) - never raw user text.
     pub fn ctl(&self, line: impl AsRef<str>) {

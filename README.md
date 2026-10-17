@@ -67,7 +67,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 | `Alt`-drag a card | clone it |
 | drag a card's bottom-right corner | resize it: a taller card shows more rows of its terminal; double-click the corner for the default size |
 | the wheel in an open terminal | scroll back: an agent that reads the mouse (Claude Code) scrolls its own transcript, anything else weft's history; *jump to latest* goes back down |
-| click a card's answer, or `R` | the whole **result**, full size and laid out as the agent's terminal showed it: indents and tables kept (a markdown table from `weft done` is drawn as a table), long lines wrapped under their own indent; `+`/`-` text size, `Esc` back. `weft result <node>` prints the same text in your terminal |
+| click a card's answer, or `R` | the whole **result**, full size and laid out as the agent's terminal showed it: indents and tables kept (a markdown table from `weft done` is drawn as a table), long lines wrapped under their own indent; `+`/`-` text size, `Esc` back. `weft result <node>` prints the same text in your terminal. The prompt bar stays over it, aimed at that card: start typing (or `Enter`) to answer, `Esc` in the bar goes back to reading and keeps the text. A report that still asks you something ([below](#done-but-still-asking)) has a violet line beside each question and quick answers (`yes`/`no` or the options it gave, *do it*, *you decide*, *skip*, *answer…* to write your own) that put `> question` + answer into the bar; nothing is sent before `ctrl+enter`, *skip all* lets it go on as it is, and the reader then shows the next answer when it is in |
 | click a step in a card's *steps* bar | what that step changed, as a diff; **undo this step** or **rewind to before it** puts its files back (below) |
 | marquee or shift-click, then `G` | gather several results into one agent |
 | right-click anything | what it can do |
@@ -617,8 +617,9 @@ it would not work.
 | Process exits | exit code 0 = succeeded, otherwise failed | `cargo test`, scripts |
 | Reports done | only an explicit `weft done [--fail]` counts | long, bursty agents |
 
-A card that shows a trust, update or approval dialog goes to *needs you* and nothing is typed into
-it (patterns per agent, configurable; a pattern counts near the bottom of the screen with a choice
+A card that shows a trust, update or approval dialog, or Claude Code's own question tool (its numbered
+choices with *Enter to select*), goes to *needs you* and nothing is typed into it: typing into the
+question tool would answer it for you (patterns per agent, configurable; a pattern counts near the bottom of the screen with a choice
 under it, or on the last line, so an agent showing the same words in code or a diff is not taken
 for a dialog). What it needs unfolds **under the card**: the dialog, with its
 numbered options as buttons (plus enter / esc), or an agent's question (below), readable and
@@ -662,6 +663,25 @@ the end of each answer (not part of the card's result), no extra turn. What you 
 an agent's terminal gets nothing, and neither do weft's own requests (commit, screenshot, handover:
 those weft checks itself, with git, a file or a test run). `"chain_status": false` in `config.json`
 turns it off.
+
+### Done, but still asking
+
+An agent often finishes and still leaves you something: "Should I push?", a list under *Decisions
+left for you*, "...: your call", "want me to fix Safari too?". weft reads the report (`weft done`,
+the message before `STATUS: DONE`, or a lone card's last message) for what it asks you. If it asks
+anything, the step is **not done**: the card *asks you*, nothing goes on and nothing is filed. Under
+the card each question has quick answers: `yes`/`no` or the options it gave, *do it* for a decision
+it left to you, *you decide*, *skip*, and *answer…* to write your own. They fill the answer box with
+`> question` and the answer, and Enter sends it. The agent goes on in the same session and is told to
+report again with a whole summary. A question you quoted does not hold it a second time. *skip all*
+(or sending nothing but skips) lets the report go on as it stands: it is the result. *read it all*
+opens it in the reader with the questions marked where they stand.
+
+Only the agent's own prose counts. Code, tables, quotes, headings and words in quotation marks are
+not questions, and neither is one it answers itself ("Is it fast? Yes, 3 ms"). *Decisions:* on its
+own lists what it decided. An offer ("let me know if you want a PR") is shown but holds nothing.
+weft's own requests (commit, screenshot, handover) are never held. The rules are in `src/asks.rs`;
+the report addendum tells agents to ask with `weft issue` in the first place.
 
 A step of a chain also gets one line first: *you are one step in a chain run by weft, what you write
 last is handed on, messages starting with `[weft]` are from weft*. A lone agent gets only the status
@@ -861,6 +881,7 @@ src/dev.rs         dev only: the page from disk, following edits (see "Working o
 src/tmux.rs        the control-mode client: events in, validated keystrokes out
 src/term.rs        screen helpers: HTML rows, previews, telling an answer from terminal furniture
 src/words.rs       everything weft says to an agent, and how it reads the status line back
+src/asks.rs        what an answer still asks the person: the questions and decisions in it, with the answers they suggest
 src/client.rs      the small HTTP client the CLI commands use
 src/browser.rs     marks from the browser: the native messaging host, which board a page's server belongs to, `weft extension`
 src/engine/        the single actor that owns all state

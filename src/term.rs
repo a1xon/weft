@@ -693,6 +693,27 @@ All five slug tests now pass."
         assert!(!dialog_on(&old, &claude));
     }
 
+    #[test]
+    fn claude_asking_with_its_own_question_tool_is_a_dialog() {
+        // Claude Code 2.1.302's AskUserQuestion, as it drew it: typing weft's reminder into it picked
+        // "1. Red" for the person, and the agent went on as if they had answered
+        let claude = crate::model::Config::default().agents["claude"].attention.clone();
+        let one = "❯ Use your AskUserQuestion tool to ask me.\n────────\n ☐ Color\n\nWhich color do you prefer?\n\n❯ 1. Red\n     Choose \
+                   red.\n  2. Blue\n     Choose blue.\n  3. Type something.\n────────\n  4. Chat about this\n\nEnter to select · ↑/↓ to \
+                   navigate · Esc to cancel\n\n\n";
+        assert!(dialog_on(one, &claude));
+        let tabs = "←  ☐ Size  ☐ Fruits  ✔ Submit  →\n\nWhich size do you want?\n\n❯ 1. Small\n  2. Large\n  3. Type something.\n\
+                    ────────\n  4. Chat about this\n\nEnter to select · Tab/Arrow keys to navigate · Esc to cancel";
+        assert!(dialog_on(tabs, &claude));
+        let review = "←  ☒ Size  ☐ Fruits  ✔ Submit  →\n\nReview your answers\n\n ● Which size do you want?\n   → Large\n\nReady to \
+                      submit your answers?\n\n❯ 1. Submit answers\n  2. Cancel";
+        assert!(dialog_on(review, &claude));
+        // once answered, the transcript keeps no footer: the agent's idle input box is no dialog
+        let after = "● User answered Claude's questions:\n  ⎿  · Which color do you prefer? → Red\n\n● You prefer red.\n\n✻ Brewed \
+                     for 3s · done 23:14\n\n────────\n❯ \n────────\n  ⏵⏵ bypass permissions on (shift+tab to cycle)";
+        assert!(!dialog_on(after, &claude));
+    }
+
     fn rows_of(p: &Parser) -> Vec<String> {
         let (_, cols) = p.screen().size();
         p.screen().rows(0, cols).map(|r| r.trim_end().to_string()).collect()

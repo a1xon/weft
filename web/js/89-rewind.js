@@ -38,7 +38,7 @@ async function openStep(id, num) {
   const n = S.nodes.get(id); if (!n) return;
   const c = cpsOf(S.rt.get(id)).find(x => x.n === num); if (!c) return;
   closeMenu(); closeFly();
-  RD.id = null;
+  RD.id = null; dockOver(false);
   const b = (label, title, fn, cls = '') => h('button', { class: 'btn sm ' + cls, title, onclick: fn }, label);
   const body = h('div', { class: 'rbody diff', tabindex: '0', 'aria-label': `What step ${num} of ${n.name} changed` }, h('div', { class: 'note' }, 'loading…'));
   const cps = cpsOf(S.rt.get(id)), done = cps.filter(x => !x.open);

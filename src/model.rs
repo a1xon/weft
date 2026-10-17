@@ -635,8 +635,10 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
         AgentCfg {
             cmd: "claude".into(),
             label: "Claude Code".into(),
-            // the second is the one-time "bypass permissions" acceptance
-            attention: strings(&["Yes, I trust this folder", "Do you want to proceed?", "Yes, I accept"]),
+            // the second is the one-time "bypass permissions" acceptance; the last two are its own question
+            // tool (AskUserQuestion: "Enter to select · ↑/↓ to navigate · Esc to cancel", then a review
+            // page): typing into it would pick an answer for the person
+            attention: strings(&["Yes, I trust this folder", "Do you want to proceed?", "Yes, I accept", "Enter to select ·", "Ready to submit your answers?"]),
             model_arg: "--model {}".into(),
             models: strings(&["opus", "sonnet", "haiku"]),
             effort_arg: "--effort {}".into(),
@@ -830,7 +832,19 @@ pub fn load_config() -> Config {
     if let Some(user) = load_json::<serde_json::Value>(&config_path()) {
         merge(&mut base, &user);
     }
-    serde_json::from_value(base).unwrap_or_default()
+    let mut cfg: Config = serde_json::from_value(base).unwrap_or_default();
+    follow_wording(&mut cfg.library);
+    cfg
+}
+
+/// The library is saved whole, so a built-in snippet the person never touched would keep an old
+/// wording forever: one that still reads as weft once wrote it gets the current text.
+fn follow_wording(library: &mut [Snippet]) {
+    for s in library.iter_mut().filter(|s| s.id == "report-done") {
+        if crate::words::REPORT_ADDENDUM_BEFORE.contains(&s.text.as_str()) {
+            s.text = crate::words::REPORT_ADDENDUM.into();
+        }
+    }
 }
 
 /// Persist one key of the user's config without freezing any other default.
@@ -852,5 +866,23 @@ pub fn ensure_weft_gitignore(dir: &Path) {
     if !miss.is_empty() {
         let sep = if have.is_empty() || have.ends_with('\n') { "" } else { "\n" };
         let _ = write_atomic(&p, format!("{have}{sep}{}\n", miss.join("\n")).as_bytes());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_built_in_snippet_left_as_weft_wrote_it_follows_the_new_wording() {
+        let mut lib = default_library();
+        let report = lib.iter_mut().find(|s| s.id == "report-done").unwrap();
+        report.text = crate::words::REPORT_ADDENDUM_BEFORE[0].into();
+        let mut own = lib.clone();
+        own.iter_mut().find(|s| s.id == "report-done").unwrap().text.push_str("\nAlso say which tests you ran.");
+        follow_wording(&mut lib);
+        follow_wording(&mut own);
+        assert_eq!(lib.iter().find(|s| s.id == "report-done").unwrap().text, crate::words::REPORT_ADDENDUM);
+        assert!(own.iter().find(|s| s.id == "report-done").unwrap().text.ends_with("which tests you ran."), "the person's own text stays");
     }
 }
