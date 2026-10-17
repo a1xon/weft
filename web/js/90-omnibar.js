@@ -130,7 +130,7 @@ async function submitOmni(mode) {
   if (ids.length === 0) {
     const last = S.nodes.get(S.lastNode);
     const spot = last ? { x: last.x + nw(last) + 150, y: last.y } : (() => { const c = toWorld(innerWidth / 2 - NW / 2, innerHeight / 2 - NH); return { x: c.x, y: c.y }; })();
-    const id = await spawnAt(S.lastAgent, spot.x, spot.y, { text, draft: false, run: true, edit: false });
+    const id = await spawnAt(S.lastAgent, spot.x, spot.y, { text, draft: false, run: true, edit: false, lane: true });
     if (id) setTimeout(() => centerOn(id), 80);
   } else if (single && kindOf(single) === 'agent' && single.agent !== 'sh' && S.omniMode === 'hand') {
     S.omniMode = 'then';

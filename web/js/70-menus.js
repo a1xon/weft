@@ -160,22 +160,30 @@ function edgeMenu(id, x, y) {
 }
 
 /* ------------------------------------------------------------ making things */
-/* where a new card fits without overlapping another (and without covering a junction) */
+/* where a new card fits without overlapping another (and without covering a junction).
+   lane: a card that starts working now keeps its row free to the right of it (no card that runs
+   or has run there), so what is queued after it lines up next to it */
 const filmH = id => { const el = nodeEls.get(id); return el && el.under ? el.under.offsetHeight + 12 : 0; };
-function freeSpot(x, y) {
-  const boxes = [...S.nodes.values()].map(n => ({ x: n.x - JX - 20, y: n.y - 14, w: nw(n) + JX + 40, h: nh(n) + 28 + filmH(n.id) }));
-  const overlaps = (cx, cy) => boxes.some(b => cx - JX < b.x + b.w && cx + NW > b.x && cy < b.y + b.h && cy + NH > b.y);
-  if (!overlaps(x, y)) return { x: Math.round(x / 10) * 10, y: Math.round(y / 10) * 10 };
-  // walk outward: below, then above, then further right
-  for (let col = 0; col < 6; col++) {
-    for (let row = 1; row < 8; row++) {
-      for (const sgn of [1, -1]) {
-        const cx = x + col * (NW + 140), cy = y + sgn * row * (NH + 40);
-        if (!overlaps(cx, cy)) return { x: Math.round(cx / 10) * 10, y: Math.round(cy / 10) * 10 };
-      }
-    }
+function freeSpot(x, y, lane) {
+  const box = n => ({ x: n.x - JX - 20, y: n.y - 14, w: nw(n) + JX + 40, h: nh(n) + 28 + filmH(n.id) });
+  const boxes = [...S.nodes.values()].map(box);
+  const started = lane ? [...S.nodes.values()].filter(n => cat((S.rt.get(n.id) || {}).status) !== 'pre').map(box) : [];
+  const overlaps = (cx, cy) => boxes.some(b => cx - JX < b.x + b.w && cx + NW > b.x && cy < b.y + b.h && cy + NH > b.y)
+    || started.some(b => b.x > cx && cy < b.y + b.h && cy + NH > b.y);
+  const snap = v => Math.round(v / 10) * 10;
+  x = snap(x); y = snap(y);
+  if (!overlaps(x, y)) return { x, y };
+  // the nearest spot that is free: the card is pushed just past an edge of a card in the way
+  const xs = new Set([x]), ys = new Set([y]);
+  for (const b of boxes) {
+    xs.add(Math.ceil((b.x + b.w + JX) / 10) * 10); xs.add(Math.floor((b.x - NW) / 10) * 10);
+    ys.add(Math.ceil((b.y + b.h) / 10) * 10); ys.add(Math.floor((b.y - NH) / 10) * 10);
   }
-  return { x: Math.round(x / 10) * 10, y: Math.round((y + 40) / 10) * 10 };
+  const cands = [];
+  for (const cx of xs) for (const cy of ys) cands.push([cx, cy, (cx - x) ** 2 + (cy - y) ** 2]);
+  cands.sort((a, b) => a[2] - b[2]);
+  for (const [cx, cy] of cands) if (!overlaps(cx, cy)) return { x: cx, y: cy };
+  return { x, y: snap(Math.max(...boxes.map(b => b.y + b.h))) };
 }
 function setAgent(k) {
   if (!S.cfg.agents[k]) return;
@@ -194,7 +202,7 @@ function splitKind(k) {
 }
 async function spawnAt(agent0, x, y, opts = {}) {
   const [agent, kindFields] = splitKind(agent0);
-  const p = freeSpot(x, y);
+  const p = freeSpot(x, y, opts.lane);
   const k = KINDS.includes(agent) ? agent : 'agent';
   const node = { agent, x: p.x, y: p.y, ...kindFields };
   if (k === 'agent') node.draft = opts.draft !== false;

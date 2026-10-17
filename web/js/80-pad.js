@@ -396,6 +396,6 @@ async function padStart() {
   padTa.value = '';
   closePad();
   savePrefs();
-  const id = await spawnAt(a, c.x - NW / 2, c.y - NH / 2, { text, draft: false, run: true, edit: false, extra });
+  const id = await spawnAt(a, c.x - NW / 2, c.y - NH / 2, { text, draft: false, run: true, edit: false, extra, lane: true });
   if (id) setTimeout(() => reveal(id), 60);
 }

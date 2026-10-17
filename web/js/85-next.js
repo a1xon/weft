@@ -103,7 +103,7 @@ async function takeoverFrom(id, agent, text) {
   const n = S.nodes.get(id); if (!n) return null;
   if (agent && S.cfg.agents[agent] && agent !== 'sh') setAgent(agent);
   const ag = agent && S.cfg.agents[agent] ? agent : agentFor(n);
-  const p = freeSpot(n.x + nw(n) + 150, n.y);
+  const p = freeSpot(n.x + nw(n) + 150, n.y, true);
   const ac = S.cfg.agents[ag] || {};
   const node = { agent: ag, x: p.x, y: p.y, model: ac.model_arg ? tuned(ag, 'model') : '', effort: ac.effort_arg ? tuned(ag, 'effort') : '', addenda: addendaIds() };
   if (ac.yolo_arg) node.yolo = yoloOf(n);
