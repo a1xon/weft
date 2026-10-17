@@ -256,7 +256,8 @@ agent can go straight to *open PR*; the explicit chain is just easier to read.
   after a push, and the menu of a push or PR has *deploy what it pushes*). It runs the folder's deploy command,
   guessed from the folder (`deploy.sh`, `manual-deploy.sh`, a `deploy` script in `package.json`,
   `make deploy` or `make install`, `fly deploy`, `wrangler deploy`, `cargo install --path .`) or typed
-  into its options once and kept for the folder. It runs on a checkout of exactly the pushed commit
+  into its options once and kept for the folder (with none known yet the card waits for you to type it,
+  and goes when you have). It runs, as soon as the push is in, on a checkout of exactly the pushed commit
   that weft keeps per repository (under `~/.local/state/weft/deploy/`; ignored build output stays,
   so builds are incremental): unfinished files of other agents in the folder never ship. *the folder
   as it is* in its options runs it in the folder instead, for a script that needs files git does not
@@ -264,18 +265,21 @@ agent can go straight to *open PR*; the explicit chain is just easier to read.
   line says `[weft] deploying <sha>`), so a tester linked after it starts from that. A red deploy is
   a failed card: *N failed* has a fixer fix it, commit and push the fix, and run it again, which
   then deploys the new commit.
-* Push, PR and deploy are outward-facing: they are created **disarmed** and wait until you arm them.
-  A commit only asks an agent about its own work, so it starts at once.
+* **Nothing waits to be armed.** Commit, push, PR and deploy run as soon as what they wait for is in.
+  Where you want to look before something leaves the machine, put a [check](#checks-gates-and-watches)
+  on the link before it: *approve* holds it for your OK, *check* has a command pass, *CI* waits for
+  green. A push that ran with the commits it had pushes again, on its own, for a commit linked into it
+  later.
 
 #### Loose ends
 
-A push nobody armed would keep its flow on the canvas for good: the archive files a flow only once
-every card in it is finished. So weft asks git (its refs only: the git tree is what fetches) what
-such a push has left once its commits are in:
+A flow from an older weft can still have a push (or PR) that waits to be armed, and that would keep
+its flow on the canvas for good: the archive files a flow only once every card in it is finished. So
+weft asks git (its refs only: the git tree is what fetches) what such a push has left once its
+commits are in:
 
 * **Commits still to send:** it is *ready*. The card says *ready · 1 commit to push*, the top bar
-  *N ready to push*; a click there lists them and arms one, or all. A deploy nobody armed whose push
-  is in counts too.
+  *N ready to push*; a click there lists them and arms one, or all.
 * **Nothing to send** (a later push sent the whole branch, or you pushed by hand) **and nothing linked
   after it:** it is done by itself (*pushed before*), and its flow can go to the archive. With a card
   after it, arming stays your go-ahead for that card.
@@ -505,7 +509,8 @@ you use most sit in the **top bar**; all of them are in the **library** (also `/
   that agent's prompt. This is how you add *review & fix* or *ship it* to work that is already going.
 * **Agents are roles.** The first is the agent you work with (the bar's), a second opinion goes to the
   next agent you have (claude → agy → codex); the box lets you pick each, and remembers.
-* Push and PR wait to be armed as always; tick *push without asking* in the box to arm them with it.
+* Nothing waits to be armed: the network's checks (and its *approve*) are where you look before
+  anything is pushed.
 
 `[check]` below is a check gate (the folder's check command must pass, red goes back to the agent).
 
@@ -533,7 +538,7 @@ you use most sit in the **top bar**; all of them are in the **library** (also `/
 
 Fixes, builds after a plan, integration and the bug fix are *queued prompts* on the agent that did
 the work, so it keeps everything it read; reviewers, auditors and judges start fresh, ideally on
-another model. Push and PR still wait to be armed unless you tick *push without asking*. A network
+another model. A network
 with a pull request commits on a branch named after what you type (`issue-42`, else
 `weft/<first words>`); the box shows it and you can change it.
 
@@ -837,7 +842,7 @@ src/engine/        the single actor that owns all state
     limits.rs      an agent at its usage limit sleeps until the reset its CLI names, then carries on
     rewind.rs      every step snapshotted before and after in a shadow repository: its diff, and undo
     resume.rs      a card keeps its agent's conversation: session ids, an agent that rests and comes back, twins
-    loose.rs       loose ends: a push nobody armed says what it has left, or is done by itself
+    loose.rs       loose ends: a push an older weft left waiting to be armed says what it has left, or is done by itself
     deploy.rs      the deploy step: the folder's deploy command on a checkout of the pushed commit
     git.rs         commit, push and open PR as steps; repo.rs is the git plumbing under them
     handover.rs    a fresh agent takes over another one's work

@@ -57,7 +57,7 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++
   await G('right-click empty canvas', () => p.mouse.click(1250, 130, { button: 'right' }));
   await G('choose "push"', () => p.locator('.menu .mi', { hasText: /^push/ }).click());
   await p.waitForSelector('.nw[data-kind=git]');
-  ok((await p.locator('.nw[data-kind=git]').getAttribute('data-st')) === 'draft', 'the push node starts disarmed');
+  ok((await p.locator('.nw[data-kind=git]').getAttribute('data-st')) !== 'draft', 'the push node needs no arming: it runs when its input is in');
   const o3 = await p.locator('.nw[data-id="n3"] .port.out').boundingBox();
   const gh = await p.locator('.nw[data-kind=git] .hd').boundingBox();
   await G('drag the test node onto commit & push', async () => {
@@ -71,8 +71,8 @@ const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++
   ok((await p.locator('#edgeG .ed').last().getAttribute('data-k')) === 'ok', 'the chip switched the link to "only if it succeeds"');
   await p.screenshot({ path: W + '/v3-3-built.png' });
 
-  // 6. arm it, let everything finish
-  await G('click arm', () => p.locator('.nw[data-kind=git] .fb.cy').click());
+  // 6. nothing to arm: let everything finish
+  ok(await p.locator('.nw[data-kind=git] .fb.cy').isHidden(), 'it has no arm button');
   for (let i = 0; i < 80; i++) { const g = await p.locator('.nw[data-kind=git]').getAttribute('data-st'); if (g === 'done' || g === 'failed') break; await sleep(500); }
   await sleep(600);
   await p.screenshot({ path: W + '/v3-4-done.png' });

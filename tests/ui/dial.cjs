@@ -131,7 +131,8 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
     for (let i = 0; i < 40; i++) { const id = await p.evaluate(() => { const g = [...S.nodes.values()].filter(n => n.agent === 'git' && n.git_op === 'push').pop(); return g ? g.id : null; }); if (id) return id; await sleep(150); }
     return null;
   });
-  ok(!!pid && await waitSt(pid, ['draft'], 5000), 'the push waits to be armed (' + await st(pid) + ')');
+  ok(!!pid && await p.evaluate(id => !S.nodes.get(id).draft, pid), 'the push needs no arming');
+  ok(await waitSt(pid, ['done'], 60000), 'its commit is in: it pushes (' + await st(pid) + ')');
 
   // a second agent: its link dropped on the commit gets its own commit, joined to the same push
   const nAgent = await p.evaluate(async () => {
@@ -156,9 +157,9 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(await waitSt(sib, ['done'], 60000), 'its commit resolves (' + await st(sib) + ')');
   await p.screenshot({ path: W + '/dial-4-two-commits.png' });
 
-  // arm the push: both commits are in
-  await p.evaluate(id => send('arm', { id }), pid);
-  ok(await waitSt(pid, ['done'], 60000), 'armed, it pushes (' + await st(pid) + ')');
+  // the push runs again with the commit linked in after it
+  ok(await waitFor(async () => /Fix wrap\.py/.test(cp.execFileSync('git', ['--git-dir', W + '/remote.git', 'log', '--format=%s', 'main'], { encoding: 'utf8' })), 60000)
+    && await waitSt(pid, ['done'], 30000), 'the commit linked in later is pushed too (' + await st(pid) + ')');
   const remote = cp.execFileSync('git', ['--git-dir', W + '/remote.git', 'log', '--format=%s', 'main'], { encoding: 'utf8' });
   ok(/Fix slug\.py/.test(remote) && /Fix wrap\.py/.test(remote), 'both agents\' commits are on the remote: ' + remote.split('\n').slice(0, 3).join(' | '));
 
@@ -167,9 +168,8 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
     ok((await p.locator('#dial .dpill.on b').innerText()) === 'open PR', 'from a push, left is open PR');
   }, [-1, 0]);
   const prid = await waitFor(async () => !!(await p.evaluate(() => [...S.nodes.values()].find(n => n.agent === 'git' && n.git_op === 'pr')))).then(() => p.evaluate(() => [...S.nodes.values()].find(n => n.agent === 'git' && n.git_op === 'pr').id));
-  ok(await waitSt(prid, ['draft'], 5000), 'the PR waits to be armed too: it is outward-facing');
-  await p.evaluate(id => send('arm', { id }), prid);
-  ok(await waitSt(prid, ['done'], 60000), 'armed, an agent opens it (' + await st(prid) + ')');
+  ok(await p.evaluate(id => !S.nodes.get(id).draft, prid), 'the PR needs no arming either');
+  ok(await waitSt(prid, ['done'], 60000), 'an agent opens it (' + await st(prid) + ')');
   ok((await p.locator('.nw[data-id="' + prid + '"] a.prlink').getAttribute('href')) === 'https://example.test/acme/textkit/pull/7', 'the card links to the pull request');
   const asked = received('n1') + received(nAgent);
   ok(asked.toLowerCase().includes('open a pull request for the work that was just pushed'), 'the request went to an agent that did the work, with the report');
@@ -188,7 +188,8 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   const tid = await p.evaluate(() => [...S.nodes.values()].filter(n => n.prompt && n.prompt.startsWith('Test the new features live')).pop().id);
   ok(await waitSt(tid, ['done'], 60000), 'the tester runs once the PR is open (' + await st(tid) + ')');
   const rec = received(tid);
-  for (const want of ['Opened a pull request for', 'pull/7', 'Files changed (2)', 'textkit/slug.py', 'textkit/wrap.py', 'Fix the slugify function', 'Fix the wrap function', 'Test the new features live']) {
+  // (the push ran for each commit as it came in: what travels on is its latest round, the wrap fix)
+  for (const want of ['Opened a pull request for', 'pull/7', 'Files changed (1)', 'textkit/wrap.py', 'Fix the slugify function', 'Fix the wrap function', 'Test the new features live']) {
     ok(rec.includes(want), 'the tester received ' + JSON.stringify(want));
   }
   await p.screenshot({ path: W + '/dial-6-chain.png' });

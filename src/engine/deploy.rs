@@ -218,7 +218,7 @@ mod flow_tests {
         let d = r["id"].as_str().unwrap().to_string();
         assert!(e.flow.edges.iter().any(|x| x.from == "p" && x.to == d), "linked after the push: {r}");
         assert_eq!(e.rt[&d].inputs.len(), 1, "the push's result waits in it");
-        assert!(e.rt[&d].queue.is_empty(), "disarmed, it does not run");
+        assert!(e.rt[&d].queue.is_empty(), "a draft (one that waits for its command) does not run");
         e.cmd_arm(d.clone());
         assert!(!e.rt[&d].queue.is_empty() || e.rt[&d].status != Status::New, "armed, it runs: {:?}", e.rt[&d].status);
         let plan = e.deploy_plan(e.node(&d).unwrap()).unwrap();

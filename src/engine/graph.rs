@@ -303,11 +303,8 @@ impl Engine {
                 _ => Vec::new(),
             };
         }
-        if kind == Kind::Git && n_json.get("draft").is_none() {
-            // a push is outward-facing: nothing happens until the user arms the node.
-            // A commit only asks the agents to commit what they did: it starts at once.
-            n.draft = n.git_op != GitOp::Commit;
-        }
+        // (a git step runs when its input is in, a push too: whoever wants to look first puts a check
+        // on the link before it. Only a flow from an older weft still has pushes waiting to be armed.)
         if !has_name || n.name.trim().is_empty() {
             let (src, fallback) = match kind {
                 Kind::Note => (n.prompt.clone(), "note".to_string()),

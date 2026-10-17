@@ -1,6 +1,6 @@
 // networks: the top bar holds the two networks used most; drag one onto the canvas and its outline
 // follows, let go and a box asks what it is for, enter places and starts it (links in order, the push
-// disarmed, the first agent told the task). Dropped on an agent the rest carries on from that agent.
+// armed like every step after the first agent, which is told the task). Dropped on an agent the rest carries on from that agent.
 // The library lists them with a picture; roles go to different agents; "place only" starts nothing;
 // selected cards are saved as a network of your own (the task turns back into {{task}}) and deleted.
 // Check gates run the folder's check command (guessed from its files, typed in the box); every
@@ -40,6 +40,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(await p.evaluate(() => S.nodes.size === 0), 'nothing is made yet');
   const guess = 'python3 -m unittest discover -s tests -q';
   ok(await p.locator('#netbox input[aria-label="must pass"]').inputValue() === guess, 'the box offers the folder\'s check command, guessed from its files: ' + guess);
+  ok(await p.locator('#netbox .chk').count() === 0, 'it asks nothing about pushing: the push needs no arming');
   await p.keyboard.press('Enter');
   ok(await p.evaluate(() => netbox.querySelector('textarea').classList.contains('nope') && !netbox.hidden), 'enter with no task: it shakes, nothing starts');
   const task = 'Fix the slugify function in textkit/slug.py so that tests/test_slug.py passes.';
@@ -56,7 +57,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   const has = (f, t, on) => g.edges.some(e => e.from === f && e.to === t && (!on || e.on === on));
   ok(A && has(A.id, K.id) && has(K.id, SH.id, 'ok') && has(SH.id, C.id, 'ok') && has(C.id, P.id), 'linked agent → check → screenshot →(if ok) commit → push');
   ok(A && A.prompt === task && A.checks.includes('eta'), 'the agent got the task as its prompt, and an ETA watch');
-  ok(P && P.draft && C && !C.draft, 'the push waits to be armed, the commit does not');
+  ok(P && !P.draft && C && !C.draft, 'neither the push nor the commit waits to be armed: the check before them is where a person looks');
   ok(await waitFor(() => received(A.id).includes('slugify'), 40000), 'the agent started and was told the task');
   ok(await p.evaluate(() => S.prefs.netUse && S.prefs.netUse.look === 1), 'its use is counted');
   ok(g.nodes.every(n => n.y === A.y), 'the cards stand in one row');
@@ -163,7 +164,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
         if ((t.cmd || '').includes('{{check}}') && n.cmd !== 'make check') errs.push(`${t.key} runs "${n.cmd}"`);
         if ((t.branch || '').includes('{{branch}}') && n.branch !== 'issue-42') errs.push(`${t.key} commits on "${n.branch}"`);
         if (/\{\{(task|check|branch|agent)\}\}/.test([n.prompt, n.name, n.cmd, n.branch].join(' '))) errs.push(`${t.key} keeps a placeholder`);
-        if (t.agent === 'git' && t.git_op !== 'commit' && !n.draft) errs.push(`${t.key} is armed`);
+        if (t.agent === 'git' && n.draft) errs.push(`${t.key} waits to be armed`);
         if (entries.includes(t.key) && !n.draft) errs.push(`${t.key} started`);
       }
       out.push(net.id + (errs.length ? ': ' + errs.join(', ') : ''));

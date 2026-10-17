@@ -524,12 +524,11 @@ async function attachNet(net, card) {
   const key = netEntries(net)[0], host = hostOf(card);
   const task = (host.prompt || card.prompt || '').trim();
   const ids = await buildNet(net, { at: attachAt(net, card, key), onto: card.id, entry: key, task, check: checkFor(netWhere(host)), branch: branchFor(task),
-    roles: netRoles(net, host.agent), start: true, arm: !!S.prefs.netArm });
+    roles: netRoles(net, host.agent), start: true });
   const r = S.rt.get(host.id) || {}, done = r.status === 'done' || r.status === 'failed';
-  if (ids) toast('ok', `${net.short} after ${card.name}: ${done ? 'it goes on now' : `it goes on when ${card.name} is done`}.`
-    + (netArms(net) && !S.prefs.netArm ? ' The push waits until you arm it.' : ''), { ms: 7000, action: { label: 'undo', run: undo } });
+  if (ids) toast('ok', `${net.short} after ${card.name}: ${done ? 'it goes on now' : `it goes on when ${card.name} is done`}.`,
+    { ms: 7000, action: { label: 'undo', run: undo } });
 }
-const netArms = net => net.nodes.some(t => t.agent === 'git' && t.git_op !== 'commit');
 
 /* ------------------------------------------------------------ the box: what is it for? */
 const netbox = $('#netbox');
@@ -574,8 +573,6 @@ function renderNetBox(text) {
     NBX.check, 'empty: the agent runs the checks', v => { NBX.check = v; }) : null;
   const branch = usesBranch(net) ? field('branch', 'the branch it commits on and the pull request comes from (named after what you type)',
     NBX.branch, 'named after what you type', v => { NBX.branch = v; NBX.branched = true; }) : null;
-  const arm = netArms(net) ? h('label', { class: 'chk', title: 'Push (and open the pull request) without waiting for you to arm it' },
-    h('input', { type: 'checkbox', checked: !!S.prefs.netArm, onchange: ev => { S.prefs.netArm = ev.target.checked; savePrefs(); } }), 'push without asking') : null;
   netbox.replaceChildren(
     h('div', { class: 'nh' }, netGlyph(net, 34, 16), h('span', { class: 'nt' }, net.title),
       h('button', { class: 'ib', 'aria-label': 'Cancel', title: 'cancel (esc)', html: ICON.x, onclick: closeNetBox })),
@@ -583,7 +580,7 @@ function renderNetBox(text) {
     ...used.map(roleRow),
     ...nn([check, branch]),
     ta,
-    h('div', { class: 'nf' }, ...nn([arm, h('span', { class: 'sp' }), h('span', { class: 'kh' }, h('kbd', {}, 'enter'), ' start'),
+    h('div', { class: 'nf' }, ...nn([h('span', { class: 'sp' }), h('span', { class: 'kh' }, h('kbd', {}, 'enter'), ' start'),
       h('button', { class: 'btn sm dim', title: 'put the cards down without starting anything', onclick: () => submitNetBox(false) }, 'place only'),
       h('button', { class: 'btn sm pri', onclick: () => submitNetBox(true) }, 'start')])));
   ta.addEventListener('keydown', e => {
@@ -624,16 +621,15 @@ async function submitNetBox(start) {
   if (usesCheck(net)) rememberCheck(netDir(), check);
   closeNetBox();
   if (roles['@main'] && net.nodes.some(t => t.agent === '@main')) setAgent(roles['@main']);
-  const ids = await buildNet(net, { at, task, check, branch, roles, start, arm: !!S.prefs.netArm });
+  const ids = await buildNet(net, { at, task, check, branch, roles, start });
   if (!ids) return;
-  const wait = netArms(net) && !S.prefs.netArm ? ' The push waits until you arm it.' : '';
-  toast('ok', start ? `${net.title}: started.${wait}` : `${net.title}: placed. Nothing runs until you start its first agent.`, { ms: 7000, action: { label: 'undo', run: undo } });
+  toast('ok', start ? `${net.title}: started.` : `${net.title}: placed. Nothing runs until you start its first agent.`, { ms: 7000, action: { label: 'undo', run: undo } });
 }
 
 /* ------------------------------------------------------------ making it */
 /* every card, then the links in their order, then the checks; the first agents start last. Each
    batch goes out at once: one socket, one actor, so the daemon takes them in the order sent.
-   o: at (origin), task, roles, start, arm (push and PR armed), onto/entry (an agent that is the first card) */
+   o: at (origin), task, roles, start, onto/entry (an agent that is the first card) */
 let netBuilding = 0;
 async function buildNet(net, o) {
   const ids = new Map(), made = [];
@@ -701,8 +697,8 @@ function netNode(t, o, entry, hasTask, dir, ids) {
     node.host = host ? hostOf(host).id : '';
     // no addenda of its own: the daemon gives it its agent's (this page may not have that agent yet)
   }
-  // a push and a pull request are outward-facing: they wait to be armed unless you said otherwise
-  if (k === 'git') node.draft = (t.git_op || '') !== 'commit' && !o.arm;
+  // (a push and a pull request run when their input is in: the network's checks are where a person looks)
+  if (k === 'git') node.draft = false;
   return node;
 }
 

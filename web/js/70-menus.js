@@ -111,7 +111,8 @@ function nodeMenu(id, x, y) {
   } else if (k === 'git') {
     const verb = gitOpLabel(n);
     items.push(
-      { label: n.draft ? `arm: ${verb} as results arrive` : 'disarm', run: () => n.draft ? send('arm', { id }) : patchNode(id, { draft: true }, 0) },
+      // (only a flow from an older weft has a git step waiting to be armed)
+      ...(n.draft ? [{ label: `arm: ${verb} as results arrive`, run: () => send('arm', { id }) }] : []),
       { label: n.git_op === 'commit' ? 'commit now' : n.git_op === 'push' ? 'push now' : n.git_op === 'pr' ? 'open PR now' : 'ship now', hint: 'with what is there', run: () => send('fire', { id }) },
       { label: 'options', hint: ',', run: () => openFly(id, 'options') },
       { sep: true },
@@ -320,5 +321,5 @@ async function shipThese(ids) {
   if (!push) return;
   for (const c of commits) send('edge_add', { from: c, to: push });
   select([push]); reveal(push);
-  tip('push', 'One commit per agent; the push waits until every commit has resolved. It is disarmed until you arm it.');
+  tip('push', 'One commit per agent; the push waits until every commit has resolved, then pushes. To look first, put an approve check on the link into it.');
 }

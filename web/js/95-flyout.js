@@ -125,7 +125,7 @@ function renderOptionsTab(n) {
       op !== '' ? null : h('div', { class: 'sec' }, h('h3', {}, 'when every incoming link has delivered'),
         seg([[true, 'push', 'git push -u <remote> <branch>'], [false, 'keep local', 'commit only']], n.push !== false, v => patchNode(id, { push: v }, 0))),
       h('div', { class: 'sec' }, h('div', { class: 'row2' },
-        h('button', { class: 'btn sm ' + (n.draft ? 'pri' : ''), onclick: () => { n.draft ? send('arm', { id }) : patchNode(id, { draft: true }, 0); } }, n.draft ? 'arm' : 'disarm'),
+        n.draft ? h('button', { class: 'btn sm pri', onclick: () => send('arm', { id }) }, 'arm') : null,
         h('button', { class: 'btn sm', onclick: () => send('fire', { id }) }, op === 'commit' ? 'commit now' : op === 'push' ? 'push now' : op === 'pr' ? 'open PR now' : 'ship now'))),
       del);
     return;

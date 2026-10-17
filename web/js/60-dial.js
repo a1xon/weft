@@ -161,7 +161,7 @@ async function spawnGit(fromId, at, op) {
   if (!id) return null;
   select([id]); reveal(id);
   if (op === 'commit') tip('commit', 'Commit: the agent it is linked from is asked to commit its own work. Another agent gets its own commit; link the commits to one push.');
-  else if (op === 'push') tip('push', 'Push: waits until every commit linked into it has resolved, then pushes. It is disarmed until you arm it.');
+  else if (op === 'push') tip('push', 'Push: waits until every commit linked into it has resolved, then pushes. To look first, put an approve check on the link into it.');
   else tip('pr', 'Open PR: after the push, an agent that did the work writes the title and description and opens it. Chain an agent after it to review or test.');
   return id;
 }

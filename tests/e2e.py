@@ -212,14 +212,15 @@ try:
     subprocess.run(["git", "push", "-q", "-u", "origin", "HEAD"], cwd=PROJ, check=True)
     a = add(name="fix slug", agent="sh", cmd="echo slug > slug.txt; echo 'Fixed slugify'", finish="exit", worktree=True)
     b = add(name="fix wrap", agent="sh", cmd="sleep 2; echo wrap > wrap.txt; echo 'Fixed wrap'", finish="exit", worktree=True)
-    g = add(name="ship", agent="git", branch="weft/ship")
+    # (a push no longer waits to be armed; a flow from an older weft can still have one that does)
+    g = add(name="ship", agent="git", branch="weft/ship", draft=True)
     call("edge_add", **{"from": a, "to": g})
     call("edge_add", **{"from": b, "to": g})
     call("run")
     wait(lambda: status(a)[0] == "done" and status(b)[0] == "done", "both agents done")
     time.sleep(1.0)
     refs = subprocess.run(["git", "--git-dir", remote, "branch", "--list"], capture_output=True, text=True).stdout
-    check(status(g)[0] == "draft" and "weft/ship" not in refs, "commit & push does nothing while disarmed (%s)" % (status(g),))
+    check(status(g)[0] == "draft" and "weft/ship" not in refs, "a commit & push left waiting to be armed does nothing (%s)" % (status(g),))
     call("arm", id=g)
     check(wait(lambda: status(g)[0] == "done", "shipped"), "arming commits the arrived results and pushes")
     log = subprocess.run(["git", "--git-dir", remote, "log", "--oneline", "weft/ship"], capture_output=True, text=True).stdout

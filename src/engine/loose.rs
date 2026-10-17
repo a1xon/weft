@@ -1,10 +1,11 @@
-//! Loose ends. A push nobody armed would keep its whole flow on the canvas for good: the archive files a
-//! flow only once every card in it is finished. So git is asked what such a push has left to do. Its
-//! commits on the remote already (a later push sent the whole branch, or someone pushed by hand) and
-//! nothing linked after it: it is done by itself. Commits still to send: the card and the top bar say
-//! "ready to push", and arming it is one click. A draft that never ran and was given nothing to do
-//! goes to the archive with its flow instead of holding it; any other draft that holds a finished
-//! flow is named on the flow's cards.
+//! Loose ends. Pushes run by themselves now (a check on the link is where a person looks first), but a
+//! flow from an older weft can still have a push waiting to be armed, and that would keep its whole
+//! flow on the canvas for good: the archive files a flow only once every card in it is finished. So git
+//! is asked what such a push has left to do. Its commits on the remote already (a later push sent the
+//! whole branch, or someone pushed by hand) and nothing linked after it: it is done by itself. Commits
+//! still to send: the card and the top bar say "ready to push", and arming it is one click. A draft that
+//! never ran and was given nothing to do goes to the archive with its flow instead of holding it; any
+//! other draft that holds a finished flow is named on the flow's cards.
 
 use super::git::carry_hashes;
 use super::*;
@@ -169,6 +170,7 @@ impl Engine {
             let why = match self.node(&h) {
                 Some(n) if n.kind() == Kind::Git && n.git_op == GitOp::Pr => "pull request not armed",
                 Some(n) if n.kind() == Kind::Git && n.pushes() => "push not armed",
+                Some(n) if n.deploy.is_some() && n.cmd.trim().is_empty() => "deploy has no command yet",
                 Some(n) if n.deploy.is_some() => "deploy not armed",
                 _ => "not armed",
             };
@@ -230,6 +232,16 @@ mod tests {
         assert_eq!(left_to_push(&dir, "", "", &[]).await, on);
         assert!(left_to_push(&dir, "upstream", "", &[a]).await.is_err(), "no such remote");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_push_or_pull_request_is_armed_when_it_is_made() {
+        let mut e = engine();
+        for op in ["commit", "push", "pr"] {
+            let r = e.cmd_node_add(json!({"agent": "git", "git_op": op}), None, false);
+            let id = r["id"].as_str().unwrap().to_string();
+            assert!(!e.node(&id).unwrap().draft, "{op} waits for nobody: a check on the link is where a person looks first");
+        }
     }
 
     #[test]
