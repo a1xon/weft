@@ -359,6 +359,9 @@ pub(super) struct Rt {
     pub(super) steps: Vec<StepRec>,
     pub(super) asked: String,
     pub(super) inputs: Vec<(String, Input)>,
+    /// what its last trigger took, while that is not taken up yet: the prompt waiting in the queue
+    /// (its id) or a gate's open round. What arrives meanwhile joins it.
+    pub(super) unstarted: Option<(u64, Vec<(String, Input)>)>,
     pub(super) runs: u32,
     pub(super) cause: Cause,
     /// A user-started run produced a result nobody has been handed yet.
@@ -695,6 +698,7 @@ impl Rt {
             steps: Vec::new(),
             asked: String::new(),
             inputs: Vec::new(),
+            unstarted: None,
             runs: 0,
             cause: Cause::Flow,
             fresh: false,
@@ -976,6 +980,7 @@ impl Rt {
     /// content and stays; what the flow queued is progress and goes.
     pub(super) fn reset(&mut self) {
         self.inputs.clear();
+        self.unstarted = None;
         self.queue.retain(|q| q.src != Src::Flow);
         self.runs = 0;
         self.finished = false;

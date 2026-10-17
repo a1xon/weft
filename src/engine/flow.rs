@@ -226,43 +226,98 @@ impl Engine {
                 .collect(),
             _ => Vec::new(),
         };
-        let (runs, inputs) = {
+        let runs = self.rt.get(id).map_or(0, |r| r.runs);
+        let looping = node.kind() == Kind::Agent && !manual && runs >= self.cfg.max_runs;
+        // what arrives before the card has taken up what it was given last goes out with that, as one
+        let (joined, at) = if looping { (Vec::new(), None) } else { self.take_unstarted(id) };
+        let taken = {
             let Some(rt) = self.rt.get_mut(id) else { return };
             let order: Vec<&str> = self.flow.edges.iter().filter(|e| e.to == id).map(|e| e.id.as_str()).collect();
             let mut taken: Vec<(String, Input)> = std::mem::take(&mut rt.inputs);
-            taken.extend(again);
+            for (eid, i) in joined.into_iter().chain(again) {
+                if !taken.iter().any(|(e, _)| *e == eid) {
+                    taken.push((eid, i));
+                }
+            }
             for (cid, ci) in consts {
                 taken.retain(|(eid, _)| *eid != cid);
                 taken.push((cid, ci));
             }
             taken.sort_by_key(|(eid, _)| order.iter().position(|o| *o == eid).unwrap_or(usize::MAX));
             rt.ui = true;
-            (rt.runs, taken.into_iter().map(|(_, i)| i).collect::<Vec<_>>())
+            taken
         };
+        let inputs: Vec<Input> = taken.iter().map(|(_, i)| i.clone()).collect();
         self.touch_downstream(id);
         if node.kind() == Kind::Step {
             // the agent has what it already produced, in its own session: its own result and the
             // answers it gave to other queued prompts of the same session are not sent back to it
             let host = node.host.clone();
             let inputs: Vec<Input> = inputs.into_iter().filter(|i| !self.in_session_of(&i.from, &host)).collect();
-            self.step_run(id, &node, &inputs);
+            if let Some(qid) = self.step_run(id, &node, &inputs) {
+                self.unstarted(id, &host, qid, at, taken);
+            }
             return;
         }
         if node.kind().is_gate() {
             self.gate_begin(id, &node, &inputs);
+            if let Some(rt) = self.rt.get_mut(id) {
+                rt.unstarted = Some((0, taken));
+            }
             return;
         }
-        if !manual && runs >= self.cfg.max_runs {
+        if looping {
             self.toast("warn", &format!("Loop guard: \"{}\" already ran {} times. Use Run flow or Reset to continue.", node.name, runs));
             return;
         }
         let (body, full) = self.render_parts(&node, &inputs);
         if !full.is_empty() {
-            self.enqueue(id, full, body, Src::Flow, false);
+            let qid = self.enqueue(id, full, body, Src::Flow, false);
+            self.unstarted(id, id, qid, at, taken);
         }
         self.state_dirty = true;
         if self.rt.get(id).is_some_and(|r| !r.alive && !r.spawning) {
             self.start(id);
+        }
+    }
+
+    /// What the card's last trigger took and has not taken up yet: its prompt still waits in a
+    /// queue (it leaves it now; returned is where it waited), or a gate's round is still open.
+    fn take_unstarted(&mut self, id: &str) -> (Vec<(String, Input)>, Option<(String, usize)>) {
+        let gate = self.node(id).is_some_and(|n| n.kind().is_gate());
+        let Some(rt) = self.rt.get_mut(id) else { return (Vec::new(), None) };
+        let Some((qid, ins)) = rt.unstarted.take() else { return (Vec::new(), None) };
+        if gate {
+            return (if rt.gate.held.is_some() && !rt.finished { ins } else { Vec::new() }, None);
+        }
+        // (a queued prompt that moved to another agent meanwhile waited in the old one's queue)
+        let Some((host, at)) = self.rt.iter().find_map(|(h, r)| r.queue.iter().position(|q| q.id == qid).map(|p| (h.clone(), p)))
+        else {
+            return (Vec::new(), None);
+        };
+        if let Some(h) = self.rt.get_mut(&host) {
+            h.queue.remove(at);
+            h.ui = true;
+        }
+        if let Some(rt) = self.rt.get_mut(id).filter(|_| host != id) {
+            rt.runs = rt.runs.saturating_sub(1); // a queued prompt: the same run, not another
+        }
+        (ins, Some((host, at)))
+    }
+
+    /// The prompt `qid` in `host`'s queue carries what `id` took: it takes the place of the one it
+    /// joined, and what arrives before it goes out joins it in turn.
+    fn unstarted(&mut self, id: &str, host: &str, qid: u64, at: Option<(String, usize)>, taken: Vec<(String, Input)>) {
+        if let (Some((was, pos)), Some(h)) = (at, self.rt.get_mut(host)) {
+            if was == host {
+                if let Some(item) = h.queue.iter().position(|q| q.id == qid).and_then(|p| h.queue.remove(p)) {
+                    let pos = pos.min(h.queue.len());
+                    h.queue.insert(pos, item);
+                }
+            }
+        }
+        if let Some(rt) = self.rt.get_mut(id) {
+            rt.unstarted = Some((qid, taken));
         }
     }
 
@@ -282,7 +337,8 @@ impl Engine {
     }
 
     /// Queue the step's prompt on its agent, behind whatever that agent already has to do.
-    fn step_run(&mut self, id: &str, node: &Node, inputs: &[Input]) {
+    /// Returns the queued prompt's id.
+    fn step_run(&mut self, id: &str, node: &Node, inputs: &[Input]) -> Option<u64> {
         let host = node.host.clone();
         if self.node(&host).is_none_or(|h| h.kind() != Kind::Agent) {
             self.toast("warn", "This queued prompt has no agent to answer it: the agent it was meant for is gone.");
@@ -290,14 +346,14 @@ impl Engine {
                 rt.cause = Cause::User;
             }
             self.settle(id, false, "the agent this prompt was meant for is gone".into());
-            return;
+            return None;
         }
         let (body, full) = self.render_parts(node, inputs);
         if full.trim().is_empty() {
             self.toast("info", "Write the prompt first: this step has nothing to ask yet.");
-            return;
+            return None;
         }
-        self.enqueue(&host, full, body, Src::Reply(id.to_string()), false);
+        let qid = self.enqueue(&host, full, body, Src::Reply(id.to_string()), false);
         if let Some(rt) = self.rt.get_mut(id) {
             rt.step_wait = Some(host.clone());
             rt.finished = false;
@@ -309,6 +365,7 @@ impl Engine {
         self.set_status(id, Status::Busy);
         self.state_dirty = true;
         self.restart_if_queued(&host);
+        Some(qid)
     }
 
     /// The agent answered the queued prompt: that answer is this node's result and goes on from here.

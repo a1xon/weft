@@ -3677,3 +3677,67 @@ fn zz_probe_handover() {
     e.cmd_handover("a".into(), "g".into());
     eprintln!("PROBE gate after: status {:?} held {:?}", e.rt["g"].status, e.rt["g"].gate.held.is_some());
 }
+
+#[test]
+fn results_that_arrive_before_the_prompt_is_taken_up_go_out_as_one() {
+    // two finished cards linked by hand into an agent, one after the other: one prompt with both
+    let mut e = engine();
+    add(&mut e, "a", "a", "go");
+    add(&mut e, "b", "b", "go");
+    add(&mut e, "t", "t", "combine {{inputs}}");
+    ran(&mut e, "a", "A result");
+    ran(&mut e, "b", "B result");
+    e.add_edge("a", "t", On::Done).unwrap();
+    e.add_edge("b", "t", On::Done).unwrap();
+    let q = queued(&e, "t");
+    assert_eq!(q.len(), 1, "{q:?}");
+    assert!(q[0].contains("A result") && q[0].contains("B result"), "{}", q[0]);
+    assert!(q[0].find("A result") < q[0].find("B result"), "in the order of the links");
+    // a busy agent: what arrives while it works waits as one prompt, behind what you queued
+    let mut e = engine();
+    done_junction(&mut e);
+    {
+        let r = e.rt.get_mut("t").unwrap();
+        r.finished = false;
+        r.armed = true;
+        r.queue.push_back(QItem { id: 99, text: "yours".into(), shown: "yours".into(), src: Src::You });
+    }
+    for (id, out) in [("c", "C result"), ("d", "D result")] {
+        add(&mut e, id, id, "go");
+        ran(&mut e, id, out);
+        e.add_edge(id, "t", On::Done).unwrap();
+    }
+    let q = queued(&e, "t");
+    assert_eq!(q.len(), 2, "{q:?}");
+    assert_eq!(q[0], "yours");
+    assert!(q[1].contains("C result") && q[1].contains("D result") && !q[1].contains("A result"), "{}", q[1]);
+    // once it has taken the prompt up, the next arrival is a prompt of its own
+    e.rt.get_mut("t").unwrap().queue.clear();
+    add(&mut e, "x", "x", "go");
+    ran(&mut e, "x", "X result");
+    e.add_edge("x", "t", On::Done).unwrap();
+    let q = queued(&e, "t");
+    assert!(q.len() == 1 && q[0].contains("X result") && !q[0].contains("C result"), "{q:?}");
+}
+
+#[test]
+fn a_gate_still_waiting_for_its_human_holds_what_arrives_too() {
+    let mut e = engine();
+    add(&mut e, "a", "a", "go");
+    add(&mut e, "b", "b", "go");
+    add_kind(&mut e, "g", "approve", "gate", "");
+    ran(&mut e, "a", "A result");
+    ran(&mut e, "b", "B result");
+    e.add_edge("a", "g", On::Done).unwrap();
+    assert_eq!(e.rt["g"].status, Status::Attention);
+    e.add_edge("b", "g", On::Done).unwrap();
+    let held = e.rt["g"].gate.held.clone().unwrap_or_default();
+    assert!(held.contains("A result") && held.contains("B result"), "{held}");
+    // decided: the next round holds only what is new
+    e.cmd(None, Cmd::Approve { id: "g".into(), ok: true });
+    add(&mut e, "c", "c", "go");
+    ran(&mut e, "c", "C result");
+    e.add_edge("c", "g", On::Done).unwrap();
+    let held = e.rt["g"].gate.held.clone().unwrap_or_default();
+    assert!(held.contains("C result") && !held.contains("A result"), "{held}");
+}
