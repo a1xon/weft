@@ -463,7 +463,7 @@ async fn git_net(dir: &Path, args: &[&str], wait: Duration) -> Result<String, St
         Ok(Ok(o)) if o.status.success() => Ok(String::from_utf8_lossy(&o.stdout).into_owned()),
         Ok(Ok(o)) => {
             let err = String::from_utf8_lossy(&o.stderr);
-            Err(head_chars(err.lines().map(str::trim).filter(|l| !l.is_empty()).last().unwrap_or("failed"), 160))
+            Err(head_chars(err.lines().map(str::trim).rfind(|l| !l.is_empty()).unwrap_or("failed"), 160))
         }
     }
 }

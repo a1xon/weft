@@ -124,6 +124,7 @@ fn folder_name(dir: &Path) -> String {
 
 /// The pull request link in an agent's report, and the title it gave (the line after it).
 pub(super) fn pr_link(text: &str) -> Option<(String, String)> {
+    let is_pr = |u: &str| ["/pull/", "/pulls/", "/merge_requests/", "/pull-requests/"].iter().any(|m| u.contains(m));
     let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     let clean = |t: &str| t.trim_matches(|c: char| ",.;:()[]<>\"'`*".contains(c)).to_string();
     let mut found: Option<(usize, String)> = None;
@@ -133,8 +134,7 @@ pub(super) fn pr_link(text: &str) -> Option<(String, String)> {
             if !(t.starts_with("http://") || t.starts_with("https://")) {
                 continue;
             }
-            let is_pr = ["/pull/", "/pulls/", "/merge_requests/", "/pull-requests/"].iter().any(|m| t.contains(m));
-            if is_pr {
+            if is_pr(&t) {
                 found = Some((i, t));
                 break;
             }
@@ -142,7 +142,7 @@ pub(super) fn pr_link(text: &str) -> Option<(String, String)> {
                 found = Some((i, t));
             }
         }
-        if found.as_ref().is_some_and(|(_, u)| ["/pull/", "/pulls/", "/merge_requests/", "/pull-requests/"].iter().any(|m| u.contains(m))) {
+        if found.as_ref().is_some_and(|(_, u)| is_pr(u)) {
             break;
         }
     }
@@ -177,9 +177,9 @@ impl Engine {
         }
     }
 
-    /// Has everything linked into this step already been pushed? (A PR after a push needs no second one.)
+    /// Does work linked into this step still need a push? (A PR after a push needs no second one.)
     fn git_needs_push(&self, id: &str) -> bool {
-        let seen = self.rt.get(id).map(|r| r.git.seen.clone()).unwrap_or_default();
+        let seen = self.rt.get(id).map_or(&[][..], |r| &r.git.seen);
         self.flow
             .edges
             .iter()
@@ -274,7 +274,7 @@ impl Engine {
     fn git_take(&mut self, id: &str, edge: &str, from: &str, name: &str, ok: bool, out: &str) -> bool {
         // a queued prompt speaks for the agent that answered it, a gate for the agent behind it
         let agent = self.work_agent(from);
-        let wt = self.rt.get(&agent).and_then(|r| r.worktree.clone()).map(PathBuf::from).filter(|p| p.is_dir());
+        let wt = self.live_worktree(&agent).map(PathBuf::from);
         let agent_name = self.node(&agent).map(|n| n.name.clone()).unwrap_or_else(|| name.to_string());
         // the commit step before this one already committed: here it only counts
         let from_git = self.node(from).is_some_and(|n| n.kind() == Kind::Git);
@@ -290,16 +290,12 @@ impl Engine {
                 Some(GitOp::Commit) => "commit",
                 _ => "push",
             };
-            let line = if from_git {
-                format!("failed: {name} did not succeed, so there is nothing to {what}")
+            let why = if from_git {
+                format!("{name} did not succeed, so there is nothing to {what}")
             } else {
-                format!("failed: {agent_name} did not finish its work, so nothing is committed")
+                format!("{agent_name} did not finish its work, so nothing is committed")
             };
-            if let Some(rt) = self.rt.get_mut(id) {
-                rt.git.log.push(line);
-            }
-            let out = self.rt.get(id).map(|r| r.git.log.join("\n")).unwrap_or_default();
-            self.git_round_done(id, false, out);
+            self.git_fail(id, why);
             return false;
         }
         // what goes on from here: this agent's task and answer, or everything the step before carried
@@ -555,13 +551,7 @@ impl Engine {
         let several = self.git_repos(id).len() > 1;
         let there = if several { format!(" in {}", folder_name(&dir)) } else { String::new() };
         let Some(agent) = self.git_helper_in(id, &dir) else {
-            if let Some(rt) = self.rt.get_mut(id) {
-                rt.git.busy = false;
-                rt.git.log.push(format!("failed: no agent that did this work{there} is still running to write the pull request"));
-            }
-            let out = self.rt.get(id).map(|r| r.git.log.join("\n")).unwrap_or_default();
-            self.git_round_done(id, false, out);
-            return;
+            return self.git_fail(id, format!("no agent that did this work{there} is still running to write the pull request"));
         };
         let branch = self.git_branch_in(id, &dir);
         let branch = if branch.is_empty() && !several { self.rt[id].git.facts.branch.clone() } else { branch };
@@ -574,7 +564,6 @@ impl Engine {
             rt.git.at = Some(dir);
         }
         self.git_ask(id, &agent, prompt, format!("asked {name} to open the pull request{there}"), GitStage::Pr);
-        self.restart_if_queued(&agent);
     }
 
     /// The agent reported the pull request.
@@ -609,11 +598,7 @@ impl Engine {
                 } else {
                     format!("the pull request was not opened: {}", head_chars(text.trim(), 160))
                 };
-                if let Some(rt) = self.rt.get_mut(id) {
-                    rt.git.log.push(format!("failed: {why}"));
-                }
-                let out = self.rt.get(id).map(|r| r.git.log.join("\n")).unwrap_or_default();
-                self.git_round_done(id, false, out);
+                self.git_fail(id, why);
             }
         }
     }
@@ -621,13 +606,7 @@ impl Engine {
     /// The agent brought the branch up to date after a rejected push: push again, once.
     fn git_rebased(&mut self, id: &str, ok: bool, text: &str) {
         if !ok {
-            if let Some(rt) = self.rt.get_mut(id) {
-                rt.git.busy = false;
-                rt.git.log.push(format!("failed: could not bring the branch up to date: {}", head_chars(text.trim(), 160)));
-            }
-            let out = self.rt.get(id).map(|r| r.git.log.join("\n")).unwrap_or_default();
-            self.git_round_done(id, false, out);
-            return;
+            return self.git_fail(id, format!("could not bring the branch up to date: {}", head_chars(text.trim(), 160)));
         }
         // the repository whose push was rejected is pushed again (the ones before it are done)
         let Some(rt) = self.rt.get_mut(id) else { return };
@@ -647,7 +626,7 @@ impl Engine {
     }
 
     /// The agent answered a request of this step. Trust git, not the text: look at HEAD and the tree.
-    pub(super) fn git_response(&mut self, git: &str, from: &str, ok: bool, text: &str) {
+    pub(super) fn git_response(&mut self, git: &str, ok: bool, text: &str) {
         let Some(node) = self.node(git).cloned() else { return };
         let stage = self
             .rt
@@ -673,13 +652,7 @@ impl Engine {
             )
         };
         if !ok {
-            if let Some(rt) = self.rt.get_mut(git) {
-                rt.git.busy = false;
-                rt.git.log.push(format!("failed: {name} could not commit: {}", head_chars(text.trim(), 160)));
-            }
-            let out = self.rt[git].git.log.join("\n");
-            self.git_round_done(git, false, out);
-            return;
+            return self.git_fail(git, format!("{name} could not commit: {}", head_chars(text.trim(), 160)));
         }
         // git is read where the agent works: its commit is in its repository
         let dir = self.git_dir_for(git, &agent);
@@ -687,7 +660,6 @@ impl Engine {
         let branch = node.branch.trim().to_string();
         let subject = commit_subject(&node, &name, text);
         let note = head_chars(text.trim().lines().next().unwrap_or(""), 90);
-        let _ = from;
         tokio::spawn(async move {
             let _g = lock.lock().await;
             let res = after_reply(&dir, &branch, wt.as_deref(), &name, &note, &subject).await;
@@ -701,6 +673,14 @@ impl Engine {
     pub(super) fn git_report(&self, id: &str) -> String {
         let (Some(node), Some(rt)) = (self.node(id), self.rt.get(id)) else { return String::new() };
         git_report(node, &self.git_repos(id), &rt.git.log, &rt.git.facts, &rt.git.carry)
+    }
+
+    /// The round fails: why goes last in its log, and the log is its result.
+    fn git_fail(&mut self, id: &str, why: String) {
+        let Some(rt) = self.rt.get_mut(id) else { return };
+        rt.git.log.push(format!("failed: {why}"));
+        let out = rt.git.log.join("\n");
+        self.git_round_done(id, false, out);
     }
 
     pub(super) fn git_round_done(&mut self, id: &str, ok: bool, out: String) {
@@ -753,11 +733,7 @@ impl Engine {
                     let no_remote = self.rt.get(&id).and_then(|r| r.git.log.last()).is_some_and(|l| l.starts_with("no remote"));
                     if is_pr && no_remote {
                         // nowhere to open it against
-                        if let Some(r) = self.rt.get_mut(&id) {
-                            r.git.log.push("failed: there is no remote to open a pull request against".to_string());
-                        }
-                        let out = self.rt.get(&id).map(|r| r.git.log.join("\n")).unwrap_or_default();
-                        self.git_round_done(&id, false, out);
+                        self.git_fail(&id, "there is no remote to open a pull request against".into());
                     } else {
                         // the next repository, then the pull requests (or done)
                         self.git_push_next(&id);
@@ -815,10 +791,7 @@ impl Engine {
                     }
                 }
                 let e = e.strip_prefix("REJECTED:").unwrap_or(&e).to_string();
-                let Some(rt) = self.rt.get_mut(&id) else { return };
-                rt.git.log.push(format!("failed: {e}{there}"));
-                let out = rt.git.log.join("\n");
-                self.git_round_done(&id, false, out);
+                self.git_fail(&id, format!("{e}{there}"));
             }
         }
     }

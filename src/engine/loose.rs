@@ -222,7 +222,7 @@ mod tests {
         sh(&dir, &["push", "-q", "-u", "origin", "main"]);
         let b = commit("b");
         let on = Ok(Left::Pushed("origin/main".into()));
-        assert_eq!(left_to_push(&dir, "", "", &[a.clone()]).await, on);
+        assert_eq!(left_to_push(&dir, "", "", std::slice::from_ref(&a)).await, on);
         assert_eq!(left_to_push(&dir, "origin", "main", &[a.clone(), b.clone()]).await, Ok(Left::Push(1)));
         // the commits before it had nothing new: the branch against the remote's
         assert_eq!(left_to_push(&dir, "", "", &[]).await, Ok(Left::Push(1)));

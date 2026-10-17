@@ -80,8 +80,8 @@ impl Engine {
 
     /// The folder an agent works in (its own worktree when it has one).
     fn cp_dir(&self, id: &str) -> Option<PathBuf> {
-        let n = self.node(id).filter(|n| n.kind() == Kind::Agent && n.agent != "sh" && n.finish == Finish::Idle)?;
-        Some(self.rt.get(id).and_then(|r| r.worktree.clone()).map(PathBuf::from).filter(|p| p.is_dir()).unwrap_or_else(|| self.node_dir(n)))
+        let n = self.node(id).filter(|n| n.reads_prompts())?;
+        Some(self.live_worktree(id).map(PathBuf::from).unwrap_or_else(|| self.node_dir(n)))
     }
 
     /// A step begins: the folder as it is now is its "before".

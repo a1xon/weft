@@ -3,8 +3,8 @@
 //! command card has: a live terminal, its output as its result, "only if it fails" links, the fixer.
 //! It runs on exactly what the git steps before it pushed: a checkout of that commit that weft keeps
 //! for the repository (`DeployAt::Pushed`: builds there stay incremental, and another agent's
-//! unfinished files never ship), or in the folder itself (`DeployAt::Folder`). Like a push, it waits to
-//! be armed.
+//! unfinished files never ship), or in the folder itself (`DeployAt::Folder`). It starts once the push
+//! before it is in and it has something to run: a command, or an agent it was handed to.
 
 use super::*;
 
@@ -24,23 +24,8 @@ pub(super) fn guess_deploy(dir: &Path) -> String {
             return format!("./{s}");
         }
     }
-    if has("package.json") {
-        let deploy = std::fs::read_to_string(dir.join("package.json"))
-            .ok()
-            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-            .is_some_and(|p| p.pointer("/scripts/deploy").is_some());
-        if deploy {
-            let pm = if has("pnpm-lock.yaml") {
-                "pnpm"
-            } else if has("yarn.lock") {
-                "yarn"
-            } else if has("bun.lockb") || has("bun.lock") {
-                "bun"
-            } else {
-                "npm"
-            };
-            return format!("{pm} run deploy");
-        }
+    if has("package.json") && super::info::package_scripts(dir).get("deploy").is_some() {
+        return format!("{} run deploy", super::info::package_manager(dir));
     }
     if let Ok(m) = std::fs::read_to_string(dir.join("Makefile")) {
         for t in ["deploy", "install"] {

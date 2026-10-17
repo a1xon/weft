@@ -428,7 +428,7 @@ impl Engine {
             }
             let (id, pane, win, dead) = (f[0].to_string(), f[1].to_string(), f[2].to_string(), f[3] == "1");
             let snap = snapshot(&t, &pane, true).await;
-            let Some(rt) = self.rt.get_mut(&id) else { return };
+            let Some(rt) = self.rt.get_mut(&id) else { continue };
             if let Some(s) = snap {
                 rt.parser = s.screen();
             }
@@ -466,7 +466,7 @@ impl Engine {
                         && self.rt.get(s).is_some_and(|x| !x.finished && x.runs > 0)
                 });
                 if let Some(step) = step {
-                    let expect_signal = asked.contains(&format!("{} done", self.boot.exe));
+                    let expect_signal = self.reports_with_commands(&asked);
                     let rule = !expect_signal && self.cfg.chain_status && self.step_is_consumed(&id, &Src::Reply(step.clone()));
                     if let Some(s) = self.rt.get_mut(&step) {
                         s.step_wait = Some(id.clone());
@@ -590,8 +590,8 @@ impl Engine {
                     Ok(l) => (l, None),
                     Err(e) => (Vec::new(), Some(e)),
                 };
-                self.models.insert(agent.clone(), list.clone());
-                let items: Vec<Value> = list.iter().map(|(id, label)| json!({"id": id, "label": label})).collect();
+                let items = ui::models_json(&list);
+                self.models.insert(agent.clone(), list);
                 self.bcast(&json!({"t": "models", "agent": agent, "models": items, "err": err}));
             }
             Ev::TitleDue { id, text } => self.title_due(&id, text),

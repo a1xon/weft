@@ -4,15 +4,23 @@
 use super::*;
 
 /// `git -C dir <args>`: whether it succeeded, and everything it printed (stdout, then stderr).
+/// A call given up on (a probe's timeout) ends its git too.
 pub(super) async fn git_run(dir: &Path, args: &[&str]) -> Result<(bool, String), String> {
-    let out = tokio::process::Command::new("git").arg("-C").arg(dir).args(args).output().await.map_err(|e| format!("git: {e}"))?;
+    let out = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .kill_on_drop(true)
+        .output()
+        .await
+        .map_err(|e| format!("git: {e}"))?;
     let mut s = String::from_utf8_lossy(&out.stdout).into_owned();
     s.push_str(&String::from_utf8_lossy(&out.stderr));
     Ok((out.status.success(), s))
 }
 
 /// What git printed when it succeeded, trimmed.
-async fn git_out(dir: &Path, args: &[&str]) -> Option<String> {
+pub(super) async fn git_out(dir: &Path, args: &[&str]) -> Option<String> {
     match git_run(dir, args).await {
         Ok((true, out)) => Some(out.trim().to_string()),
         _ => None,
@@ -101,7 +109,7 @@ async fn merge_no_ff(dir: &Path, branch: &str, subject: &str) -> Result<Merged, 
 }
 
 /// The name of the branch checked out in `dir`.
-async fn branch_of(dir: &Path) -> String {
+pub(super) async fn branch_of(dir: &Path) -> String {
     git_out(dir, &["rev-parse", "--abbrev-ref", "HEAD"]).await.unwrap_or_default()
 }
 

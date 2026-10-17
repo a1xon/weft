@@ -128,8 +128,7 @@ impl Engine {
         }
         self.set_status(id, Status::Busy);
         tokio::spawn(async move {
-            let (ok, out) = run_shell(&dir, &cmd, &[("WEFT_SHOT", path.to_string_lossy().as_ref())], 120).await;
-            let ok = ok && path.is_file();
+            let (ok, out) = run_capture(&dir, &cmd, &path).await;
             let _ = tx.send(Ev::Gate { id: nid, gen, tests: false, ok, out });
         });
     }
@@ -246,7 +245,7 @@ impl Engine {
         self.set_status(id, Status::Busy);
         self.state_dirty = true;
         tokio::spawn(async move {
-            let (ok, out) = run_shell(&dir, &cmd, &[], 900).await;
+            let (ok, out) = run_tests(&dir, &cmd).await;
             let _ = tx.send(Ev::Gate { id: nid, gen, tests: true, ok, out });
         });
     }

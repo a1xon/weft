@@ -167,19 +167,15 @@ async fn ci_watch(dir: PathBuf, gh: String, branch: String, tx: mpsc::UnboundedS
     let send = |sha: &str, runs: &[CiRun], end: Option<(CiEnd, String)>| {
         let _ = tx.send(Ev::Ci { id: id.clone(), gen, sha: sha.to_string(), runs: runs.to_vec(), end });
     };
-    let out = |r: Result<(bool, String), String>| match r {
-        Ok((true, o)) => Some(o.trim().to_string()),
-        _ => None,
-    };
     let br = match branch {
         b if !b.is_empty() => b,
-        _ => out(git_run(&dir, &["rev-parse", "--abbrev-ref", "HEAD"]).await).unwrap_or_default(),
+        _ => branch_of(&dir).await,
     };
-    let Some(sha) = out(git_run(&dir, &["rev-parse", "--verify", "--quiet", &format!("{br}^{{commit}}")]).await).filter(|s| !s.is_empty()) else {
+    let Some(sha) = git_out(&dir, &["rev-parse", "--verify", "--quiet", &format!("{br}^{{commit}}")]).await.filter(|s| !s.is_empty()) else {
         return send("", &[], Some((CiEnd::Stuck, format!("There is no branch \"{br}\" in {} to look at CI for.", dir.display()))));
     };
     let short = sha.get(..7).unwrap_or(&sha).to_string();
-    if out(git_run(&dir, &["rev-parse", "--verify", "--quiet", &format!("{br}@{{u}}")]).await).as_deref() != Some(sha.as_str()) {
+    if git_out(&dir, &["rev-parse", "--verify", "--quiet", &format!("{br}@{{u}}")]).await.as_deref() != Some(sha.as_str()) {
         return send(&sha, &[], Some((CiEnd::Stuck, format!(
             "{br} at {short} is not on the remote yet, and CI only runs on what was pushed. Push it (a push step before this check does), then run the check again."
         ))));

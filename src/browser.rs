@@ -248,7 +248,7 @@ async fn send(mut s: Send) -> Result<Value, String> {
         return Err(format!("{} is not a weft board", dir.display()));
     }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let info = boards::ensure(&dir, &exe, false).await?;
+    let mut info = boards::ensure(&dir, &exe, false).await?;
     let shots = dir.join(".weft").join("shots");
     let stamp = crate::engine::now_ms();
     for (i, m) in s.marks.iter_mut().enumerate() {
@@ -262,7 +262,6 @@ async fn send(mut s: Send) -> Result<Value, String> {
     let text = words::marked(&s.page, &s.marks, &s.log);
     let cwd = (!s.cwd.trim().is_empty()).then(|| s.cwd.trim().to_string());
     let cmd = json!({"op": "mark", "text": text, "to": s.to, "agent": s.agent, "cwd": cwd, "draft": s.draft});
-    let mut info = info;
     let r = match client::call_at(info.port, &info.token, cmd.clone()) {
         // a daemon of an older build does not know marks yet: replaced by this one, as `weft` in a
         // terminal would (its agents keep running), then asked again
@@ -272,9 +271,6 @@ async fn send(mut s: Send) -> Result<Value, String> {
         }
         r => r?,
     };
-    if r["ok"] == json!(false) {
-        return Err(r["error"].as_str().unwrap_or("weft refused it").to_string());
-    }
     let name = boards::all().into_iter().find(|b| b.dir == dir).map(|b| b.name()).unwrap_or_default();
     Ok(json!({"ok": true, "id": r["id"], "name": card_name(&info, r["id"].as_str().unwrap_or("")), "queued": r["queued"],
               "typed": r["typed"], "host": r["host"], "board": name, "url": boards::url(&info, None)}))
@@ -421,12 +417,8 @@ fn tilde(p: &Path) -> String {
 // ------------------------------------------------------------------ `weft extension`
 
 /// Where the extension's files go: `~/.local/share/weft/extension`.
-pub fn extension_dir() -> PathBuf {
-    std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".local/share")).join("weft").join("extension")
-}
-
-fn config_home() -> PathBuf {
-    std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".config"))
+fn extension_dir() -> PathBuf {
+    model::data_home().join("weft").join("extension")
 }
 
 /// The host manifest a browser reads: this binary, for this extension only.
@@ -458,7 +450,7 @@ pub fn install() -> Result<(PathBuf, Vec<&'static str>), String> {
     let manifest = host_manifest(&exe);
     let mut found = Vec::new();
     for (label, sub) in BROWSERS {
-        let profile = config_home().join(sub);
+        let profile = model::config_home().join(sub);
         if !profile.is_dir() {
             continue;
         }

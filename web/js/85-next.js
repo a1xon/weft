@@ -90,7 +90,7 @@ function submitNext() {
   const n = S.nodes.get(NX.id); if (!n) return closeNext();
   const ta = nextbar.querySelector('textarea'), text = ta.value.trim();
   const { id, mode, agent } = NX;
-  if ((mode === 'then' || mode === 'twin') && !text) { ta.classList.remove('nope'); void ta.offsetWidth; ta.classList.add('nope'); return; }
+  if ((mode === 'then' || mode === 'twin') && !text) return shake(ta);
   closeNext();
   if (mode === 'then') {
     select([id]);

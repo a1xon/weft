@@ -115,6 +115,6 @@ async function starterFlow() {
   const gate = await mk('gate', 1200, 140, { name: 'approve' });
   const ship = await mk('git', 1800, 140, { name: 'commit & push' });
   for (const [f, t] of [[plan, impl], [plan, docs], [brief, impl], [impl, gate], [docs, gate], [gate, ship]]) send('edge_add', { from: f, to: t, on: t === ship ? 'ok' : 'done' });
-  setTimeout(() => { select([plan]); fit(); }, 160);
+  Promise.all([brief, plan, impl, docs, gate, ship].map(whenNode)).then(() => { select([plan]); fit(); });
   toast('ok', 'starter flow loaded. Describe your task in "plan", then run flow.', { ms: 10000 });
 }

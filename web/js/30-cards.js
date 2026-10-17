@@ -6,6 +6,8 @@ const agentEntries = () => {
 };
 const agentTag = k => k === 'sh' || !k ? '$ shell' : k === 'note' ? 'note' : k === 'gate' ? 'gate \u00b7 approve' : k === 'shot' ? 'gate \u00b7 screenshot' : k === 'tests' ? 'gate \u00b7 tests' : k === 'git' ? 'git' : '@' + k;
 const isCmd = n => n.finish === 'exit' && !!(n.cmd || '').trim();
+/* what running a git step now says it does */
+const fireLabel = op => ({ commit: 'commit now', push: 'push now', pr: 'open PR now' })[op] || 'ship now';
 const TYPES = [
   { k: 'note', label: 'note', hint: 'context any agent can be pointed at' },
   { k: 'gate', label: 'approve', hint: 'holds the flow until you say go' },
@@ -58,7 +60,7 @@ function mkNode(n) {
 
   el.bRun.addEventListener('click', e => { e.stopPropagation(); runNode(id); });
   el.bStop.addEventListener('click', e => { e.stopPropagation(); send('stop', { id }); });
-  el.bOpen.addEventListener('click', e => { e.stopPropagation(); const nn_ = S.nodes.get(id); openFocus(nn_ && nn_.agent === 'step' ? hostOf(nn_).id : id); });
+  el.bOpen.addEventListener('click', e => { e.stopPropagation(); openLive(); });
   el.bGo.addEventListener('click', e => {
     e.stopPropagation();
     const r = S.rt.get(id), n = S.nodes.get(id);
@@ -383,7 +385,7 @@ function renderNode(id) {
       key = 'shot:' + shots.join(',') + st + (r.gate_out || '');
       build = () => ({ cls: 'ans kv', kids: [imgEl(shots[0], 'shotimg'), h('span', { class: 'shotcap' }, (r.gate_out || shots[0]).split('\n')[0])] });
     } else if (r && r.gate_phase === 'asking') {
-      key = 'shot-ask:' + r.gate_round; build = () => ({ cls: 'ans hint', kids: [`asking ${(r.gate_to || ['the agent'])[0]} to take a screenshot${r.subject ? '' : ''}\u2026`] });
+      key = 'shot-ask:' + r.gate_round; build = () => ({ cls: 'ans hint', kids: [`asking ${(r.gate_to || ['the agent'])[0]} to take a screenshot\u2026`] });
     } else if (r && r.gate_out && r.gate) {
       key = 'shot-note:' + r.gate_out; build = () => ({ cls: 'ans bad', kids: [r.gate_out, h('span', { class: 'src' }, '\npaste or drop an image here, or press retake.')] });
     } else {
@@ -480,7 +482,7 @@ function renderNode(id) {
   el.bNo.hidden = !(review || anyOpen);
   el.bArm.hidden = !(k === 'git' && n.draft);
   el.bShip.hidden = !(k === 'git' && !n.draft && st !== 'busy');
-  el.bShip.textContent = n.git_op === 'commit' ? 'commit now' : n.git_op === 'push' ? 'push now' : n.git_op === 'pr' ? 'open PR now' : 'ship now';
+  el.bShip.textContent = fireLabel(n.git_op);
   el.gear.hidden = k === 'note';
   el.ptalk.hidden = !canTalk(n);
 }

@@ -23,6 +23,29 @@ async fn project_info(dir: &Path) -> Value {
     v
 }
 
+/// The scripts of a folder's `package.json` (null without one).
+pub(super) fn package_scripts(dir: &Path) -> Value {
+    std::fs::read_to_string(dir.join("package.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .and_then(|p| p.get("scripts").cloned())
+        .unwrap_or(Value::Null)
+}
+
+/// The package manager a folder's lockfile names.
+pub(super) fn package_manager(dir: &Path) -> &'static str {
+    let has = |f: &str| dir.join(f).exists();
+    if has("pnpm-lock.yaml") {
+        "pnpm"
+    } else if has("yarn.lock") {
+        "yarn"
+    } else if has("bun.lockb") || has("bun.lock") {
+        "bun"
+    } else {
+        "npm"
+    }
+}
+
 /// The command a network's check gate runs in a folder unless the person typed another: build and
 /// tests, guessed from the build files there. Empty: none found (the agent then runs the checks).
 pub(super) fn guess_check(dir: &Path) -> String {
@@ -31,20 +54,7 @@ pub(super) fn guess_check(dir: &Path) -> String {
         return "cargo build && cargo test".into();
     }
     if has("package.json") {
-        let scripts = std::fs::read_to_string(dir.join("package.json"))
-            .ok()
-            .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-            .and_then(|p| p.get("scripts").cloned())
-            .unwrap_or(Value::Null);
-        let pm = if has("pnpm-lock.yaml") {
-            "pnpm"
-        } else if has("yarn.lock") {
-            "yarn"
-        } else if has("bun.lockb") || has("bun.lock") {
-            "bun"
-        } else {
-            "npm"
-        };
+        let (scripts, pm) = (package_scripts(dir), package_manager(dir));
         // (npm's placeholder test script fails on purpose: it is no test)
         let real = |k: &str| scripts.get(k).and_then(|x| x.as_str()).is_some_and(|x| !x.contains("no test specified"));
         return ["build", "lint", "test"]

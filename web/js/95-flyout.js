@@ -101,7 +101,6 @@ function renderOptionsTab(n) {
     const f = (key, label, ph) => h('div', {}, h('h3', { style: 'margin:0 0 4px;font:600 calc(11.5px*var(--fs)) var(--display);letter-spacing:.08em;color:var(--i3)' }, label),
       h('input', { class: 'fld', value: n[key] || '', placeholder: ph, oninput: e => patchNode(id, { [key]: e.target.value }) }));
     const msg = h('textarea', { class: 'fld', value: n.message || '', rows: 2, placeholder: '{{agent}}: {{result}}', oninput: e => patchNode(id, { message: e.target.value }) });
-    msg.value = n.message || '';
     const op = n.git_op || '';
     const ops = [['commit', 'commit', 'one agent commits its own work; goes on when it has'], ['push', 'push', 'pushes once every commit before it is resolved'],
       ['pr', 'open PR', 'pushes if needed, then an agent opens the pull request']];
@@ -126,7 +125,7 @@ function renderOptionsTab(n) {
         seg([[true, 'push', 'git push -u <remote> <branch>'], [false, 'keep local', 'commit only']], n.push !== false, v => patchNode(id, { push: v }, 0))),
       h('div', { class: 'sec' }, h('div', { class: 'row2' },
         n.draft ? h('button', { class: 'btn sm pri', onclick: () => send('arm', { id }) }, 'arm') : null,
-        h('button', { class: 'btn sm', onclick: () => send('fire', { id }) }, op === 'commit' ? 'commit now' : op === 'push' ? 'push now' : op === 'pr' ? 'open PR now' : 'ship now'))),
+        h('button', { class: 'btn sm', onclick: () => send('fire', { id }) }, fireLabel(op)))),
       del);
     return;
   }
@@ -168,7 +167,7 @@ function renderOptionsTab(n) {
     return;
   }
   const agents = agentEntries(), inc = incoming(id), acfg = S.cfg.agents[n.agent] || {};
-  const cmd = h('input', { class: 'fld', value: n.cmd || '', placeholder: (S.cfg.agents[n.agent] || {}).cmd || 'command to run', 'aria-label': 'Command', oninput: e => patchNode(id, { cmd: e.target.value }) });
+  const cmd = h('input', { class: 'fld', value: n.cmd || '', placeholder: (S.cfg.agents[n.agent] || {}).cmd || 'command to run', 'aria-label': 'Command', oninput: e => patchNode(id, { cmd: e.target.value }), onchange: n.deploy ? e => deployCmdSet(id, e.target.value) : null });
   const cwd = h('input', { class: 'fld', value: n.cwd || '', placeholder: 'project folder', title: S.project.dir, 'aria-label': 'Folder', oninput: e => patchNode(id, { cwd: e.target.value }) });
   const cwdPick = h('button', { class: 'btn sm', title: 'pick the folder it works in (a sibling repository, say)', onclick: ev => {
     const r = ev.currentTarget.getBoundingClientRect();

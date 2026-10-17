@@ -27,28 +27,42 @@ impl Engine {
         r
     }
 
-    /// A new agent for the mark.
-    fn mark_agent(&mut self, text: String, agent: String, cwd: Option<String>, draft: bool) -> Value {
-        let prefs = self.cfg.prefs.clone();
-        let usable = |a: &str| self.cfg.agents.contains_key(a) && a != "sh";
-        let agent = [agent.as_str(), prefs["agent"].as_str().unwrap_or(""), "claude"]
+    /// A CLI that can take a task on this board (not the plain shell).
+    pub(super) fn usable_agent(&self, a: &str) -> bool {
+        self.cfg.agents.contains_key(a) && a != "sh"
+    }
+
+    /// `first` if it can take a task, else the person's own CLI, claude, or any that can.
+    pub(super) fn pick_agent(&self, first: &str) -> Option<String> {
+        [first, self.cfg.prefs["agent"].as_str().unwrap_or(""), "claude"]
             .into_iter()
-            .find(|a| usable(a))
+            .find(|a| self.usable_agent(a))
             .map(str::to_string)
-            .or_else(|| self.cfg.agents.keys().find(|a| usable(a)).cloned());
-        let Some(agent) = agent else { return json!({"ok": false, "error": "no agent is set up on this board"}) };
-        let ac = &self.cfg.agents[&agent];
-        let tuned = |key: &str| prefs[key][agent.as_str()].as_str().unwrap_or("").to_string();
-        let mut node = json!({"agent": agent, "prompt": text, "draft": draft, "addenda": self.chosen_addenda()});
+            .or_else(|| self.cfg.agents.keys().find(|a| self.usable_agent(a)).cloned())
+    }
+
+    /// A new agent card's model and reasoning, only where its CLI takes them, and the person's yolo
+    /// choice where it has one: as the launch pad sets them.
+    pub(super) fn tune_agent(&self, node: &mut Value, agent: &str, model: &str, effort: &str) {
+        let Some(ac) = self.cfg.agents.get(agent) else { return };
         if !ac.model_arg.is_empty() {
-            node["model"] = json!(tuned("model"));
+            node["model"] = json!(model);
         }
         if !ac.effort_arg.is_empty() {
-            node["effort"] = json!(tuned("effort"));
+            node["effort"] = json!(effort);
         }
-        if let (false, Some(y)) = (ac.yolo_arg.is_empty(), prefs["yolo"].as_bool()) {
+        if let (false, Some(y)) = (ac.yolo_arg.is_empty(), self.cfg.prefs["yolo"].as_bool()) {
             node["yolo"] = json!(y);
         }
+    }
+
+    /// A new agent for the mark.
+    fn mark_agent(&mut self, text: String, agent: String, cwd: Option<String>, draft: bool) -> Value {
+        let Some(agent) = self.pick_agent(&agent) else { return json!({"ok": false, "error": "no agent is set up on this board"}) };
+        let prefs = &self.cfg.prefs;
+        let tuned = |key: &str| prefs[key][agent.as_str()].as_str().unwrap_or("").to_string();
+        let mut node = json!({"agent": agent, "prompt": text, "draft": draft, "addenda": self.chosen_addenda()});
+        self.tune_agent(&mut node, &agent, &tuned("model"), &tuned("effort"));
         // where it works: where the marked page's server runs, else the folder new agents start in
         let dir = match cwd.filter(|c| !c.trim().is_empty()) {
             Some(c) => Some(self.abs_dir(&c)),

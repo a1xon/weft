@@ -263,12 +263,14 @@ async fn serve(args: &[String]) -> Result<(), String> {
         return Err(format!("already running for {} (pid {}, port {})", dir.display(), i.pid, i.port));
     }
     // one daemon per board, even when two `weft` replace the old one at once (an install noticed by
-    // the daemon itself and an agent's `weft open`): held until this process ends
+    // the daemon itself and an agent's `weft open`): held until this process ends. A daemon that was
+    // just told to quit still holds it for a moment (and its port): that is waited for.
     let _ = std::fs::create_dir_all(model::state_dir());
     let lock = std::fs::File::create(model::state_dir().join(format!("{}.lock", model::project_id(&dir)))).map_err(|e| e.to_string())?;
-    if lock.try_lock().is_err() {
+    let taken = tokio::task::spawn_blocking(move || lock.lock().map(|_| lock));
+    let Ok(Ok(Ok(_lock))) = tokio::time::timeout(Duration::from_secs(5), taken).await else {
         return Err(format!("another daemon is starting for {}", dir.display()));
-    }
+    };
     let cfg = model::load_config();
     let proj = model::project_id(&dir);
     let session = format!("weft-{proj}");

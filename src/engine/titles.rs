@@ -60,7 +60,7 @@ pub(super) fn clean_title(out: &str) -> Option<String> {
 
 /// What a card is named after: its prompt. A command is its own name.
 fn title_source(n: &Node) -> Option<String> {
-    if !n.auto_name || (n.kind() == Kind::Agent && n.finish == Finish::Exit && !n.cmd.trim().is_empty()) {
+    if !n.auto_name || n.runs_command() {
         return None;
     }
     match n.kind() {

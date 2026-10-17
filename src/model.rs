@@ -335,6 +335,22 @@ impl Node {
             _ => Kind::Agent,
         }
     }
+
+    /// An agent that reads what it is told, as a model does: not a shell, not a command that runs
+    /// until it exits, not a queued prompt or a check.
+    pub fn reads_prompts(&self) -> bool {
+        self.kind() == Kind::Agent && self.finish == Finish::Idle && self.agent != "sh"
+    }
+
+    /// A command that runs until it exits (`cargo test`): it is named by its own words.
+    pub fn runs_command(&self) -> bool {
+        self.kind() == Kind::Agent && self.finish == Finish::Exit && !self.cmd.trim().is_empty()
+    }
+}
+
+/// A slash command or a shell escape: it goes to the agent's CLI exactly as typed.
+pub fn is_cli_command(text: &str) -> bool {
+    text.trim_start().starts_with(['/', '!'])
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -535,7 +551,6 @@ pub struct Config {
     pub archive_flow_s: f64,
     /// An agent that finished and has sat idle this long ends its process (seconds, wall clock;
     /// 0 = never). Its card and result stay; the next prompt starts a new process.
-    #[serde(default = "rest_default")]
     pub rest_s: f64,
     /// Cards are named by their agent's `title_cmd` (until you rename one yourself).
     pub titles: bool,
@@ -569,7 +584,7 @@ impl Default for Config {
             recheck_s: 60.0,
             archive_s: 600.0,
             archive_flow_s: 900.0,
-            rest_s: rest_default(),
+            rest_s: 1800.0,
             titles: true,
             limit_retry_s: 1200.0,
             gh: "gh".into(),
@@ -578,12 +593,8 @@ impl Default for Config {
     }
 }
 
-fn rest_default() -> f64 {
-    1800.0
-}
-
 fn default_chrome() -> Vec<String> {
-    [
+    strings(&[
         "bypass permissions",
         "shift+tab to cycle",
         "? for shortcuts",
@@ -607,10 +618,7 @@ fn default_chrome() -> Vec<String> {
         "/clear to save",
         "Compacted while idle",
         "ctrl+g to edit in",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
+    ])
 }
 
 fn strings(v: &[&str]) -> Vec<String> {
@@ -738,8 +746,23 @@ pub fn home() -> PathBuf {
     std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/tmp"))
 }
 
+/// An XDG base folder (`XDG_CONFIG_HOME` ...), else where it is by default under the home folder.
+fn xdg(var: &str, default: &str) -> PathBuf {
+    std::env::var_os(var).map(PathBuf::from).unwrap_or_else(|| home().join(default))
+}
+
+/// Where the person's settings are kept (every program's, not only weft's).
+pub fn config_home() -> PathBuf {
+    xdg("XDG_CONFIG_HOME", ".config")
+}
+
+/// Where the person's programs keep their files (desktop entries, icons, weft's extension).
+pub fn data_home() -> PathBuf {
+    xdg("XDG_DATA_HOME", ".local/share")
+}
+
 pub fn config_dir() -> PathBuf {
-    std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".config")).join("weft")
+    config_home().join("weft")
 }
 
 /// The user's own settings: only what they changed, merged over the built-in defaults.
@@ -748,7 +771,7 @@ pub fn config_path() -> PathBuf {
 }
 
 pub fn state_dir() -> PathBuf {
-    std::env::var_os("XDG_STATE_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".local/state")).join("weft")
+    xdg("XDG_STATE_HOME", ".local/state").join("weft")
 }
 
 /// FNV-1a: a small, stable hash, for noticing that a screen changed and for short ids.
@@ -819,20 +842,15 @@ pub fn save_config_key(path: &Path, key: &str, value: serde_json::Value) {
     save_json(path, &cur);
 }
 
-/// Keep runtime files (prompt files, state, filed work) out of `git add .`; flow.json stays committable.
+/// Keep runtime files (prompt files, state, filed work, snapshots) out of `git add .`; flow.json stays
+/// committable. A folder weft worked in before one of them existed gets the ones it is missing.
 pub fn ensure_weft_gitignore(dir: &Path) {
+    const IGNORED: [&str; 6] = ["run/", "shots/", "state.json", "archive.json", "archive/", "cp/"];
     let p = dir.join(".weft").join(".gitignore");
-    match fs::read_to_string(&p) {
-        Err(_) => {
-            let _ = write_atomic(&p, b"run/\nshots/\nstate.json\narchive.json\narchive/\ncp/\n");
-        }
-        // a folder from before the archive (or its packs) existed
-        Ok(have) => {
-            let miss: Vec<&str> = ["archive.json", "archive/", "cp/"].into_iter().filter(|w| !have.lines().any(|l| l.trim() == *w)).collect();
-            if !miss.is_empty() {
-                let sep = if have.is_empty() || have.ends_with('\n') { "" } else { "\n" };
-                let _ = write_atomic(&p, format!("{have}{sep}{}\n", miss.join("\n")).as_bytes());
-            }
-        }
+    let have = fs::read_to_string(&p).unwrap_or_default();
+    let miss: Vec<&str> = IGNORED.into_iter().filter(|w| !have.lines().any(|l| l.trim() == *w)).collect();
+    if !miss.is_empty() {
+        let sep = if have.is_empty() || have.ends_with('\n') { "" } else { "\n" };
+        let _ = write_atomic(&p, format!("{have}{sep}{}\n", miss.join("\n")).as_bytes());
     }
 }

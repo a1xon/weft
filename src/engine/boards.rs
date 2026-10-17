@@ -160,7 +160,8 @@ impl Engine {
         if let Err(e) = bd::forget(&d) {
             return json!({"ok": false, "error": e});
         }
-        self.boards.busy = false;
+        // (a look already under way is followed by another at the next tick, never run beside it)
+        self.boards.looked = None;
         self.look_at_boards();
         json!({"ok": true})
     }

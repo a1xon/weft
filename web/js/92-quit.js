@@ -35,7 +35,7 @@ function farewell(m) {
   if (gone) return;
   gone = true;
   closeMenu(); modal.hidden = true;
-  const dir = $('#projName').textContent || '';
+  const dir = shortDir(projDir());
   const n = m.agents || 0;
   const plural = n === 1 ? '' : 's';
   const what = m.end

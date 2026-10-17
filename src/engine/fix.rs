@@ -55,22 +55,13 @@ impl Engine {
             n => format!("fix: {} + {} more", name(&todo[0]), n - 1),
         };
         let what = if todo.len() == 1 { format!("{} \"{}\"", todo[0], name(&todo[0])) } else { todo.join(", ") };
-        let ac = &self.cfg.agents[&agent];
         let mut node = json!({"agent": agent, "name": title, "prompt": words::fix_request(&self.boot.exe, &cards),
                               "addenda": self.chosen_addenda(), "fixes": todo});
-        if !ac.model_arg.is_empty() {
-            node["model"] = json!(model);
-        }
-        if !ac.effort_arg.is_empty() {
-            node["effort"] = json!(effort);
-        }
-        if let (false, Some(y)) = (ac.yolo_arg.is_empty(), self.cfg.prefs["yolo"].as_bool()) {
-            node["yolo"] = json!(y);
-        }
+        self.tune_agent(&mut node, &agent, &model, &effort);
         // it works where the first of them did (in its worktree, when it had one of its own)
         let dir = todo
             .iter()
-            .find_map(|i| self.agent_upstream(i).and_then(|a| self.rt.get(&a)?.worktree.clone()).filter(|w| Path::new(w).is_dir()))
+            .find_map(|i| self.agent_upstream(i).and_then(|a| self.live_worktree(&a)))
             .map(PathBuf::from)
             .or_else(|| self.node(&todo[0]).map(|n| self.node_dir(n)));
         if let Some(d) = dir.filter(|d| *d != self.boot.dir) {
@@ -108,12 +99,11 @@ impl Engine {
     /// was behind them), their model, and a reasoning level above the highest of theirs.
     fn fixer_agent(&self, todo: &[String]) -> Option<(String, String, String)> {
         let prefs = &self.cfg.prefs;
-        let usable = |a: &str| self.cfg.agents.contains_key(a) && a != "sh";
         let behind: Vec<&Node> = todo
             .iter()
             .filter_map(|i| self.agent_upstream(i))
             .filter_map(|a| self.node(&a))
-            .filter(|n| usable(&n.agent) && n.finish == Finish::Idle)
+            .filter(|n| self.usable_agent(&n.agent) && n.finish == Finish::Idle)
             .collect();
         let mine = prefs["agent"].as_str().unwrap_or("");
         let count = |a: &str| behind.iter().filter(|n| n.agent == a).count();
@@ -123,9 +113,7 @@ impl Engine {
         } else {
             behind.iter().find(|n| count(&n.agent) == most).map(|n| n.agent.clone())
         };
-        let agent = agent
-            .or_else(|| [mine, "claude"].into_iter().find(|a| usable(a)).map(str::to_string))
-            .or_else(|| self.cfg.agents.keys().find(|a| usable(a)).cloned())?;
+        let agent = agent.or_else(|| self.pick_agent(""))?;
         let ac = &self.cfg.agents[&agent];
         let rank = |e: &str| ac.efforts.iter().position(|l| l == e);
         let medium = rank("medium").unwrap_or(0);
@@ -193,7 +181,7 @@ impl Engine {
                 .filter_map(|e| label(if into { &e.from } else { &e.to }))
                 .collect()
         };
-        let dir = match rt.worktree.as_deref().filter(|w| n.kind() == Kind::Agent && Path::new(w).is_dir()) {
+        let dir = match self.live_worktree(id).filter(|_| n.kind() == Kind::Agent) {
             Some(w) => PathBuf::from(w),
             None => self.node_dir(n),
         };
@@ -248,7 +236,10 @@ impl Engine {
                 let (name, ok, out) = self.input_from(&e.from);
                 self.deliver_input(e, &e.from, &name, ok, &out);
             }
-            // (one that is not armed ran because it was told to: so it is now)
+            // (one that is not armed runs because it was told to: its whole round, not only the first job)
+            if let Some(rt) = self.rt.get_mut(&id) {
+                rt.git.force = true;
+            }
             self.git_pump(&id, true);
             return json!({"ok": true});
         }

@@ -104,7 +104,6 @@ pub async fn connect(sock: &str, session: &str, cols: u16, rows: u16, ev: mpsc::
         }
     });
 
-    let ev2 = ev.clone();
     tokio::spawn(async move {
         let mut rd = BufReader::new(stdout);
         let mut line = Vec::with_capacity(4096);
@@ -117,7 +116,7 @@ pub async fn connect(sock: &str, session: &str, cols: u16, rows: u16, ev: mpsc::
                         line.pop();
                     }
                     if let Some(e) = parse_line(&line) {
-                        if ev2.send(Ev::Tmux(e)).is_err() {
+                        if ev.send(Ev::Tmux(e)).is_err() {
                             return;
                         }
                     }
@@ -125,7 +124,7 @@ pub async fn connect(sock: &str, session: &str, cols: u16, rows: u16, ev: mpsc::
             }
         }
         let _ = child.wait().await;
-        let _ = ev2.send(Ev::Tmux(TEv::Gone));
+        let _ = ev.send(Ev::Tmux(TEv::Gone));
     });
 
     let t = Tmux { sock: sock.to_string(), session: session.to_string(), ctl: ctl_tx };
@@ -184,7 +183,7 @@ pub fn valid_pane(s: &str) -> bool {
 /// tmux key names we accept from the browser.
 pub fn valid_key(k: &str) -> bool {
     let mut rest = k;
-    while rest.len() > 2 && matches!(&rest[..2], "C-" | "M-" | "S-") {
+    while rest.len() > 2 && matches!(rest.get(..2), Some("C-" | "M-" | "S-")) {
         rest = &rest[2..];
     }
     if rest.chars().count() == 1 {
@@ -251,9 +250,7 @@ fn parse_line(line: &[u8]) -> Option<TEv> {
         let (c, r) = dims.split_once('x')?;
         return Some(TEv::Layout { win, cols: c.parse().ok()?, rows: r.parse().ok()? });
     }
-    if text.starts_with("%exit") {
-        return Some(TEv::Gone);
-    }
+    // (`%exit` is not an event: the end of tmux's output that always follows it is, see `connect`)
     None
 }
 
@@ -312,7 +309,7 @@ mod tests {
         for k in ["Enter", "C-c", "M-x", "Up", "F5", "a", "C-M-a"] {
             assert!(valid_key(k), "{k}");
         }
-        for k in ["", "Enter;kill-server", "C-", "a b", "$(x)", "Enter\n", "F13", "%1"] {
+        for k in ["", "Enter;kill-server", "C-", "a b", "$(x)", "Enter\n", "F13", "%1", "\u{20ac}x", "C-\u{20ac}"] {
             assert!(!valid_key(k), "{k:?}");
         }
         assert!(valid_pane("%12") && !valid_pane("%1;x") && !valid_pane("1") && !valid_pane("%"));

@@ -1468,7 +1468,7 @@ fn a_pull_request_is_opened_by_the_agent_that_knows_the_work() {
     assert!(!e.rt["r"].git.log.iter().any(|l| l.contains("pushed")), "it did not push a second time");
     assert_eq!(e.rt["r"].git.stage, GitStage::Pr);
     // the agent answers with the link
-    e.git_response("r", "a", true, "https://github.com/acme/textkit/pull/7\nFix slugify and wrap");
+    e.git_response("r", true, "https://github.com/acme/textkit/pull/7\nFix slugify and wrap");
     assert_eq!(e.rt["r"].status, Status::Done);
     let out = e.rt["r"].output.clone().unwrap();
     assert!(
@@ -1511,7 +1511,7 @@ async fn a_rejected_push_has_the_agent_bring_the_branch_up_to_date_once() {
     assert!(q.iter().any(|t| t.contains("was rejected") && t.contains("git pull --rebase") && t.contains("Do not force-push")), "{q:?}");
     assert_ne!(e.rt["p"].status, Status::Failed);
     // it reports back: the push is tried again
-    e.git_response("p", "a", true, "rebased onto origin/feature");
+    e.git_response("p", true, "rebased onto origin/feature");
     assert!(e.rt["p"].git.finishing && e.rt["p"].git.busy, "pushing again");
     // a second rejection is final
     e.on_git("p".into(), 0, GitJobKind::Push, Err("REJECTED:push failed: still rejected".into()), None);
@@ -2374,10 +2374,10 @@ fn the_archive_file_stays_out_of_git() {
     ensure_weft_gitignore(&dir);
     ensure_weft_gitignore(&dir);
     assert_eq!(std::fs::read_to_string(&p).unwrap(), "run/\nshots/\nstate.json\narchive.json\narchive/\ncp/\n");
-    // and one from before the packs (and the step snapshots) gets theirs
+    // and one from before the packs (and the step snapshots) gets theirs, and whatever else it lacks
     write_atomic(&p, b"run/\narchive.json\n").unwrap();
     ensure_weft_gitignore(&dir);
-    assert_eq!(std::fs::read_to_string(&p).unwrap(), "run/\narchive.json\narchive/\ncp/\n");
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "run/\narchive.json\nshots/\nstate.json\narchive/\ncp/\n");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

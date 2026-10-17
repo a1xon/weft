@@ -15,7 +15,7 @@ fn esc(s: &str, out: &mut String) {
     }
 }
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Default)]
 struct Style {
     fg: Color,
     bg: Color,
@@ -136,15 +136,7 @@ pub fn row_html(screen: &Screen, row: u16, cols: u16, cursor: Option<u16>) -> St
                 underline: x.underline(),
                 inverse: x.inverse(),
             })
-            .unwrap_or(Style {
-                fg: Color::Default,
-                bg: Color::Default,
-                bold: false,
-                dim: false,
-                italic: false,
-                underline: false,
-                inverse: false,
-            });
+            .unwrap_or_default();
         let is_cursor = cursor == Some(c);
         if cur != Some(st) || is_cursor {
             if tag_open {
@@ -197,7 +189,6 @@ fn is_chrome(line: &str) -> bool {
         return true;
     }
     // "-----", "=====": a rule, not content (a lone "-" is a list bullet and stays)
-    let t = line.trim();
     t.chars().count() >= 5 && t.chars().all(|c| "-=_~*".contains(c))
 }
 
@@ -457,13 +448,13 @@ pub fn merge_frame(acc: &mut Vec<String>, frame: &[String]) {
     }
     // the frame's first `m` rows are the last `m` rows of `acc`: the biggest `m` that agrees on
     // enough content rows wins (bigger first: a longer overlap is the stronger evidence)
-    let tail = acc[acc.len() - 1].clone();
+    let tail = acc[acc.len() - 1].as_str();
     let overlap = (1..=frame.len().min(acc.len())).rev().find(|&m| {
         let base = acc.len() - m;
         let content = frame[..m].iter().filter(|r| !r.is_empty()).count();
         let same = (0..m).filter(|&i| !frame[i].is_empty() && acc[base + i] == frame[i]).count();
         // a line that is still being written counts: its earlier version is a prefix of it
-        let grows = !tail.is_empty() && frame[m - 1] != tail && frame[m - 1].starts_with(tail.as_str());
+        let grows = !tail.is_empty() && frame[m - 1] != tail && frame[m - 1].starts_with(tail);
         let need = if content <= 2 { content } else { content - content / 4 };
         content > 0 && same + usize::from(grows) >= need
     });

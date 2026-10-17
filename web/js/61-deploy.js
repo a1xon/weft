@@ -3,21 +3,9 @@
    checkout of exactly the pushed commit (engine/deploy.rs) as soon as the push is in (to look first, a
    check goes on the link). Its command is the folder's: what you typed for it last, else what the
    daemon guessed from the folder; with none known, the card waits until it is typed into its options. */
-function deployFor(dir) {
-  const d = dir || netProj(), mine = (S.prefs.deploy || {})[d];
-  return typeof mine === 'string' ? mine : (netFacts(d).deploy || '');
-}
-function rememberDeploy(dir, cmd) {
-  const d = dir || netProj();
-  if (cmd === deployFor(d)) return;
-  const m = { ...(S.prefs.deploy || {}) };
-  if (cmd === (netFacts(d).deploy || '')) delete m[d]; else m[d] = cmd;
-  const ks = Object.keys(m); if (ks.length > 12) delete m[ks[0]];
-  S.prefs.deploy = m; savePrefs();
-}
 async function spawnDeploy(fromId, at) {
   const from = S.nodes.get(fromId); if (!from) return null;
-  const dir = netWhere(from), cmd = deployFor(dir), p = freeSpot(at.x, at.y);
+  const dir = workDir(from), cmd = folderCmd('deploy', dir), p = freeSpot(at.x, at.y);
   const r = await req('node_add', { node: { agent: 'sh', name: 'deploy', cmd, finish: 'exit', deploy: 'pushed', draft: !cmd, x: p.x, y: p.y }, from: fromId });
   if (!r.ok) { toast('err', r.error || 'could not add that'); return null; }
   await whenNode(r.id);
@@ -29,14 +17,13 @@ async function spawnDeploy(fromId, at) {
 }
 /* the command typed into a deploy card is the folder's from now on, and a card that waited for it goes
    (one that has its command, or an agent it is handed to, before the push is in starts with the push) */
-addEventListener('change', e => {
-  const t = e.target, id = S.fly && S.fly.id, n = id && S.nodes.get(id);
-  if (!(n && n.deploy && t && t.getAttribute && t.getAttribute('aria-label') === 'Command')) return;
-  const cmd = t.value.trim();
-  rememberDeploy(workDir(n), cmd);
+function deployCmdSet(id, value) {
+  const n = S.nodes.get(id); if (!n || !n.deploy) return;
+  const cmd = value.trim();
+  rememberFolderCmd('deploy', workDir(n), cmd);
   // (sent now, so it reaches the daemon before the arm does)
   if (cmd && n.draft) { patchNode(id, { cmd }, 0); send('arm', { id }); }
-}, true);
+}
 /* a deploy card says what it does in its own words */
 function deployText(n, r) {
   const st = r.status;

@@ -54,7 +54,6 @@
 #modal .mh .tabs{margin-left:8px}
 #modal .mh .tabs button{flex:none;padding:4px 12px;font:600 calc(11.5px*var(--fs)) var(--display);letter-spacing:.04em}
 #modal .mh .sp{flex:1}
-#modal .mh h2{flex:none}
 #modal .li.net{display:flex;align-items:center;gap:9px;padding:7px 10px;cursor:grab;touch-action:none}
 #modal .mb.nets{grid-template-columns:310px 1fr}
 #modal .li.net .lt{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.35}

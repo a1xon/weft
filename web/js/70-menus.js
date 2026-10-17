@@ -113,7 +113,7 @@ function nodeMenu(id, x, y) {
     items.push(
       // (only a flow from an older weft has a git step waiting to be armed)
       ...(n.draft ? [{ label: `arm: ${verb} as results arrive`, run: () => send('arm', { id }) }] : []),
-      { label: n.git_op === 'commit' ? 'commit now' : n.git_op === 'push' ? 'push now' : n.git_op === 'pr' ? 'open PR now' : 'ship now', hint: 'with what is there', run: () => send('fire', { id }) },
+      { label: fireLabel(n.git_op), hint: 'with what is there', run: () => send('fire', { id }) },
       { label: 'options', hint: ',', run: () => openFly(id, 'options') },
       { sep: true },
       { label: 'add next step', run: () => spawnLinked(id, 'next') },
@@ -171,10 +171,11 @@ function edgeMenu(id, x, y) {
    lane: a card that starts working now keeps its row free to the right of it (no card that runs
    or has run there), so what is queued after it lines up next to it */
 const filmH = id => { const el = nodeEls.get(id); return el && el.under ? el.under.offsetHeight + 12 : 0; };
+/* the room a card takes: its ports, a margin, and what unfolds under it */
+const cardRoom = n => ({ x: n.x - JX - 20, y: n.y - 14, w: nw(n) + JX + 40, h: nh(n) + 28 + filmH(n.id) });
 function freeSpot(x, y, lane) {
-  const box = n => ({ x: n.x - JX - 20, y: n.y - 14, w: nw(n) + JX + 40, h: nh(n) + 28 + filmH(n.id) });
-  const boxes = [...S.nodes.values()].map(box);
-  const started = lane ? [...S.nodes.values()].filter(n => cat((S.rt.get(n.id) || {}).status) !== 'pre').map(box) : [];
+  const boxes = [...S.nodes.values()].map(cardRoom);
+  const started = lane ? [...S.nodes.values()].filter(n => cat((S.rt.get(n.id) || {}).status) !== 'pre').map(cardRoom) : [];
   const overlaps = (cx, cy) => boxes.some(b => cx - JX < b.x + b.w && cx + NW > b.x && cy < b.y + b.h && cy + NH > b.y)
     || started.some(b => b.x > cx && cy < b.y + b.h && cy + NH > b.y);
   const snap = v => Math.round(v / 10) * 10;
@@ -240,8 +241,8 @@ async function spawnAt(agent0, x, y, opts = {}) {
     if (k === 'agent') editAsk(r.id);
     else if (k === 'note') editNote(r.id);
     else if (k === 'git') toast('info', kindFields.git_op === 'commit' ? 'commit: link the agent whose work it commits. Another agent gets its own commit; link them all to one push.'
-      : kindFields.git_op === 'pr' ? 'open PR: link the push before it, then press arm. An agent that did the work writes and opens it.'
-        : 'push: link commits (or agents) into it, then press arm. It waits for all of them.', { ms: 7000 });
+      : kindFields.git_op === 'pr' ? 'open PR: link the push before it; once that is in, an agent that did the work writes and opens it.'
+        : 'push: link commits (or agents) into it; it pushes when all of them are in. To look first, put an approve check on the link.', { ms: 7000 });
     else if (k === 'shot') toast('info', 'screenshot gate: it asks the agent upstream, shows the image here and waits for you.', { ms: 7000 });
     else if (k === 'tests' && kindFields.ci) toast('info', 'CI: once what is before it is pushed, it waits for the CI runs of that commit (with gh). Red goes back to the agent that did the work, which fixes and pushes.', { ms: 8000 });
     else if (k === 'tests' && kindFields.write_tests === false) toast('info', kindFields.cmd ? `check: weft runs \`${kindFields.cmd}\`; red goes back to the agent. Change it in options.` : 'check: the agent runs the checks; red goes back to it. Set a command in options.', { ms: 8000 });

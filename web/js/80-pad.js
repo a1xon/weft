@@ -28,8 +28,7 @@ function tuneTag(n) {
 }
 function pathParts(dir = (S.project && S.project.dir) || '') {
   const home = (S.project && S.project.home) || '';
-  const inHome = home && (dir === home || dir.startsWith(home + '/'));
-  const short = inHome ? '~' + dir.slice(home.length) : dir;
+  const short = shortDir(dir);
   const i = short.lastIndexOf('/');
   let parent = i > 0 ? short.slice(0, i + 1) : '', name = i >= 0 && short.length > 1 ? short.slice(i + 1) : short;
   if (!name) name = short || '/';

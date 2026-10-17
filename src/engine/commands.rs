@@ -447,10 +447,7 @@ impl Cmd {
     pub(super) fn is_work(&self) -> bool {
         !matches!(
             self,
-            Cmd::Log { .. }
-                | Cmd::CpDiff { .. }
-                | Cmd::BoardOpen { .. }
-                | Cmd::Proj { .. }
+            Cmd::Proj { .. }
                 | Cmd::Dirs { .. }
                 | Cmd::Models { .. }
                 | Cmd::Preview { .. }
@@ -495,15 +492,8 @@ impl Engine {
             Cmd::Proj { dir } => self.cmd_proj(dir),
             Cmd::Dirs { q, like } => self.cmd_dirs(&q, &like),
             Cmd::Models { agent, force } => self.cmd_models(agent, force),
-            Cmd::Log { dir, branch, n, show, remote } => {
-                // (only a caller that waits for the answer gets one: see `Engine::handle`)
-                self.cmd_log(dir, branch, n, show, remote, None);
-                json!({"ok": false, "error": "the log answers by itself"})
-            }
-            Cmd::BoardOpen { dir, window } => {
-                self.cmd_board_open(dir, window, None);
-                json!({"ok": false, "error": "a board opens by itself"})
-            }
+            // (these answer when their job is done: `Engine::handle` gives them the caller's reply)
+            Cmd::Log { .. } | Cmd::CpDiff { .. } | Cmd::BoardOpen { .. } => json!({"ok": false, "error": "it answers by itself"}),
             Cmd::BoardForget { dir } => self.cmd_board_forget(dir),
             Cmd::BoardName { name } => self.cmd_board_name(name),
             Cmd::LibSet { library } => self.cmd_lib_set(library),
@@ -511,10 +501,6 @@ impl Engine {
             Cmd::Start { id } => self.cmd_start(id),
             Cmd::Stop { id } => self.cmd_stop(id),
             Cmd::LimitWake { id } => self.cmd_limit_wake(id),
-            Cmd::CpDiff { id, n } => {
-                self.cmd_cp_diff(id, n, None);
-                json!({"ok": false, "error": "the diff answers by itself"})
-            }
             Cmd::Rewind { id, from, to, force } => self.cmd_rewind(id, from, to, force),
             Cmd::Restart { id } => self.cmd_restart(id),
             Cmd::Arm { id } => self.cmd_arm(id),
@@ -532,7 +518,7 @@ impl Engine {
             Cmd::QueueAdd { id, text, front } => self.cmd_queue_add(id, text, front),
             Cmd::QueueDel { id, qid } => self.cmd_queue_del(id, qid),
             Cmd::QueueMove { id, qid, to } => self.cmd_queue_move(id, qid, to),
-            Cmd::QueueNow { id, qid } => self.cmd_queue_now(id, qid),
+            Cmd::QueueNow { id, qid } => self.cmd_queue_move(id, qid, 0),
             Cmd::QueueClear { id } => self.cmd_queue_clear(id),
             Cmd::Key { id, k } => self.cmd_key(id, k),
             Cmd::Text { id, text, paste } => self.cmd_text(id, text, paste),

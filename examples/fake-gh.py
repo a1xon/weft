@@ -23,12 +23,12 @@ def state_dir():
 def run_for(sha):
     p = os.path.join(state_dir(), sha + ".json")
     if not os.path.exists(p):
-        d = tempfile.mkdtemp(prefix="fake-ci-")
         arc = subprocess.run(["git", "archive", sha], capture_output=True)
         if arc.returncode != 0:
             return None
-        subprocess.run(["tar", "-x", "-C", d], input=arc.stdout)
-        r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-q"], cwd=d, capture_output=True, text=True)
+        with tempfile.TemporaryDirectory(prefix="fake-ci-") as d:
+            subprocess.run(["tar", "-x", "-C", d], input=arc.stdout)
+            r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-q"], cwd=d, capture_output=True, text=True)
         json.dump({"start": time.time(), "ok": r.returncode == 0, "log": r.stdout + r.stderr, "id": int(sha[:6], 16)}, open(p, "w"))
     return json.load(open(p))
 

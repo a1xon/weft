@@ -212,7 +212,6 @@ def do_ci_fix(prompt):
 
 def show_shot(prompt):
     """A watch asked for it: make a picture and hand it over with `weft shot`, like a real agent would."""
-    import tempfile
     path = os.path.join(tempfile.gettempdir(), "sim-shot-%d.png" % int(time.time() * 1000))
     open(path, "wb").write(png())
     exe = os.environ.get("WEFT_BIN", "weft")
@@ -538,7 +537,6 @@ def handle_keys(data, busy=False):
             pass
         elif b[0] >= 0x20:
             # utf8 continuation handling
-            n = 1
             lead = b[0]
             need = 4 if lead >= 0xF0 else 3 if lead >= 0xE0 else 2 if lead >= 0xC0 else 1
             chunk = data[i:i + need]

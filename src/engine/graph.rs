@@ -24,6 +24,16 @@ impl Engine {
     /// The folder a node works in: its own `cwd`, else for a queued prompt, gate or git step the
     /// folder of the agent whose work it handles (a commit lands in that agent's repository), else
     /// the project's.
+    /// A card's own worktree, while it is still there.
+    pub(super) fn live_worktree(&self, id: &str) -> Option<&str> {
+        self.rt.get(id)?.worktree.as_deref().filter(|w| Path::new(w).is_dir())
+    }
+
+    /// Where a card's files are: its own worktree while there is one, else its folder.
+    pub(super) fn work_dir(&self, id: &str) -> PathBuf {
+        self.live_worktree(id).map(PathBuf::from).unwrap_or_else(|| self.node(id).map_or_else(|| self.boot.dir.clone(), |n| self.node_dir(n)))
+    }
+
     pub(super) fn node_dir(&self, n: &Node) -> PathBuf {
         if !n.cwd.trim().is_empty() {
             return self.abs_dir(&n.cwd);
@@ -310,24 +320,8 @@ impl Engine {
                 _ => Vec::new(),
             };
         }
-        // (a git step runs when its input is in, a push too: whoever wants to look first puts a check
-        // on the link before it. Only a flow from an older weft still has pushes waiting to be armed.)
         if !has_name || n.name.trim().is_empty() {
-            let (src, fallback) = match kind {
-                Kind::Note => (n.prompt.clone(), "note".to_string()),
-                Kind::Gate => (String::new(), "approve".to_string()),
-                Kind::Shot => (String::new(), "screenshot".to_string()),
-                Kind::Tests => (String::new(), "tests".to_string()),
-                Kind::Git => (String::new(), n.git_op.label().to_string()),
-                Kind::Step => (n.prompt.clone(), "prompt".to_string()),
-                Kind::Agent => (
-                    if n.finish == Finish::Exit && !n.cmd.trim().is_empty() { n.cmd.clone() } else { n.prompt.clone() },
-                    if n.agent.is_empty() { "Agent".to_string() } else { n.agent.clone() },
-                ),
-            };
-            let as_cmd = kind == Kind::Agent && n.finish == Finish::Exit && !n.cmd.trim().is_empty();
-            let t = if as_cmd { title_cmd(&src, &fallback) } else { title_from(&src, &fallback) };
-            n.name = self.unique_name(&t, None);
+            n.name = self.unique_name(&auto_title(&n), None);
             n.auto_name = matches!(kind, Kind::Agent | Kind::Note | Kind::Step | Kind::Git);
         } else {
             n.name = self.unique_name(n.name.trim(), None);
@@ -382,15 +376,7 @@ impl Engine {
                 }
                 let reworded = n.auto_name && (patch.get("prompt").is_some() || patch.get("cmd").is_some()) && !renamed_by_user;
                 if reworded && n.kind() != Kind::Git {
-                    let fallback = match n.kind() {
-                        Kind::Step => "prompt".to_string(),
-                        _ if n.agent.is_empty() => "Agent".to_string(),
-                        _ => n.agent.clone(),
-                    };
-                    let src = if n.finish == Finish::Exit && !n.cmd.trim().is_empty() { n.cmd.clone() } else { n.prompt.clone() };
-                    let as_cmd = n.finish == Finish::Exit && !n.cmd.trim().is_empty();
-                    let t = if as_cmd { title_cmd(&src, &fallback) } else { title_from(&src, &fallback) };
-                    n.name = self.unique_name(&t, Some(&id));
+                    n.name = self.unique_name(&auto_title(&n), Some(&id));
                 } else if renamed_by_user {
                     n.name = self.unique_name(n.name.trim(), Some(&id));
                 }
@@ -492,23 +478,13 @@ impl Engine {
     }
 
     pub(super) fn cmd_edge_del(&mut self, id: String) -> Value {
-        let to = self.flow.edges.iter().find(|e| e.id == id).map(|e| e.to.clone());
         self.flow.edges.retain(|e| e.id != id);
-        // a queued prompt whose agent is no longer behind it follows the link that is left
-        if let Some(step) = to.filter(|t| self.node(t).is_some_and(|n| n.kind() == Kind::Step)) {
-            let host = self.node(&step).map(|n| n.host.clone()).unwrap_or_default();
-            let behind: Vec<String> =
-                self.flow.edges.iter().filter(|e| e.to == step).filter_map(|e| self.agent_behind(&e.from)).collect();
-            if let Some(agent) = behind.first().filter(|_| !behind.contains(&host)) {
-                let agent = agent.clone();
-                self.rehost(&step, &agent);
-            }
-        }
         for rt in self.rt.values_mut() {
             rt.inputs.retain(|(eid, _)| *eid != id);
             rt.unsent.retain(|eid| *eid != id);
             rt.ui = true;
         }
+        // (a queued prompt whose agent is no longer behind it follows the link that is left: `reconcile_hosts`)
         self.flow_changed();
         json!({"ok": true})
     }
@@ -534,5 +510,24 @@ impl Engine {
             r.ui = true;
         }
         json!({"ok": true})
+    }
+}
+
+/// The name a card gives itself: the first words of its prompt (a command's own words), else what it is.
+fn auto_title(n: &Node) -> String {
+    let fallback = match n.kind() {
+        Kind::Note => "note",
+        Kind::Gate => "approve",
+        Kind::Shot => "screenshot",
+        Kind::Tests => "tests",
+        Kind::Git => n.git_op.label(),
+        Kind::Step => "prompt",
+        Kind::Agent if n.agent.is_empty() => "Agent",
+        Kind::Agent => &n.agent,
+    };
+    match n.kind() {
+        Kind::Agent if n.runs_command() => title_cmd(&n.cmd, fallback),
+        Kind::Agent | Kind::Note | Kind::Step => title_from(&n.prompt, fallback),
+        _ => fallback.to_string(),
     }
 }

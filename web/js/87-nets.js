@@ -15,7 +15,7 @@ const NET_FIELDS = ['name', 'prompt', 'cmd', 'finish', 'quiet_s', 'join', 'workt
 const NB_ = (c, r = 0) => ({ key: 'a', agent: '@main', prompt: '{{task}}', c, r, checks: ['eta'], does: 'builds what you ask' });
 const NK_ = (key, c, r = 0, x = {}) => ({ key, agent: 'tests', name: 'check', write_tests: false, cmd: '{{check}}', c, r, does: 'the check command must pass, red goes back', ...x });
 const NC_ = (c, r = 0, key = 'c', x = {}) => ({ key, agent: 'git', git_op: 'commit', c, r, does: 'the agent that did the work commits it', ...x });
-const NP_ = (c, r = 0, key = 'p') => ({ key, agent: 'git', git_op: 'push', c, r, does: 'pushes the branch (waits for you unless armed)' });
+const NP_ = (c, r = 0, key = 'p') => ({ key, agent: 'git', git_op: 'push', c, r, does: 'pushes the branch once its commits are in' });
 const NG_ = (key, c, r, does) => ({ key, agent: 'gate', c, r, does });
 const NI_ = (key, c, r = 0) => ({ key, agent: 'tests', name: 'CI', write_tests: false, ci: true, c, r, does: 'the CI runs of the pushed commit must pass, red goes back' });
 const T_PLAN = 'Work out how to do this before any code is written. Read what you need, then write a short, concrete plan: the approach, the files you will change, the risks, and how you will check that it works. Do not modify any files yet.\n\nThe task: {{task}}';
@@ -245,29 +245,10 @@ const NETS = NET_BUILTIN.map(t => netNorm(t, false));
 const netTask = new Map();
 ICON.check = I('<path d="M3 4.5l3.2 3.5L3 11.5M8.5 12h4.5"/>');
 ICON.ci = I('<path d="M12.8 6.2A5 5 0 0 0 3.6 5.4M3.2 9.8a5 5 0 0 0 9.2.8"/><path d="M12.9 2.6v3.6H9.3M3.1 13.4V9.8h3.6"/>');
-/* the folder new agents start in, as the launch pad says, and what the daemon knows about a folder
-   (the project's folder and its facts where the page has no folder picker) */
-const netProj = () => (S.project && S.project.dir) || '';
-const netDir = () => (typeof newDir === 'function' ? newDir() : netProj());
-const netCwd = d => (typeof cwdField === 'function' ? cwdField(d) : '');
-const netFacts = d => (typeof gitOf === 'function' ? gitOf(d) : (d === netProj() && S.project.git) || {});
-const netWhere = n => (typeof workDir === 'function' ? workDir(n) : netProj());
-/* the command a folder's work must pass: what you typed for it last, else what the daemon guessed
-   from its build files ('' = the agent runs the checks itself) */
-function checkFor(dir) {
-  const d = dir || netProj(), mine = (S.prefs.check || {})[d];
-  return typeof mine === 'string' ? mine : (netFacts(d).check || '');
-}
-function rememberCheck(dir, cmd) {
-  const d = dir || netProj();
-  if (cmd === checkFor(d)) return;
-  const m = { ...(S.prefs.check || {}) };
-  if (cmd === (netFacts(d).check || '')) delete m[d]; else m[d] = cmd;
-  const ks = Object.keys(m); if (ks.length > 12) delete m[ks[0]];
-  S.prefs.check = m; savePrefs();
-}
+/* the command a folder's work must pass ('' = the agent runs the checks itself) */
+const checkFor = dir => folderCmd('check', dir);
 /* a check gate as a card: the folder's command must pass, red goes back to the agent */
-const checkGate = dir => ({ name: 'check', write_tests: false, cmd: checkFor(dir || netDir()) });
+const checkGate = dir => ({ name: 'check', write_tests: false, cmd: checkFor(dir || newDir()) });
 /* a CI check as a card: the runs of the pushed commit must pass (engine/ci.rs) */
 const ciGate = () => ({ name: 'CI', write_tests: false, ci: true });
 /* a branch named after the task: issue-42 for an issue, else weft/<first words> */
@@ -427,7 +408,7 @@ function centerAt(net) {
 }
 /* the same place, or the nearest one below or above where no card of it covers another */
 function netSpot(net, at, skip) {
-  const boxes = [...S.nodes.values()].filter(n => n.id !== skip).map(n => ({ x: n.x - JX - 20, y: n.y - 14, w: nw(n) + JX + 40, h: nh(n) + 28 + filmH(n.id) }));
+  const boxes = [...S.nodes.values()].filter(n => n.id !== skip).map(cardRoom);
   const cards = net.nodes.filter(t => t.key !== skip);
   const clash = dy => cards.some(t => {
     const x = at.x + t.x, y = at.y + dy + t.y, w = t.w || NW, hh = t.h || NH;
@@ -523,7 +504,7 @@ function dropNet(net, at) {
 async function attachNet(net, card) {
   const key = netEntries(net)[0], host = hostOf(card);
   const task = (host.prompt || card.prompt || '').trim();
-  const ids = await buildNet(net, { at: attachAt(net, card, key), onto: card.id, entry: key, task, check: checkFor(netWhere(host)), branch: branchFor(task),
+  const ids = await buildNet(net, { at: attachAt(net, card, key), onto: card.id, entry: key, task, check: checkFor(workDir(host)), branch: branchFor(task),
     roles: netRoles(net, host.agent), start: true });
   const r = S.rt.get(host.id) || {}, done = r.status === 'done' || r.status === 'failed';
   if (ids) toast('ok', `${net.short} after ${card.name}: ${done ? 'it goes on now' : `it goes on when ${card.name} is done`}.`,
@@ -537,7 +518,7 @@ function closeNetBox() { if (!NBX.net) return; NBX.net = null; netbox.hidden = t
 function openNetBox(net, at) {
   closeNext(); closeMenu();
   NBX.net = net; NBX.at = at; NBX.roles = netRoles(net);
-  NBX.check = checkFor(netDir()); NBX.branch = ''; NBX.branched = false;
+  NBX.check = checkFor(newDir()); NBX.branch = ''; NBX.branched = false;
   renderNetBox('');
   showNet(net, at, netbox.offsetHeight + 24);
 }
@@ -568,7 +549,7 @@ function renderNetBox(text) {
     const f = h('input', { class: 'fld', value, placeholder: ph, spellcheck: 'false', 'aria-label': label, oninput: e => set(e.target.value), onkeydown: keys });
     return h('div', { class: 'nbr', title: tip }, h('span', { class: 'dl' }, label), f);
   };
-  const D = netDir();
+  const D = newDir();
   const check = usesCheck(net) ? field('must pass', `the command its check gates run in ${D} (remembered for that folder); empty: the agent runs the checks`,
     NBX.check, 'empty: the agent runs the checks', v => { NBX.check = v; }) : null;
   const branch = usesBranch(net) ? field('branch', 'the branch it commits on and the pull request comes from (named after what you type)',
@@ -618,7 +599,7 @@ async function submitNetBox(start) {
   const ta = netbox.querySelector('textarea'), task = ta.value.trim();
   if (start && !task && net.nodes.some(t => (t.prompt || '').includes('{{task}}'))) return shake(ta);
   const at = NBX.at, roles = { ...NBX.roles }, check = NBX.check.trim(), branch = NBX.branch.trim() || branchFor(task);
-  if (usesCheck(net)) rememberCheck(netDir(), check);
+  if (usesCheck(net)) rememberFolderCmd('check', newDir(), check);
   closeNetBox();
   if (roles['@main'] && net.nodes.some(t => t.agent === '@main')) setAgent(roles['@main']);
   const ids = await buildNet(net, { at, task, check, branch, roles, start });
@@ -636,7 +617,7 @@ async function buildNet(net, o) {
   const entries = netEntries(net);
   const hasTask = net.nodes.some(t => (t.prompt || '').includes('{{task}}'));
   const onto = o.onto ? S.nodes.get(o.onto) : null;
-  const dir = onto ? (hostOf(onto).cwd || '') : netCwd(netDir());
+  const dir = onto ? (hostOf(onto).cwd || '') : cwdField(newDir());
   const undoMade = () => made.forEach(id => send('node_del', { id }));
   if (onto) ids.set(o.entry, onto.id);
   // the queued prompts last: the agent they are asked of has to be there first
@@ -697,8 +678,6 @@ function netNode(t, o, entry, hasTask, dir, ids) {
     node.host = host ? hostOf(host).id : '';
     // no addenda of its own: the daemon gives it its agent's (this page may not have that agent yet)
   }
-  // (a push and a pull request run when their input is in: the network's checks are where a person looks)
-  if (k === 'git') node.draft = false;
   return node;
 }
 

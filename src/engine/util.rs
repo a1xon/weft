@@ -120,3 +120,14 @@ pub(super) async fn run_shell(dir: &Path, cmd: &str, env: &[(&str, &str)], timeo
         Err(_) => (false, format!("timed out after {timeout_s}s")),
     }
 }
+
+/// A test suite: it may take a while.
+pub(super) async fn run_tests(dir: &Path, cmd: &str) -> (bool, String) {
+    run_shell(dir, cmd, &[], 900).await
+}
+
+/// A screenshot command writes its image to `$WEFT_SHOT`: it worked only if the image is there.
+pub(super) async fn run_capture(dir: &Path, cmd: &str, shot: &Path) -> (bool, String) {
+    let (ok, out) = run_shell(dir, cmd, &[("WEFT_SHOT", shot.to_string_lossy().as_ref())], 120).await;
+    (ok && shot.is_file(), out)
+}

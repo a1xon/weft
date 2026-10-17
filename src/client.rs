@@ -106,10 +106,18 @@ fn post(port: u16, token: &str, body: &str) -> Result<String, String> {
     Ok(body.to_string())
 }
 
+/// A daemon's answer: one that says `"ok": false` is an error.
+fn reply(raw: &str) -> Result<Value, String> {
+    let r: Value = serde_json::from_str(raw).map_err(|e| format!("bad reply: {e}"))?;
+    if r.get("ok") == Some(&json!(false)) {
+        return Err(r.get("error").and_then(|e| e.as_str()).unwrap_or("failed").to_string());
+    }
+    Ok(r)
+}
+
 /// Talk to one specific daemon (the one `find_running` found), not the one the cwd implies.
 pub fn call_at(port: u16, token: &str, v: Value) -> Result<Value, String> {
-    let raw = post(port, token, &v.to_string())?;
-    serde_json::from_str(&raw).map_err(|e| format!("bad reply: {e}"))
+    reply(&post(port, token, &v.to_string())?)
 }
 
 pub fn call(v: Value) -> Result<Value, String> {
@@ -121,13 +129,7 @@ pub fn call(v: Value) -> Result<Value, String> {
     let mut last = String::new();
     for (port, token) in eps {
         match post(port, &token, &body) {
-            Ok(raw) => {
-                let r: Value = serde_json::from_str(&raw).map_err(|e| format!("bad reply: {e}"))?;
-                if r.get("ok") == Some(&json!(false)) {
-                    return Err(r.get("error").and_then(|e| e.as_str()).unwrap_or("failed").to_string());
-                }
-                return Ok(r);
-            }
+            Ok(raw) => return reply(&raw),
             Err(e) => last = e,
         }
     }
@@ -137,13 +139,13 @@ pub fn call(v: Value) -> Result<Value, String> {
 /// Resolve a node by id (`n3`) or by name (`reviewer`).
 pub fn resolve(name: &str) -> Result<String, String> {
     let r = call(json!({"op": "ls"}))?;
-    let nodes = r["nodes"].as_array().cloned().unwrap_or_default();
-    for n in &nodes {
+    let nodes = r["nodes"].as_array().map_or(&[][..], Vec::as_slice);
+    for n in nodes {
         if n["id"] == name {
             return Ok(name.to_string());
         }
     }
-    for n in &nodes {
+    for n in nodes {
         if n["name"] == name {
             return Ok(n["id"].as_str().unwrap_or_default().to_string());
         }

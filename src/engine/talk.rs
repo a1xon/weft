@@ -40,7 +40,7 @@ pub(super) struct TalkRt {
 
 /// Only an agent that reads what it is told can talk: not a command, a queued prompt or a check.
 fn can_talk(n: Option<&Node>) -> bool {
-    n.is_some_and(|n| n.kind() == Kind::Agent && n.finish == Finish::Idle && n.agent != "sh")
+    n.is_some_and(Node::reads_prompts)
 }
 
 /// A topic as the agents are told it: one line, not endless.
@@ -89,20 +89,15 @@ impl Engine {
 
     /// One line per peer: its id, its name, what it was asked, and where, if not where `id` works.
     fn talk_lines(&self, id: &str, peers: &[String]) -> String {
-        let place = |p: &str| {
-            self.rt.get(p).and_then(|r| r.worktree.clone()).map(PathBuf::from).or_else(|| self.node(p).map(|n| self.node_dir(n)))
-        };
-        let mine = place(id);
+        let mine = self.work_dir(id);
         let mut lines = Vec::new();
         for p in peers {
             let Some(n) = self.node(p) else { continue };
             let task = if n.prompt.trim().is_empty() { self.rt.get(p).map(|r| r.asked.clone()).unwrap_or_default() } else { n.prompt.clone() };
             let task = task.split_whitespace().collect::<Vec<_>>().join(" ");
             let task = if task.is_empty() { "(no task yet)".to_string() } else { head_chars(&task, 160) };
-            let at = match place(p) {
-                Some(d) if Some(&d) != mine.as_ref() => format!(" (works in {})", d.display()),
-                _ => String::new(),
-            };
+            let d = self.work_dir(p);
+            let at = if d != mine { format!(" (works in {})", d.display()) } else { String::new() };
             lines.push(format!("- {p} \"{}\"{at}: {task}", n.name));
         }
         lines.join("\n")

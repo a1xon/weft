@@ -3,7 +3,7 @@
 //! in the app grid so it can be pinned to the dock. The dock icon's menu lists the projects
 //! opened last.
 
-use crate::model::{home, state_dir};
+use crate::model::{data_home, home, state_dir};
 use std::{
     io::IsTerminal,
     os::unix::process::CommandExt,
@@ -126,7 +126,7 @@ pub fn recent() -> Vec<PathBuf> {
     if !listed.is_empty() {
         return listed;
     }
-    // before weft kept the list: the records its daemons left, newest first
+    // nothing on the list (yet): the records the daemons left, newest first
     let mut seen: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(state_dir())
         .into_iter()
         .flatten()
@@ -182,16 +182,13 @@ pub fn tell(e: String) -> String {
 
 // ------------------------------------------------------- the desktop entry
 
-fn data_dir() -> PathBuf {
-    std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).unwrap_or_else(|| home().join(".local/share"))
-}
 
 fn entry_path() -> PathBuf {
-    data_dir().join("applications/weft.desktop")
+    data_home().join("applications/weft.desktop")
 }
 
 fn icon_path() -> PathBuf {
-    data_dir().join("icons/hicolor/scalable/apps/weft.svg")
+    data_home().join("icons/hicolor/scalable/apps/weft.svg")
 }
 
 /// weft's icon: one weft thread, as a shuttle lays it, back and forth over and under three warp

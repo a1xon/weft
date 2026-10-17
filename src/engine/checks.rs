@@ -150,15 +150,6 @@ impl Engine {
         out.join("\n\n")
     }
 
-    fn check_dir(&self, id: &str) -> PathBuf {
-        self.rt
-            .get(id)
-            .and_then(|r| r.worktree.clone())
-            .map(PathBuf::from)
-            .filter(|p| p.is_dir())
-            .unwrap_or_else(|| self.node(id).map_or_else(|| self.boot.dir.clone(), |n| self.node_dir(n)))
-    }
-
     /// A watch that keeps one live item (the changes so far) replaces it instead of piling up.
     fn feed_upsert(&mut self, node: &str, check: &str, note: &str) {
         let note = head_chars(note.trim(), 1800);
@@ -214,13 +205,13 @@ impl Engine {
             if self.rt.get(node_id).is_none_or(|r| r.checks.busy.contains(&ch.id)) {
                 return;
             }
+            let Ok(rt_h) = tokio::runtime::Handle::try_current() else { return };
             if let Some(rt) = self.rt.get_mut(node_id) {
                 rt.checks.busy.insert(ch.id.clone());
             }
-            let dir = self.check_dir(node_id);
+            let dir = self.work_dir(node_id);
             let tx = self.tx.clone();
             let (nid, cid) = (node_id.to_string(), ch.id.clone());
-            let Ok(rt_h) = tokio::runtime::Handle::try_current() else { return };
             rt_h.spawn(async move {
                 let (ok, out) = match changes_summary(&dir).await {
                     Ok(s) => (true, s),
@@ -234,26 +225,25 @@ impl Engine {
             return;
         }
         if !ch.cmd.trim().is_empty() {
+            let Ok(rt_h) = tokio::runtime::Handle::try_current() else { return };
             if let Some(rt) = self.rt.get_mut(node_id) {
                 rt.checks.busy.insert(ch.id.clone());
                 rt.ui = true;
             }
             let _ = std::fs::create_dir_all(self.shots_dir());
-            let dir = self.check_dir(node_id);
+            let dir = self.work_dir(node_id);
             let tx = self.tx.clone();
             let path = self.shots_dir().join(format!("{node_id}-{now}.png"));
             let (nid, cid, kind, cmd) = (node_id.to_string(), ch.id.clone(), ch.kind, ch.cmd.clone());
-            let Ok(rt_h) = tokio::runtime::Handle::try_current() else { return };
             rt_h.spawn(async move {
                 if kind == CheckKind::Tests {
-                    let (ok, out) = run_shell(&dir, &cmd, &[], 900).await;
+                    let (ok, out) = run_tests(&dir, &cmd).await;
                     let _ = tx.send(Ev::Check { node: nid, check: cid, kind, ok, out, img: String::new() });
                 } else {
-                    let (ok, out) = run_shell(&dir, &cmd, &[("WEFT_SHOT", path.to_string_lossy().as_ref())], 120).await;
-                    let have = path.is_file();
-                    let img =
-                        if have { path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default() } else { String::new() };
-                    let _ = tx.send(Ev::Check { node: nid, check: cid, kind, ok: ok && have, out, img });
+                    let (ok, out) = run_capture(&dir, &cmd, &path).await;
+                    // (an image the command left is shown even when the command failed)
+                    let img = if path.is_file() { path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default() } else { String::new() };
+                    let _ = tx.send(Ev::Check { node: nid, check: cid, kind, ok, out, img });
                 }
             });
             return;

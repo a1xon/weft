@@ -74,8 +74,7 @@ function drawPadBoards() {
 function renderBoardChip() {
   const el = $('#projName');
   if (!el || !S.project) return;
-  const dir = S.project.dir || '', hm = S.project.home || '';
-  const path = hm && (dir === hm || dir.startsWith(hm + '/')) ? '~' + dir.slice(hm.length) : dir;
+  const dir = projDir(), path = shortDir(dir);
   if (!BD.on) { el.textContent = path; el.classList.remove('bdon'); return; }
   el.classList.add('bdon');
   const named = S.project.name && S.project.name !== baseName(dir);
@@ -138,12 +137,8 @@ function openBoard(dir, ev) {
   BD.busy = dir; drawPadBoards(); drawBoardMenu();
   const done = () => { BD.busy = ''; drawPadBoards(); drawBoardMenu(); };
   // (a board that sleeps takes a moment to come up: longer than an ordinary request may)
-  new Promise(res => {
-    const rid = ++S.rid;
-    S.acks.set(rid, res);
-    send('board_open', { dir, window: win, rid });
-    setTimeout(() => { if (S.acks.delete(rid)) res({ ok: false, error: 'it did not come up in time' }); }, 20000);
-  }).then(r => {
+  req('board_open', { dir, window: win }, 20000).then(r => {
+    if (r && r.error === 'timeout') r.error = 'it did not come up in time';
     if (!r || !r.ok) { done(); toast('err', `${baseName(dir)}: ${(r && r.error) || 'could not open it'}`); return; }
     if (win) { done(); closeMenu(); toast('info', `${baseName(dir)} opens in a window of its own`); return; }
     location.href = r.url;

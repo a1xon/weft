@@ -57,11 +57,7 @@ impl Engine {
         let typing = rt.typing.is_some();
         // asleep at its usage limit: nothing is judged, and nothing queued is typed (the CLI drops it)
         let limited = rt.limit.is_some();
-        if next != rt.status {
-            rt.status = next;
-            rt.since = now_ms();
-            rt.ui = true;
-        }
+        rt.set_status(next);
         // a turn marker on a screen that has not moved for a while: is it on the pane too?
         if rt.needs_check(now) {
             self.verify_screen(id, now);
@@ -226,14 +222,7 @@ impl Engine {
 
     pub(super) fn set_status(&mut self, id: &str, s: Status) {
         if let Some(rt) = self.rt.get_mut(id) {
-            if rt.status != s {
-                if matches!(s, Status::Done | Status::Failed | Status::Stopped | Status::Exited) {
-                    rt.checks.eta = None;
-                }
-                rt.status = s;
-                rt.since = now_ms();
-                rt.ui = true;
-            }
+            rt.set_status(s);
         }
     }
 
@@ -278,7 +267,7 @@ impl Engine {
             rt.ui = true;
             out
         };
-        let more = ok && how != How::Exit && self.rt[id].queue.iter().any(|_| true) && self.rt[id].reply_to.is_none();
+        let more = ok && how != How::Exit && !self.rt[id].queue.is_empty() && self.rt[id].reply_to.is_none();
         if more {
             // the script continues: stay busy, the next prompt goes out when the screen is calm
             self.set_status(id, Status::Busy);
@@ -310,7 +299,7 @@ impl Engine {
             self.set_status(id, Status::Done);
             self.state_dirty = true;
             match self.node(&gate).map(|n| n.kind()) {
-                Some(Kind::Git) => self.git_response(&gate, id, ok, &out),
+                Some(Kind::Git) => self.git_response(&gate, ok, &out),
                 Some(Kind::Step) => self.step_response(&gate, ok, &out),
                 Some(Kind::Agent) => self.takeover_response(&gate, id, ok, &out),
                 _ => self.gate_response(&gate, id, ok, &out),
@@ -336,9 +325,6 @@ impl Engine {
         };
         self.set_status(id, if ok { Status::Done } else { Status::Failed });
         self.state_dirty = true;
-        if let Some(rt) = self.rt.get_mut(id) {
-            rt.checks.eta = None;
-        }
         let last_look: Vec<Check> =
             self.node(id).map(|n| n.checks.iter().filter(|c| c.kind == CheckKind::Changes).cloned().collect()).unwrap_or_default();
         for c in last_look {
@@ -396,17 +382,15 @@ impl Engine {
 
     /// Paste a prompt, press Enter, and start tracking it as a step.
     fn begin_step(&mut self, id: &str, mut item: QItem) {
-        let Some(tm) = self.tmux.clone() else { return };
-        let exe = self.boot.exe.clone();
-        if self.rt.get(id).is_none_or(|r| r.pane.is_none()) {
+        let (Some(tm), Some(pane)) = (self.tmux.clone(), self.rt.get(id).and_then(|r| r.pane.clone())) else {
             if let Some(rt) = self.rt.get_mut(id) {
                 rt.queue.push_front(item);
             }
             return;
-        }
-        let agent = self.node(id).is_some_and(|n| n.kind() == Kind::Agent && n.finish == Finish::Idle && n.agent != "sh");
-        let plain = !item.text.trim_start().starts_with(['/', '!']);
-        let expect_signal = item.text.contains(&format!("{exe} done"));
+        };
+        let agent = self.node(id).is_some_and(Node::reads_prompts);
+        let plain = !is_cli_command(&item.text);
+        let expect_signal = self.reports_with_commands(&item.text);
         let (consumed, rule) = self.told(id, &item.text, &item.src);
         let (first, ruled) = self.rt.get(id).map_or((false, true), |r| (!r.briefed, r.ruled));
         if consumed && first {
@@ -428,8 +412,7 @@ impl Engine {
             }
         }
         // the agents it talks with: who they are the first time, and what they said before it could take it
-        let weft_asks = matches!(&item.src, Src::Reply(t) if self.node(t).is_none_or(|n| n.kind() != Kind::Step));
-        if agent && plain && !weft_asks {
+        if agent && plain && !self.weft_asks(&item.src) {
             let talk = self.talk_with_prompt(id);
             if !talk.is_empty() {
                 item.text.push_str("\n\n");
@@ -447,10 +430,6 @@ impl Engine {
             }
         }
         let Some(rt) = self.rt.get_mut(id) else { return };
-        let Some(pane) = rt.pane.clone() else {
-            rt.queue.push_front(item);
-            return;
-        };
         let cause = if item.src == Src::Flow { Cause::Flow } else { Cause::User };
         rt.reply_to = match &item.src {
             Src::Reply(node) => Some(node.clone()),
@@ -498,11 +477,20 @@ impl Engine {
     /// (which weft verifies itself), an agent told to report with commands, slash commands and shell
     /// escapes get nothing. (A shell command is not a model: nothing is explained to it.)
     pub(super) fn told(&self, id: &str, text: &str, src: &Src) -> (bool, bool) {
-        let agent = self.node(id).is_some_and(|n| n.kind() == Kind::Agent && n.finish == Finish::Idle && n.agent != "sh");
-        let plain = agent && !text.trim_start().starts_with(['/', '!']);
-        let weft_asks = matches!(src, Src::Reply(t) if self.node(t).is_none_or(|n| n.kind() != Kind::Step));
-        let commands = text.contains(&format!("{} done", self.boot.exe));
-        (plain && self.step_is_consumed(id, src), plain && !weft_asks && !commands && self.cfg.chain_status)
+        let plain = self.node(id).is_some_and(Node::reads_prompts) && !is_cli_command(text);
+        let rule = plain && !self.weft_asks(src) && !self.reports_with_commands(text) && self.cfg.chain_status;
+        (plain && self.step_is_consumed(id, src), rule)
+    }
+
+    /// A request of weft's own (commit, handover note, screenshot ...), which weft checks itself;
+    /// a queued prompt's answer is the step's, not weft's.
+    fn weft_asks(&self, src: &Src) -> bool {
+        matches!(src, Src::Reply(t) if self.node(t).is_none_or(|n| n.kind() != Kind::Step))
+    }
+
+    /// The prompt tells the agent to report with `weft done`: that report ends the step.
+    pub(super) fn reports_with_commands(&self, text: &str) -> bool {
+        text.contains(&format!("{} done", self.boot.exe))
     }
 
     /// Does a flow take the result of this step without a person in between? A step of a running
@@ -593,18 +581,6 @@ impl Engine {
                 let item = rt.queue.remove(pos).unwrap();
                 let at = to.min(rt.queue.len());
                 rt.queue.insert(at, item);
-                rt.ui = true;
-            }
-        }
-        self.state_dirty = true;
-        json!({"ok": true})
-    }
-
-    pub(super) fn cmd_queue_now(&mut self, id: String, qid: u64) -> Value {
-        if let Some(rt) = self.rt.get_mut(&id) {
-            if let Some(pos) = rt.queue.iter().position(|q| q.id == qid) {
-                let item = rt.queue.remove(pos).unwrap();
-                rt.queue.push_front(item);
                 rt.ui = true;
             }
         }

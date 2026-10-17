@@ -35,10 +35,10 @@ async fn repo_facts(dir: &Path) -> String {
         if !inside {
             return Ok::<String, String>(String::new());
         }
-        let (_, b) = git_run(dir, &["rev-parse", "--abbrev-ref", "HEAD"]).await?;
+        let b = branch_of(dir).await;
         let (_, st) = git_run(dir, &["status", "--short", "--", ".", ":(exclude).weft"]).await?;
         let (_, lg) = git_run(dir, &["log", "-3", "--format=%h %s"]).await.unwrap_or((false, String::new()));
-        let mut out = format!("branch: {}\n", b.trim());
+        let mut out = format!("branch: {b}\n");
         let lines: Vec<&str> = st.lines().filter(|l| !l.trim().is_empty()).collect();
         if lines.is_empty() {
             out.push_str("working tree: clean (everything is committed)\n");
@@ -138,13 +138,7 @@ impl Engine {
         if let Some(rt) = self.rt.get_mut(to) {
             rt.hand.phase = HandPhase::None;
         }
-        let dir = self
-            .rt
-            .get(&from)
-            .and_then(|r| r.worktree.clone())
-            .map(PathBuf::from)
-            .filter(|p| p.is_dir())
-            .unwrap_or_else(|| self.node(&from).map_or_else(|| self.boot.dir.clone(), |n| self.node_dir(n)));
+        let dir = self.work_dir(&from);
         let (tx, to, from2) = (self.tx.clone(), to.to_string(), from);
         tokio::spawn(async move {
             let facts = repo_facts(&dir).await;
@@ -197,8 +191,7 @@ impl Engine {
         let mut v = if node.is_object() { node } else { json!({}) };
         {
             // same files: its worktree if it has one, else its folder
-            let cwd =
-                self.rt.get(&from).and_then(|r| r.worktree.clone()).filter(|p| Path::new(p).is_dir()).unwrap_or_else(|| src.cwd.clone());
+            let cwd = self.live_worktree(&from).map_or_else(|| src.cwd.clone(), str::to_string);
             let o = v.as_object_mut().unwrap();
             o.entry("agent").or_insert(json!(src.agent));
             o.insert("prompt".into(), json!(instruction));

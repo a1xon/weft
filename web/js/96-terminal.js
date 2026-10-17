@@ -44,7 +44,7 @@ const focusEl = $('#focus');
 let termEl = null, rowEls = [], termCols = 0, termMouse = false, wheelUp = 0;
 function openFocus(id) {
   const n = S.nodes.get(id); if (!n || kindOf(n) !== 'agent') return;
-  S.focus = id; S.scroll = 0; S.hist = 0; termMouse = false; wheelUp = 0; closeMenu();
+  S.focus = id; S.scroll = 0; termMouse = false; wheelUp = 0; closeMenu();
   const stx = h('span', { class: 'stx' }), st = h('span', { class: 'st' });
   termEl = h('div', { id: 'term', tabindex: '0', role: 'textbox', 'aria-label': `Terminal of ${n.name}`, 'aria-multiline': 'true' });
   /* back down: weft's history, or Ctrl+End for an agent that scrolls itself (Claude Code) */
@@ -108,7 +108,7 @@ function onScreen(m) {
     fitTerm();
   }
   for (const [i, html] of m.rowsd) if (rowEls[i]) rowEls[i].innerHTML = html || ' ';
-  S.scroll = m.scroll; S.hist = m.hist; termMouse = !!m.mouse;
+  S.scroll = m.scroll; termMouse = !!m.mouse;
   if (!termMouse) wheelUp = 0;
   focusEl._refs.badge.hidden = !m.scroll && !wheelUp;
 }

@@ -1,6 +1,6 @@
 /* ------------------------------------------------------------ the archive: finished work, filed */
 /* Bottom left. Cards dragged onto it are filed: their terminals end, their results and links are
-   kept. A flow files itself once it has been finished for a while (a lone card 30 min, a flow 60),
+   kept. A flow files itself once it has been finished for a while (a lone card 10 min, a flow 15),
    unless a card of it is kept. A click unfolds what is there, newest first: read it, bring it back,
    or forget it. A daemon without an archive (an older build) shows none of this. */
 ICON.archive = I('<path d="M2.4 3.2h11.2v3H2.4z"/><path d="M3.4 6.2v6.6h9.2V6.2"/><path d="M6.2 8.8h3.6"/>');
@@ -206,7 +206,7 @@ function freeOffset(ns) {
   if (!pts.length) return { dx: 0, dy: 0 };
   const x0 = Math.min(...pts.map(n => n.x)), y0 = Math.min(...pts.map(n => n.y));
   const w = Math.max(...pts.map(n => n.x + nw(n))) - x0, hh = Math.max(...pts.map(n => n.y + nh(n))) - y0;
-  const boxes = [...S.nodes.values()].map(n => ({ x: n.x - JX - 20, y: n.y - 14, w: nw(n) + JX + 40, h: nh(n) + 28 + filmH(n.id) }));
+  const boxes = [...S.nodes.values()].map(cardRoom);
   const clear = (dx, dy) => !boxes.some(b => x0 + dx - JX < b.x + b.w && x0 + dx + w > b.x && y0 + dy < b.y + b.h && y0 + dy + hh > b.y);
   if (clear(0, 0)) return { dx: 0, dy: 0 };
   for (let col = 0; col < 6; col++) for (let row = col ? 0 : 1; row < 8; row++) for (const sgn of [1, -1]) {

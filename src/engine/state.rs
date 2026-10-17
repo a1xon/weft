@@ -129,18 +129,7 @@ const MAX_ACC: usize = 4000;
 
 impl Step {
     pub(super) fn new(prompt: String, before: Vec<String>) -> Step {
-        Step {
-            prompt,
-            before,
-            expect_signal: false,
-            rule: false,
-            lone: false,
-            asked: false,
-            closed: false,
-            extra: String::new(),
-            acc: Vec::new(),
-            base: 0,
-        }
+        Step { prompt, before, ..Step::default() }
     }
 
     /// The screen changed: lay its rows over the answer so far (see `term::merge_frame`).
@@ -763,6 +752,19 @@ impl Rt {
         }
     }
 
+    /// What the card shows changes, and since when. A finished card has no countdown, whatever time was left.
+    pub(super) fn set_status(&mut self, s: Status) {
+        if self.status == s {
+            return;
+        }
+        if matches!(s, Status::Done | Status::Failed | Status::Stopped | Status::Exited) {
+            self.checks.eta = None;
+        }
+        self.status = s;
+        self.since = now_ms();
+        self.ui = true;
+    }
+
     /// What survives a restart.
     pub(super) fn to_saved(&self) -> Saved {
         Saved {
@@ -833,8 +835,7 @@ impl Rt {
         self.cp_seq = s.cp_seq;
         self.rewound = s.rewound;
         self.briefed = s.briefed;
-        // (an older build gave the rule in full only together with the brief)
-        self.ruled = s.ruled || s.briefed;
+        self.ruled = s.ruled;
         self.finished = s.finished;
         self.ok = s.ok;
         self.output = s.output;

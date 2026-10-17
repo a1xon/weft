@@ -30,12 +30,13 @@ pub(super) struct Filed {
     /// the ids of every link that touched one of its cards
     #[serde(default)]
     pub(super) links: Vec<String>,
-    /// An archive from before the packs kept all of it here: it moves into its pack on load.
-    #[serde(default, skip_serializing)]
+    /// An archive from before the packs kept all of it here: it moves into its pack on load, and
+    /// stays written here until that pack is on disk.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     nodes: Vec<Node>,
-    #[serde(default, skip_serializing)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     edges: Vec<Edge>,
-    #[serde(default, skip_serializing)]
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     state: HashMap<String, Saved>,
 }
 
@@ -588,7 +589,7 @@ impl Engine {
             // (the repository it was cut from: the folder the agent worked in)
             let dir = if cwd.trim().is_empty() { self.boot.dir.clone() } else { self.abs_dir(&cwd) };
             handle.spawn(async move {
-                let _ = tokio::process::Command::new("git").args(["-C"]).arg(dir).args(["worktree", "remove", &wt]).output().await;
+                let _ = git_run(&dir, &["worktree", "remove", &wt]).await;
             });
         }
     }

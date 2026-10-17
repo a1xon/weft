@@ -108,19 +108,22 @@ pub fn rewound(asked: &[String], files: &[String]) -> String {
         [one] => format!("what you did for \"{one}\""),
         many => format!("what you did in your last {} steps (from \"{}\" on)", many.len(), many[0]),
     };
-    let shown: Vec<&str> = files.iter().take(12).map(String::as_str).collect();
-    let more = if files.len() > shown.len() { format!(" and {} more", files.len() - shown.len()) } else { String::new() };
     format!(
-        "{TAG} Note: the person undid {what}. These files are back to how they were before it: {}{more}. Commits were not touched. Take it into account and do not redo it unless you are asked to.",
-        shown.join(", ")
+        "{TAG} Note: the person undid {what}. These files are back to how they were before it: {}. Commits were not touched. Take it into account and do not redo it unless you are asked to.",
+        file_list(files)
     )
 }
 
 /// The person took back a rewind: the agent's own changes are there again.
 pub fn rewound_back(files: &[String]) -> String {
-    let shown: Vec<&str> = files.iter().take(12).map(String::as_str).collect();
+    format!("{TAG} Note: the person put your changes back after undoing them: {} are as you left them.", file_list(files))
+}
+
+/// The first dozen files, and how many more.
+fn file_list(files: &[String]) -> String {
+    let shown = &files[..files.len().min(12)];
     let more = if files.len() > shown.len() { format!(" and {} more", files.len() - shown.len()) } else { String::new() };
-    format!("{TAG} Note: the person put your changes back after undoing them: {}{more} are as you left them.", shown.join(", "))
+    format!("{}{more}", shown.join(", "))
 }
 
 /// What the status line of an agent says.
@@ -139,33 +142,10 @@ pub fn read_status(text: &str, lenient: bool) -> Option<(Verdict, String)> {
     let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
     let from = lines.len().saturating_sub(4);
     for i in (from..lines.len()).rev() {
-        let t = lines[i].trim_start_matches(|c: char| "\u{25cf}\u{23fa}\u{2022}*_`#>- ".contains(c));
-        let word = |t: &str| -> Option<(Verdict, usize)> {
-            let n = t.chars().take_while(|c| c.is_ascii_alphabetic()).count();
-            let v = match t[..n].to_ascii_uppercase().as_str() {
-                "DONE" => Verdict::Done,
-                "ISSUE" => Verdict::Issue,
-                "WAITING" | "WAIT" => Verdict::Waiting,
-                "FAILED" | "FAIL" | "FAILURE" => Verdict::Failed,
-                _ => return None,
-            };
-            Some((v, n))
-        };
-        fn after(t: &str) -> &str {
-            t.trim_start_matches(|c: char| ":.-\u{2013}\u{2014}*_` ".contains(c))
-        }
-        let marked = t.get(..6).is_some_and(|p| p.eq_ignore_ascii_case("status"));
-        let found = if marked {
-            let rest = t[6..].trim_start_matches(|c: char| ":-\u{2013}\u{2014}*_` ".contains(c));
-            word(rest).map(|(v, n)| (v, rest[n..].to_string()))
-        } else if lenient {
-            word(t).map(|(v, n)| (v, t[n..].to_string()))
-        } else {
-            None
-        };
+        let found = status_line(lines[i]).or_else(|| status_word(unmarked(lines[i])).filter(|_| lenient));
         if let Some((v, detail)) = found {
             // a long detail may have been wrapped by the terminal: take the lines that follow too
-            let mut d = after(&detail).trim().to_string();
+            let mut d = detail.trim_start_matches(|c: char| ":.-\u{2013}\u{2014}*_` ".contains(c)).trim().to_string();
             for more in &lines[i + 1..] {
                 d.push(' ');
                 d.push_str(more.trim());
@@ -178,21 +158,33 @@ pub fn read_status(text: &str, lenient: bool) -> Option<(Verdict, String)> {
 
 /// `text` without its status lines: what is handed on is what the agent said, not how it labelled it.
 pub fn strip_status(text: &str) -> String {
-    let kept: Vec<&str> = text
-        .lines()
-        .filter(|l| {
-            let t = l.trim().trim_start_matches(|c: char| "\u{25cf}\u{23fa}\u{2022}*_`#>- ".contains(c));
-            let is = t.get(..6).is_some_and(|p| p.eq_ignore_ascii_case("status")) && t[6..].trim_start().starts_with(':');
-            if !is {
-                return true;
-            }
-            // only a real one: STATUS: followed by one of the words
-            let rest = t[6..].trim_start_matches(|c: char| ": *_`".contains(c));
-            let n = rest.chars().take_while(|c| c.is_ascii_alphabetic()).count();
-            !matches!(rest[..n].to_ascii_uppercase().as_str(), "DONE" | "ISSUE" | "WAITING" | "WAIT" | "FAILED" | "FAIL" | "FAILURE")
-        })
-        .collect();
+    let kept: Vec<&str> = text.lines().filter(|l| status_line(l).is_none()).collect();
     kept.join("\n").trim().to_string()
+}
+
+/// A line without the bullet or markdown an agent may put before it.
+fn unmarked(line: &str) -> &str {
+    line.trim().trim_start_matches(|c: char| "\u{25cf}\u{23fa}\u{2022}*_`#>- ".contains(c))
+}
+
+/// A status line (`STATUS: DONE`, `**status - done**` ...): its verdict and what follows the word.
+fn status_line(line: &str) -> Option<(Verdict, &str)> {
+    let t = unmarked(line);
+    let rest = t.get(..6).filter(|p| p.eq_ignore_ascii_case("status")).map(|_| &t[6..])?;
+    status_word(rest.trim_start_matches(|c: char| ":-\u{2013}\u{2014}*_` ".contains(c)))
+}
+
+/// One of the status words at the start of `t`: its verdict and what follows it.
+fn status_word(t: &str) -> Option<(Verdict, &str)> {
+    let n = t.chars().take_while(|c| c.is_ascii_alphabetic()).count();
+    let v = match t[..n].to_ascii_uppercase().as_str() {
+        "DONE" => Verdict::Done,
+        "ISSUE" => Verdict::Issue,
+        "WAITING" | "WAIT" => Verdict::Waiting,
+        "FAILED" | "FAIL" | "FAILURE" => Verdict::Failed,
+        _ => return None,
+    };
+    Some((v, &t[n..]))
 }
 
 /// Typed into an agent that stopped without reporting: its step is still open.
@@ -555,7 +547,7 @@ pub fn marked(page: &crate::browser::Page, marks: &[crate::browser::Mark], log: 
             s += &format!("Screenshots: {}\n", shots.join(" · "));
         }
     }
-    let lines: Vec<&crate::browser::LogLine> = log.log.iter().rev().take(10).collect::<Vec<_>>().into_iter().rev().collect();
+    let lines = &log.log[log.log.len().saturating_sub(10)..];
     if !lines.is_empty() {
         s += "\n### Console of the page (oldest first)\n";
         for l in lines {
@@ -833,6 +825,8 @@ mod tests {
             "I started it.\nIt finished."
         );
         assert_eq!(strip_status("The status: green\nstatus lines are fine"), "The status: green\nstatus lines are fine");
+        // whatever counts as one when it is read goes when it is handed on
+        assert_eq!(strip_status("Fixed it.\n**status - done**"), "Fixed it.");
     }
 
     #[test]

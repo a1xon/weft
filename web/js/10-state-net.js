@@ -2,7 +2,7 @@
 const S = {
   project: {}, cfg: { agents: {} }, lib: [],
   nodes: new Map(), edges: new Map(), rt: new Map(),
-  sel: new Set(), selEdge: null, focus: null, scroll: 0, hist: 0,
+  sel: new Set(), selEdge: null, focus: null, scroll: 0,
   fly: null, lens: new Map(), rid: 0, acks: new Map(),
   v: { x: 90, y: 110, k: 1 }, lastAgent: 'claude', lastNode: null, undo: [],
   prefs: {}, models: {}, modelErr: {}, omniMode: 'then',
@@ -43,7 +43,7 @@ function onMsg(m) {
     case 'scr': onScreen(m); break;
     case 'lib': S.lib = m.library; onLibChanged(); break;
     case 'nets': S.nets = m.networks; onNetsChanged(); break;
-    case 'prefs': if (!prefDirty) { S.prefs = m.prefs || {}; if (pad.open) renderPad(); omni._key = null; renderOmni(); renderNetChips(); } break;
+    case 'prefs': if (!prefDirty) { S.prefs = m.prefs || {}; redrawPrompts(); renderNetChips(); } break;
     case 'proj':
       if (!m.dir || m.dir === S.project.dir) S.project.git = m.git;
       if (m.dir) S.dirs[m.dir] = m.git;
@@ -52,8 +52,7 @@ function onMsg(m) {
     case 'models': {
       S.models[m.agent] = m.models || []; S.modelErr[m.agent] = m.err || null;
       if (menuEl && menuEl.dataset.kind === 'model' && modelMenu.last) modelMenu.last.again();
-      if (pad.open) renderPad();
-      omni._key = null; renderOmni();
+      redrawPrompts();
       break;
     }
     case 'toast': if (!(netBuilding && m.k === 'info' && / is now asked of /.test(m.m))) toast(m.k, m.m); break;
@@ -74,7 +73,7 @@ function loadState(m) {
   // the daemon was replaced by another build (a new install): fetch the matching page
   const meta = document.querySelector('meta[name=weft-build]');
   const mine = meta ? meta.content : '';
-  if (m.build && mine && mine !== '__BUILD__' && mine !== m.build) { location.reload(); return; }
+  if (m.build && mine && mine !== m.build) { location.reload(); return; }
   S.project = m.project; S.cfg = m.cfg; S.lib = m.library;
   S.idle = m.idle || null;
   S.hold = !!m.hold;
@@ -82,9 +81,6 @@ function loadState(m) {
   S.prefs = m.cfg.prefs && typeof m.cfg.prefs === 'object' ? m.cfg.prefs : {};
   S.models = m.models || {};
   S.dirs = m.project.dirs || {};
-  const dir = m.project.dir || '';
-  const hm = m.project.home || '';
-  $('#projName').textContent = hm && (dir === hm || dir.startsWith(hm + '/')) ? '~' + dir.slice(hm.length) : dir;
   document.title = `${m.project.name} – weft`;
   BD.on = Array.isArray(m.boards);
   onBoards(m.boards || []);

@@ -90,8 +90,9 @@ function limitItems(id) {
     { sep: true },
   ];
 }
-/* ping: a notification when a watched agent is done or needs you */
-const baseTitle = document.title;
+/* ping: a notification when a watched agent is done or needs you (in the tab's title too, until you
+   come back to it: then the title is the board's again) */
+let titleBeforePing = null;
 function notifyPing(n, r) {
   const what = { done: 'is done', failed: 'failed', attention: 'needs you', blocked: 'is blocked' }[r.status];
   if (!what) return;
@@ -105,6 +106,13 @@ function notifyPing(n, r) {
     } catch {}
   }
   if (!shown) toast(r.status === 'done' ? 'ok' : 'warn', `${n.name} ${what}`, { ms: 9000 });
-  if (!document.hasFocus()) document.title = `● ${n.name} ${what} – weft`;
+  if (!document.hasFocus()) {
+    if (titleBeforePing == null) titleBeforePing = document.title;
+    document.title = `● ${n.name} ${what} – weft`;
+  }
 }
-addEventListener('focus', () => { document.title = baseTitle; });
+addEventListener('focus', () => {
+  // (a title set since, a renamed board or "weft stopped", stays)
+  if (titleBeforePing != null && document.title.startsWith('● ')) document.title = titleBeforePing;
+  titleBeforePing = null;
+});

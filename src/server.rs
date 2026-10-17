@@ -132,23 +132,18 @@ async fn upload_shot(State(app): State<App>, h: HeaderMap, Query(q): Query<HashM
         return (StatusCode::UNSUPPORTED_MEDIA_TYPE, "not an image").into_response();
     };
     let b = &body[..];
-    let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-    let name = format!("{target}-upload-{ms}.{ext}");
+    let name = format!("{target}-upload-{}.{ext}", crate::engine::now_ms());
     if tokio::fs::create_dir_all(&app.shots).await.is_err() || tokio::fs::write(app.shots.join(&name), b).await.is_err() {
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
-    let (tx, rx) = oneshot::channel();
     let cmd = if is_node {
-        Cmd::FeedAdd { node: target.clone(), name: name.clone(), note: q.get("note").cloned().unwrap_or_default() }
+        Cmd::FeedAdd { node: target, name: name.clone(), note: q.get("note").cloned().unwrap_or_default() }
     } else {
-        Cmd::GateShot { id: target.clone(), name: name.clone() }
+        Cmd::GateShot { id: target, name: name.clone() }
     };
-    if app.eng.send(Ev::Cmd { client: None, cmd, reply: Some(tx) }).is_err() {
-        return StatusCode::SERVICE_UNAVAILABLE.into_response();
-    }
-    match tokio::time::timeout(Duration::from_secs(5), rx).await {
-        Ok(Ok(v)) => Json(json!({"ok": v["ok"], "name": name, "error": v["error"]})).into_response(),
-        _ => Json(json!({"ok": false, "error": "engine did not answer"})).into_response(),
+    match ask(&app, cmd, Duration::from_secs(5)).await {
+        Ok(v) => Json(json!({"ok": v["ok"], "name": name, "error": v["error"]})).into_response(),
+        Err(code) => code.into_response(),
     }
 }
 
@@ -156,14 +151,20 @@ async fn api_cmd(State(app): State<App>, h: HeaderMap, Query(q): Query<HashMap<S
     if !host_ok(&h, app.port) || !token_ok(&h, &q, &app) {
         return StatusCode::FORBIDDEN.into_response();
     }
+    match ask(&app, cmd, Duration::from_secs(10)).await {
+        Ok(v) => Json(v).into_response(),
+        Err(code) => code.into_response(),
+    }
+}
+
+/// A command from a request, for the engine: its answer (or that none came in time).
+async fn ask(app: &App, cmd: Cmd, wait: Duration) -> Result<Value, StatusCode> {
     let (tx, rx) = oneshot::channel();
-    if app.eng.send(Ev::Cmd { client: None, cmd, reply: Some(tx) }).is_err() {
-        return StatusCode::SERVICE_UNAVAILABLE.into_response();
-    }
-    match tokio::time::timeout(Duration::from_secs(10), rx).await {
-        Ok(Ok(v)) => Json(v).into_response(),
-        _ => Json(json!({"ok": false, "error": "engine did not answer"})).into_response(),
-    }
+    app.eng.send(Ev::Cmd { client: None, cmd, reply: Some(tx) }).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    Ok(match tokio::time::timeout(wait, rx).await {
+        Ok(Ok(v)) => v,
+        _ => json!({"ok": false, "error": "engine did not answer"}),
+    })
 }
 
 async fn ws_upgrade(State(app): State<App>, h: HeaderMap, Query(q): Query<HashMap<String, String>>, ws: WebSocketUpgrade) -> Response {

@@ -103,14 +103,14 @@ function renderFilm(id, n, r) {
   const el = nodeEls.get(id); if (!el) return;
   const checks = (n.checks || []).filter(c => FILM_KINDS.includes(c.kind));
   if (!checks.length) {
-    if (el.film) { el.film.remove(); el.film = null; el.root.classList.remove('hasfilm'); tidyUnder(el); }
+    if (el.film) { el.film.remove(); el.film = null; tidyUnder(el); }
     return;
   }
   const mine = new Set(checks.map(c => c.id));
   const feed = ((r && r.feed) || []).filter(f => mine.has(f.check)).slice().reverse();      // newest first: where the eye goes
   const busy = (r && r.checks_busy) || [];
   const key = JSON.stringify([checks, feed.map(f => [f.id, f.state, f.reply, f.ok, (f.note || '').length]), busy]);
-  if (!el.film) { el.film = h('div', { class: 'film' }); underOf(el).append(el.film); el.root.classList.add('hasfilm'); tidyUnder(el); }
+  if (!el.film) { el.film = h('div', { class: 'film' }); underOf(el).append(el.film); tidyUnder(el); }
   if (el.film._key === key) return;
   el.film._key = key;
   // what is being typed survives a refresh
@@ -388,7 +388,7 @@ function dragGate(e, k, label) {
     const t = probe(ev); mark(null); markNode(null); ghost.remove();
     if (!moved) {
       if (!watchOnly) { const c = toWorld(innerWidth / 2 - NW / 2, innerHeight / 2 - NH); spawnHere(k, c.x, c.y); return; }
-      const one = S.sel.size === 1 ? [...S.sel][0] : null;
+      const one = primary();
       if (one && isWatchable(S.nodes.get(one))) return attachCheck(one, k);
       return toast('info', `${label} watches an agent: drag it onto one, or select one and click it.`, { ms: 5000 });
     }
@@ -412,7 +412,7 @@ function dragGate(e, k, label) {
   addEventListener('pointerup', up, { once: true });
 }
 function runNode(id) {
-  const n = S.nodes.get(id), r = S.rt.get(id);
+  const n = S.nodes.get(id);
   if (n && n.draft) return send('arm', { id });
   send('fire', { id });
 }

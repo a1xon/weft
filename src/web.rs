@@ -127,6 +127,10 @@ mod tests {
     fn the_page_is_whole_and_knows_its_build() {
         let p = page("test-build");
         assert!(!p.contains("/*__CSS__*/") && !p.contains("/*__JS__*/") && !p.contains("__BUILD__"));
+        // the build is filled in everywhere the placeholder is: a script that compares against it compares against itself
+        let sources = std::iter::once(SHELL).chain(CSS.iter().copied()).chain(JS.iter().copied());
+        let at: Vec<&str> = sources.filter(|(_, text)| text.contains("__BUILD__")).map(|(name, _)| name).collect();
+        assert_eq!(at, vec![SHELL.0], "only the shell's meta tag names the build");
         assert!(p.contains("name=\"weft-build\" content=\"test-build\""));
         assert!(p.contains("function applyFlow") && p.contains("--cy"));
     }

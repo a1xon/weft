@@ -208,7 +208,7 @@ impl Engine {
             return json!({"ok": false, "error": "say what the twin should do"});
         }
         // where the copied conversation did its work: the source's own worktree, if it has one
-        let cwd = self.rt.get(&from).and_then(|r| r.worktree.clone()).filter(|w| Path::new(w).is_dir()).unwrap_or(src.cwd.clone());
+        let cwd = self.live_worktree(&from).map_or_else(|| src.cwd.clone(), str::to_string);
         let spec = json!({
             "agent": src.agent, "model": src.model, "effort": src.effort, "yolo": src.yolo, "cwd": cwd,
             "addenda": src.addenda, "x": x, "y": y, "prompt": text, "twin": from,

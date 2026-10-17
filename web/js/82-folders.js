@@ -66,6 +66,20 @@ function workDirs(n) {
 }
 /* branch and uncommitted files of a folder, as the daemon last saw them */
 const gitOf = d => (d === projDir() ? (S.project && S.project.git) : S.dirs[d]) || {};
+/* a folder's command of a kind (`check`: what its work must pass, `deploy`: what puts it to use): what
+   you typed for it last, else what the daemon guessed from its files ('' = none known) */
+function folderCmd(kind, dir) {
+  const d = dir || projDir(), mine = (S.prefs[kind] || {})[d];
+  return typeof mine === 'string' ? mine : (gitOf(d)[kind] || '');
+}
+function rememberFolderCmd(kind, dir, cmd) {
+  const d = dir || projDir();
+  if (cmd === folderCmd(kind, d)) return;
+  const m = { ...(S.prefs[kind] || {}) };
+  if (cmd === (gitOf(d)[kind] || '')) delete m[d]; else m[d] = cmd;
+  const ks = Object.keys(m); if (ks.length > 12) delete m[ks[0]];
+  S.prefs[kind] = m; savePrefs();
+}
 /* one colour per folder, so cards of one repository are seen together (none for the project's) */
 const FOLDER_HUES = [330, 95, 15, 240, 55, 172, 300, 130];
 function folderHue(d) {

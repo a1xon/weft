@@ -2,6 +2,11 @@
 
 use super::*;
 
+/// A CLI's model list as the page takes it.
+pub(super) fn models_json(list: &[(String, String)]) -> Vec<Value> {
+    list.iter().map(|(id, label)| json!({"id": id, "label": label})).collect()
+}
+
 impl Engine {
     /// Agents whose junction can no longer be satisfied without re-running
     /// something, with the name of the agent in the way.
@@ -75,7 +80,7 @@ impl Engine {
         rt.status
     }
 
-    fn rt_json(&self, id: &str, with_preview: bool, blocked: &HashMap<String, String>, filing: &HashMap<String, u64>) -> Value {
+    fn rt_json(&self, id: &str, blocked: &HashMap<String, String>, filing: &HashMap<String, u64>) -> Value {
         let rt = &self.rt[id];
         let node = self.node(id);
         let incoming: Vec<&Edge> = self.flow.edges.iter().filter(|e| e.to == id).collect();
@@ -95,7 +100,7 @@ impl Engine {
             _ => incoming.len(),
         };
         let git = if is_git {
-            let tail: Vec<&String> = rt.git.log.iter().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect();
+            let tail = &rt.git.log[rt.git.log.len().saturating_sub(8)..];
             json!({"log": tail, "seen": rt.git.seen.len(), "busy": rt.git.busy,
                    "waiting_on": rt.git.wait.as_ref().and_then(|w| self.node(w)).map(|n| n.name.clone()),
                    "commits": rt.git.facts.commits.len(), "files": rt.git.facts.files.len(), "pr": rt.git.facts.pr, "prs": rt.git.facts.prs,
@@ -105,11 +110,7 @@ impl Engine {
         } else {
             Value::Null
         };
-        let pv = if with_preview {
-            term::preview(rt.parser.screen(), crate::model::preview_rows(node.map_or(0.0, |n| n.h)), &self.cfg.chrome)
-        } else {
-            vec![]
-        };
+        let pv = term::preview(rt.parser.screen(), crate::model::preview_rows(node.map_or(0.0, |n| n.h)), &self.cfg.chrome);
         let queue: Vec<Value> =
             rt.queue.iter().map(|q| json!({"id": q.id, "text": head_chars(q.shown.trim(), 240), "src": q.src})).collect();
         let out = rt.output.as_deref().map(|o| head_chars(o.trim(), 1500));
@@ -146,7 +147,7 @@ impl Engine {
             "limit": rt.limit.as_ref().map(|l| json!({"until": l.until, "said": head_chars(&l.said, 300), "known": l.known})),
             "step_wait": rt.step_wait.as_ref().and_then(|h| self.node(h)).map(|n| n.name.clone()),
             "eta": eta.map(|e| json!({"at": e.at, "set": e.set, "total": e.total, "note": e.note})),
-            "feed": rt.checks.feed.iter().rev().take(24).collect::<Vec<_>>().into_iter().rev().map(|f| json!({
+            "feed": rt.checks.feed[rt.checks.feed.len().saturating_sub(24)..].iter().map(|f| json!({
                 "id": f.id, "check": f.check, "at": f.at, "img": f.img, "note": f.note, "ok": f.ok,
                 "state": f.state, "reply": f.reply,
             })).collect::<Vec<_>>(),
@@ -191,7 +192,7 @@ impl Engine {
             }
             let ids: Vec<String> = self.rt.iter().filter(|(_, r)| r.ui).map(|(i, _)| i.clone()).collect();
             for id in ids {
-                let m = self.rt_json(&id, true, &blocked, &filing).to_string();
+                let m = self.rt_json(&id, &blocked, &filing).to_string();
                 let Some(rt) = self.rt.get_mut(&id) else { continue };
                 rt.ui = false;
                 if m != rt.last_msg {
@@ -259,7 +260,7 @@ impl Engine {
     pub(super) fn full_state(&self) -> Value {
         let blocked = self.blocked_map();
         let filing = self.filing_map(&blocked);
-        let rts: Vec<Value> = self.flow.nodes.iter().map(|n| self.rt_json(&n.id, true, &blocked, &filing)).collect();
+        let rts: Vec<Value> = self.flow.nodes.iter().map(|n| self.rt_json(&n.id, &blocked, &filing)).collect();
         json!({
             "t": "state",
             "build": crate::model::BUILD,
@@ -271,7 +272,7 @@ impl Engine {
                     "archive_s": self.cfg.archive_s, "archive_flow_s": self.cfg.archive_flow_s, "each_max": self.each_max()},
             "idle": self.idle_shown,
             "hold": self.flow.hold,
-            "models": self.models.iter().map(|(a, l)| (a.clone(), l.iter().map(|(id, label)| json!({"id": id, "label": label})).collect::<Vec<_>>())).collect::<HashMap<_, _>>(),
+            "models": self.models.iter().map(|(a, l)| (a.clone(), models_json(l))).collect::<HashMap<_, _>>(),
             "library": self.cfg.library,
             "networks": self.cfg.networks,
             "flow": {"nodes": self.flow.nodes, "edges": self.flow.edges, "talks": self.flow.talks},

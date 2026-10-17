@@ -2,7 +2,7 @@
 #modal{position:fixed;inset:0;z-index:58;display:flex;align-items:center;justify-content:center;background:rgba(2,3,6,.72);padding:20px}
 #modal .win{--bd:var(--l2);--fill:var(--s1);--c:14px;width:min(900px,100%);height:min(600px,100%);display:flex;flex-direction:column;animation:rise .14s ease-out}
 #modal .mh{display:flex;align-items:center;padding:14px 12px 10px 20px;gap:10px}
-#modal .mh h2{margin:0;font:700 calc(17px*var(--fs)) var(--display);letter-spacing:.03em;flex:1;color:var(--i0)}
+#modal .mh h2{margin:0;font:700 calc(17px*var(--fs)) var(--display);letter-spacing:.03em;flex:none;color:var(--i0)}
 #modal .mb{flex:1;display:grid;grid-template-columns:270px 1fr;min-height:0;border-top:1px solid var(--l1)}
 #modal .ml{overflow:auto;padding:8px;border-right:1px solid var(--l1)}
 #modal .grp{display:flex;align-items:center;padding:10px 8px 4px;color:var(--i3);font:600 calc(11.5px*var(--fs)) var(--display);letter-spacing:.08em}

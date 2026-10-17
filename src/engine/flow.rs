@@ -69,10 +69,7 @@ impl Engine {
             rt.armed = true;
             rt.propagated = true;
             rt.ui = true;
-            if rt.status != Status::Done {
-                rt.status = Status::Done;
-                rt.since = now_ms();
-            }
+            rt.set_status(Status::Done);
         }
         // inputs a target has collected but not consumed follow the edit
         let edges: Vec<Edge> = self.flow.edges.iter().filter(|e| e.from == id).cloned().collect();
@@ -459,9 +456,7 @@ impl Engine {
     /// A message typed to an agent carries the agent's addenda like every other prompt: that is how
     /// it learns to report when it is really done. Slash commands and shell escapes go through as typed.
     pub(super) fn with_addenda(&self, node: &Node, text: &str) -> String {
-        let t = text.trim_start();
-        if node.kind() != Kind::Agent || node.finish != Finish::Idle || node.addenda.is_empty() || t.starts_with('/') || t.starts_with('!')
-        {
+        if node.kind() != Kind::Agent || node.finish != Finish::Idle || node.addenda.is_empty() || is_cli_command(text) {
             return text.to_string();
         }
         self.append_addenda(node, text.trim_end().to_string())
@@ -528,7 +523,7 @@ impl Engine {
             });
         if let Some(from) = handoff {
             let from = self.resolve_host(&from);
-            let cwd = self.rt.get(&from).and_then(|r| r.worktree.clone()).filter(|p| Path::new(p).is_dir());
+            let cwd = self.live_worktree(&from).map(str::to_string);
             if let Some(n) = self.flow.nodes.iter_mut().find(|n| n.id == id) {
                 if n.prompt.trim().is_empty() {
                     n.prompt = "Continue the work: finish what is still open, verify it, then report.".into();

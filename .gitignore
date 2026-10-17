@@ -3,3 +3,5 @@ target/
 # weft's own working state for this folder (the live flow, its runtime files, screenshots):
 # it changes all the time while weft runs and is personal, not part of weft's source
 .weft/
+# Python byte code (the sim agent, the e2e suite)
+__pycache__/
