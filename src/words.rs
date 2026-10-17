@@ -648,6 +648,36 @@ pub fn fixed(by: &str, note: &str) -> String {
     format!("## This failed last time; what was fixed since{by}\n{}", note.trim())
 }
 
+// ------------------------------------------------------------------ for each
+
+/// The standing order of a card whose answer goes down a "for each" link: the next step runs once per
+/// job, so the answer has to end with them (engine/each.rs reads the last numbered list).
+pub fn each_order(max: usize) -> String {
+    format!(
+        "{TAG} The next step runs once for each job you list: end your answer (the report you hand on) with the jobs as a numbered \
+list, one job per item, each complete in itself (whoever takes a job sees that item and your answer, not the other jobs). Up to {max} \
+agents take them at the same time; a longer list is shared out among them."
+    )
+}
+
+/// What a card behind a "for each" link is given: its share of the list (numbered as in the list)
+/// and the answer the list is from, where what the jobs have in common is.
+pub fn part(items: &[String], share: std::ops::Range<usize>, whole: &str) -> String {
+    let n = items.len();
+    let which = if share.len() == 1 {
+        format!("item {} of {n}", share.start + 1)
+    } else {
+        format!("items {} to {} of {n}", share.start + 1, share.end)
+    };
+    let mut s =
+        format!("Your part of the list is {which}. The other items go to other agents working at the same time: do only yours.\n\n");
+    for i in share {
+        s += &format!("{}. {}\n", i + 1, items[i].trim());
+    }
+    s += &format!("\nThe whole answer the list is from:\n{}", whole.trim());
+    s
+}
+
 // ------------------------------------------------------------------ sessions
 
 /// In front of the first prompt of a new conversation of a card that worked before, when its old one

@@ -133,9 +133,10 @@ function drawEdge(e) {
     const g = sv('g', { class: 'ed' }), vis = sv('path', { class: 'vis', id: 'p-' + e.id }), hit = sv('path', { class: 'hit' });
     g.dataset.edge = e.id;
     const chip = sv('g', { class: 'chip' }), rect = sv('rect', { x: -9, y: -9, width: 18, height: 18 }), tx = sv('text');
-    const title = sv('title');
-    chip.append(title, rect, tx); g.append(hit, vis, chip);
-    hit.addEventListener('pointerdown', ev => { ev.stopPropagation(); closeMenu(); closeFly(); selectEdge(e.id); });
+    const title = sv('title'), each = sv('text', { class: 'eachtx', y: -16 });
+    chip.append(title, rect, tx, each); g.append(hit, vis, chip);
+    // a click selects it; a drag takes the nearer end somewhere else (`grabLink`)
+    hit.addEventListener('pointerdown', ev => { ev.stopPropagation(); closeMenu(); closeFly(); if (ev.button === 0) grabLink(ev, e.id); else selectEdge(e.id); });
     hit.addEventListener('dblclick', ev => { ev.stopPropagation(); spliceInto(e.id, 'agent'); });
     hit.addEventListener('contextmenu', ev => { ev.preventDefault(); ev.stopPropagation(); selectEdge(e.id); edgeMenu(e.id, ev.clientX, ev.clientY); });
     // the chip is a switch: click it to cycle always / only if ok / only if it fails
@@ -144,7 +145,7 @@ function drawEdge(e) {
     chip.addEventListener('contextmenu', ev => { ev.preventDefault(); ev.stopPropagation(); selectEdge(e.id); edgeMenu(e.id, ev.clientX, ev.clientY); });
     const rest = sv('circle', { class: 'rest', r: 4 }); rest.style.display = 'none'; g.append(rest);
     edgeG.append(g);
-    el = { g, vis, hit, chip, tx, rest, title };
+    el = { g, vis, hit, chip, tx, rest, title, each };
     edgeEls.set(e.id, el);
   }
   const p = targetPoint(e);
@@ -167,6 +168,16 @@ function styleEdge(e) {
   el.g.classList.toggle('sel', S.selEdge === e.id);
   el.tx.textContent = e.on === 'ok' ? '✓' : e.on === 'fail' ? '✕' : '›';
   el.title.textContent = { done: 'fires when the source finishes (click to change)', ok: 'fires only if the source succeeds (click to change)', fail: 'fires only if the source fails (click to change)' }[e.on];
+  el.g.classList.toggle('each', !!e.each);
+  el.each.textContent = e.each ? 'for each' : '';
+}
+/* "for each" (src/engine/each.rs): the card it leads to is copied once per job the source lists */
+async function setEach(id, on) {
+  const e = S.edges.get(id); if (!e) return;
+  const r = await req('edge_each', { id, each: on });
+  if (!r.ok) return toast('warn', r.error || 'could not change that link');
+  const a = S.nodes.get(e.from), b = S.nodes.get(e.to);
+  if (on && a && b) tip('each', `For each: ${a.name} is asked to end its answer with the jobs as a numbered list. When ${b.name} starts, it takes the first job and weft makes a copy of it for each other one (${S.cfg.each_max} at most, a longer list is shared out). What comes after waits for all of them.`, 12000);
 }
 function drawAllEdges() {
   drawHands();

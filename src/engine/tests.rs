@@ -68,7 +68,7 @@ pub(super) fn add(e: &mut Engine, id: &str, name: &str, prompt: &str) {
 }
 
 pub(super) fn link(e: &mut Engine, id: &str, from: &str, to: &str, on: On) {
-    e.flow.edges.push(Edge { id: id.into(), from: from.into(), to: to.into(), on });
+    e.flow.edges.push(Edge { id: id.into(), from: from.into(), to: to.into(), on, each: false });
 }
 
 #[test]

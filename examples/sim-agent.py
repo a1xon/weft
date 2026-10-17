@@ -438,6 +438,9 @@ def work(prompt):
             body += ["  - read the module", "  - compared with the tests", "  - kept the public API unchanged"]
         if "recall" in low:
             body = ["● I remember: " + " | ".join(recalled) if recalled else "● I remember nothing: this is a new session."]
+        # weft asked for the jobs of a "for each" link: the answer ends with them
+        if JOBS_ASKED in prompt:
+            body += [""] + ["  " + j for j in JOBS]
     # BACKGROUND=<seconds>: like an agent that started a shell and will answer when it ends:
     # the turn is over, the screen is still, and the status line says what it is waiting for
     mb = re.search(r"BACKGROUND=(\d+)", prompt)
@@ -469,10 +472,16 @@ def work(prompt):
             summary = "Could not complete: conflicts with the tests."
         if "recall" in low and action is None:
             summary = body[0][2:]
+        if JOBS_ASKED in prompt and action is None and ok:
+            summary += "\n\n" + "\n".join(JOBS)
         say("\x1b[2m●\x1b[0m Bash(" + os.path.basename(m.group(1)) + (" done" if ok else " fail") + ")")
         cmd = [m.group(1), "done" if ok else "fail"]
         subprocess.run(cmd, input=summary.encode(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+
+# a "for each" link's order (src/words.rs `each_order`) and the jobs this agent always finds
+JOBS_ASKED = "The next step runs once for each job you list"
+JOBS = ["Jobs:", "1. Fix alpha", "2. Fix beta", "3. Fix gamma"]
 
 buf = b""
 in_paste = False

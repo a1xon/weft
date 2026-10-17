@@ -187,6 +187,13 @@ pub struct Node {
     /// the canvas, not a link: nothing fires along it.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub twin: String,
+    /// The card this one is a copy of, made for a share of the list a "for each" link hands on (see
+    /// engine/each.rs), and which share it takes (1 = the second; the card itself takes the first).
+    /// Also a commit, check or queued prompt made for such a copy. Lineage for the canvas, not a link.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub each_of: String,
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub part: u32,
 }
 
 /// Where a deploy step runs its command.
@@ -257,6 +264,10 @@ fn yes_push() -> bool {
 
 fn is_zero(v: &f64) -> bool {
     *v == 0.0
+}
+
+fn is_zero_u32(v: &u32) -> bool {
+    *v == 0
 }
 
 /// How many terminal rows a card shows: 12 on a card of the default height, more on a taller one.
@@ -333,6 +344,10 @@ pub struct Edge {
     pub to: String,
     #[serde(default)]
     pub on: On,
+    /// "For each": the card it leads to is copied once per job of the list its source's answer ends
+    /// with, and each copy is given its share (see engine/each.rs).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub each: bool,
 }
 
 /// Two agents that coordinate while they work: each may message the other directly (`weft tell`),
@@ -411,6 +426,8 @@ pub struct NetLink {
     pub to: String,
     #[serde(default)]
     pub on: On,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub each: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -526,6 +543,9 @@ pub struct Config {
     pub limit_retry_s: f64,
     /// GitHub's CLI, which a CI check reads the runs of a commit with (`gh run list`, `gh run view`).
     pub gh: String,
+    /// A "for each" link gives its list to at most this many cards (the one it leads to and its
+    /// copies), all at work at the same time; a longer list is shared out among them.
+    pub each_max: usize,
 }
 
 impl Default for Config {
@@ -553,6 +573,7 @@ impl Default for Config {
             titles: true,
             limit_retry_s: 1200.0,
             gh: "gh".into(),
+            each_max: 6,
         }
     }
 }

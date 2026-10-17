@@ -23,6 +23,10 @@
 .ed.run .vis{stroke:var(--am);stroke-dasharray:3 6;opacity:1;animation:march .8s linear infinite}
 .ed.sel .vis{stroke-width:2.6;opacity:1;filter:drop-shadow(0 0 4px var(--ec))}
 .ed .chip{cursor:pointer;pointer-events:all}
+.ed.moving .vis,.ed.moving .chip{opacity:.15}
+.ed.each .vis{stroke-width:2.2;stroke-dasharray:7 3;opacity:.85}
+#edgebar .btn[aria-pressed=true]{border-color:var(--cy2);color:var(--cy)}
+.ed .chip .eachtx{fill:var(--ec);font:600 calc(9.5px*var(--fs)) var(--mono);letter-spacing:.06em;text-anchor:middle;pointer-events:none}
 .ed .chip rect{fill:var(--void);stroke:var(--ec);stroke-width:1}
 .ed .chip text{fill:var(--ec);font:700 calc(11px*var(--fs)) var(--mono);text-anchor:middle;dominant-baseline:central}
 .ed .chip:hover rect{fill:var(--s3)}

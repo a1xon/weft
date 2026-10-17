@@ -61,6 +61,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 | drag a ◇ into empty space and let go | the line's end is where the next card goes; the **dial** opens there: queue a prompt the same agent answers · hand off to a fresh agent · git (`Alt` chooses any type) |
 | click a link's chip | cycles *always* / *only if ok* / *only if it fails* |
 | double-click a link | splice a step into it |
+| drag a link | the end nearer to where you grabbed it comes loose: drop it on another card and the link (with its condition) goes there, a done card hands its result over at once; in empty space it opens the dial, as drawing a new link does. `Alt` keeps the old link too (a copy), `Ctrl+Z` puts it back |
 | drag a **network** from the top bar onto the canvas / an agent | several cards and links in one go, told what to do / carrying on from that agent (below) |
 | drag a **check** from the tray onto a link / an agent | a gate / a watch (below) |
 | `Alt`-drag a card | clone it |
@@ -86,6 +87,27 @@ session still has the others, and the note rides along) and hands its answer dow
 While a card before it works on something new, it waits for that too, so a round started further
 up still meets in one run. An agent whose process has ended starts a new session, which is given
 every result again. A gate holds only what is new; a push is described below.
+
+### For each: one agent per job
+
+When one agent's answer is a list of jobs that do not depend on each other (the failing tests
+grouped by cause, the pages of a site, the packages still on an old API), switch the link after it
+to **for each** (the link's bar or its menu; it is drawn dashed, with a *for each* badge). The agent
+before it is asked to end its answer with the jobs as a numbered list. When the card after the link
+starts, it takes the first job and weft makes a copy of it for each other one (same agent, model,
+prompt and checks, named *fixer 2*, *fixer 3* …), all at work at the same time, each given its job
+and the whole answer for what the jobs have in common. You do not need to know how many there
+will be when you draw the flow: the list decides.
+
+The copies link on where the card does, so what comes after them waits for all of them (the AND
+ring) and runs once with every result. A commit, a check on the link or a prompt queued on the agent
+belongs to one agent's work, so each copy gets its own and they meet at the next card that is none
+of these: *plan* → *fixer* → *commit* → *push* becomes one commit per job and one push. At most
+`each_max` cards (6) take a list; a longer one is shared out in runs (20 jobs: 4, 4, 3, 3, 3, 3). An
+answer without a list goes to the card whole. The next list is taken by the same copies (and more
+if it is longer). Jobs that touch the same files are better off with the card in its own worktree
+(options). Switched back to a plain link, the copies stay with what they did; nothing comes down
+to them any more.
 
 ### The dial: what the link is for
 
@@ -836,6 +858,7 @@ src/engine/        the single actor that owns all state
     state.rs       what is known per node while it runs (Rt), and what survives a restart
     graph.rs       nodes and links: add, edit, delete, names, ids
     flow.rs        results travelling along links: joins, triggers, queued prompts, prompt text
+    each.rs        "for each": the jobs an answer lists, one copy of the next card per job, joined again
     run.rs         reading a screen, finishing a step, settling, the prompt queue
     agent.rs       the process side: spawn in tmux, type, stop
     checks.rs      watches: screenshots, tests, changes, the ETA countdown

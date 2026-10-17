@@ -37,6 +37,7 @@ mod checks;
 mod ci;
 mod commands;
 mod deploy;
+mod each;
 mod fix;
 mod flow;
 mod gates;

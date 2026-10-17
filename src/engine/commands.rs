@@ -55,6 +55,9 @@ pub enum Cmd {
         to: String,
         #[serde(default)]
         on: On,
+        /// "for each" (see each.rs)
+        #[serde(default)]
+        each: bool,
     },
     EdgeSet {
         id: String,
@@ -62,6 +65,11 @@ pub enum Cmd {
     },
     EdgeDel {
         id: String,
+    },
+    /// "for each" on a link, or back to a plain one (see each.rs)
+    EdgeEach {
+        id: String,
+        each: bool,
     },
     Handover {
         from: String,
@@ -463,9 +471,10 @@ impl Engine {
             Cmd::NodeSet { id, patch } => self.cmd_node_set(id, patch),
             Cmd::NodeMove { moves } => self.cmd_node_move(moves),
             Cmd::NodeDel { id } => self.cmd_node_del(id),
-            Cmd::EdgeAdd { from, to, on } => self.cmd_edge_add(from, to, on),
+            Cmd::EdgeAdd { from, to, on, each } => self.cmd_edge_add(from, to, on, each),
             Cmd::EdgeSet { id, on } => self.cmd_edge_set(id, on),
             Cmd::EdgeDel { id } => self.cmd_edge_del(id),
+            Cmd::EdgeEach { id, each } => self.cmd_edge_each(id, each),
             Cmd::Handover { from, to } => self.cmd_handover(from, to),
             Cmd::TalkAdd { a, b, topic, typing } => self.cmd_talk_add(a, b, topic, typing),
             Cmd::TalkSet { id, topic, typing } => self.cmd_talk_set(id, topic, typing),

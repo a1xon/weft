@@ -112,6 +112,12 @@ impl Engine {
     /// Add (or update) a link. A result that already exists is delivered at once,
     /// like `.then()` on a resolved promise. True when it was.
     pub(super) fn add_edge(&mut self, from: &str, to: &str, on: On) -> Result<bool, String> {
+        self.add_link(from, to, on, None)
+    }
+
+    /// `add_edge`, and whether the link is "for each" (each.rs; None: as it was), set before anything
+    /// goes down it.
+    pub(super) fn add_link(&mut self, from: &str, to: &str, on: On, each: Option<bool>) -> Result<bool, String> {
         if from == to || self.node(from).is_none() || self.node(to).is_none() {
             return Err("invalid link".into());
         }
@@ -129,10 +135,11 @@ impl Engine {
         let (eid, new, was) = if let Some(e) = self.flow.edges.iter_mut().find(|e| e.from == from && e.to == to) {
             let was = e.on;
             e.on = on;
+            e.each = each.unwrap_or(e.each);
             (e.id.clone(), false, Some(was))
         } else {
             let id = self.next_id("e", self.taken_ids(true).into_iter());
-            self.flow.edges.push(Edge { id: id.clone(), from: from.into(), to: to.into(), on });
+            self.flow.edges.push(Edge { id: id.clone(), from: from.into(), to: to.into(), on, each: each.unwrap_or(false) });
             (id, true, None)
         };
         // a queued prompt continues the session of whatever it was just linked after
@@ -427,6 +434,8 @@ impl Engine {
     /// Take a card off the canvas: its process ends, nobody waits on it any more, its links go.
     /// `worktree`: its git worktree goes too (filed work keeps it, so it can come back to it).
     pub(super) fn drop_node(&mut self, id: &str, worktree: bool) {
+        // (a card a "for each" link copied: its first copy takes its place)
+        self.copies_lose(id);
         if worktree {
             // (gone for good: its snapshots go with it; filed work keeps them)
             self.cp_forget(id);
@@ -463,8 +472,10 @@ impl Engine {
         }
     }
 
-    pub(super) fn cmd_edge_add(&mut self, from: String, to: String, on: On) -> Value {
-        match self.add_edge(&from, &to, on) {
+    pub(super) fn cmd_edge_add(&mut self, from: String, to: String, on: On, each: bool) -> Value {
+        // (a link that cannot share out a list is drawn as a plain one)
+        let each = each && self.each_refused(&from, &to, None).is_none();
+        match self.add_link(&from, &to, on, each.then_some(true)) {
             Ok(_) => json!({"ok": true}),
             Err(e) => json!({"ok": false, "error": e}),
         }

@@ -268,7 +268,7 @@ impl Engine {
                         "dirs": self.proj.iter().map(|(d, v)| (d.to_string_lossy().into_owned(), v.clone())).collect::<HashMap<_, _>>()},
             "cfg": {"agents": self.cfg.agents, "quiet_s": self.cfg.quiet_s, "cols": self.cfg.cols, "rows": self.cfg.rows,
                     "prefs": self.cfg.prefs, "yolo": self.cfg.yolo,
-                    "archive_s": self.cfg.archive_s, "archive_flow_s": self.cfg.archive_flow_s},
+                    "archive_s": self.cfg.archive_s, "archive_flow_s": self.cfg.archive_flow_s, "each_max": self.each_max()},
             "idle": self.idle_shown,
             "hold": self.flow.hold,
             "models": self.models.iter().map(|(a, l)| (a.clone(), l.iter().map(|(id, label)| json!({"id": id, "label": label})).collect::<Vec<_>>())).collect::<HashMap<_, _>>(),

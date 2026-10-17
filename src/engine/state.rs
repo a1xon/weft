@@ -42,6 +42,8 @@ pub(super) enum InputKind {
     Handover,
     /// what was fixed since a card failed, when it runs again (`weft retry`)
     Fixed,
+    /// a card's share of the list a "for each" link handed on (each.rs)
+    Part,
 }
 
 /// Why a run started: the flow keeps going after a flow-caused run; a run the

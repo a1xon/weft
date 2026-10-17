@@ -16,7 +16,7 @@ async function restore(snap) {
   }
   for (const e of snap.edges) {
     const f = map.get(e.from) || (S.nodes.has(e.from) ? e.from : null), t = map.get(e.to) || (S.nodes.has(e.to) ? e.to : null);
-    if (f && t) send('edge_add', { from: f, to: t, on: e.on });
+    if (f && t) send('edge_add', { from: f, to: t, on: e.on, each: !!e.each });
   }
   for (const old of held) if (map.has(old)) send('arm', { id: map.get(old) });
   await Promise.all([...map.values()].map(whenNode));
@@ -34,7 +34,7 @@ function delEdge(id) {
   const e = S.edges.get(id); if (!e) return;
   const snap = { ...e };
   send('edge_del', { id });
-  S.undo.push(async () => { send('edge_add', { from: snap.from, to: snap.to, on: snap.on }); });
+  S.undo.push(async () => { send('edge_add', { from: snap.from, to: snap.to, on: snap.on, each: !!snap.each }); });
   toast('info', 'link removed', { ms: 6000, action: { label: 'undo', run: undo } });
 }
 function undo() { const f = S.undo.pop(); if (f) f(); else toast('info', 'nothing to undo'); }

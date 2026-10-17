@@ -253,10 +253,10 @@ impl Engine {
             return json!({"ok": true});
         }
         for e in &back {
-            let (name, ok, out) = self.input_from(&e.from);
+            let input = self.input_along(e);
             if let Some(t) = self.rt.get_mut(&id) {
                 if !t.inputs.iter().any(|(i, _)| *i == e.id) {
-                    t.inputs.push((e.id.clone(), Input { from: e.from.clone(), name, ok, text: out, kind: InputKind::Result }));
+                    t.inputs.push((e.id.clone(), input));
                 }
             }
         }

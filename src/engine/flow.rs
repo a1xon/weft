@@ -13,6 +13,10 @@ impl Engine {
     }
 
     pub(super) fn deliver_input(&mut self, e: &Edge, from: &str, name: &str, ok: bool, out: &str) {
+        // (a copy behind a "for each" link is given its share when the card it copies takes the list: each.rs)
+        if self.held_for_share(e) {
+            return;
+        }
         if let Some(t) = self.rt.get_mut(&e.to) {
             t.inputs.retain(|(eid, _)| *eid != e.id);
             t.inputs.push((
@@ -225,10 +229,7 @@ impl Engine {
                 .edges
                 .iter()
                 .filter(|e| e.to == id && !self.is_const_edge(e) && !r.inputs.iter().any(|(i, _)| *i == e.id) && self.resolved(e))
-                .map(|e| {
-                    let (name, ok, text) = self.input_from(&e.from);
-                    (e.id.clone(), Input { from: e.from.clone(), name, ok, text, kind: InputKind::Result })
-                })
+                .map(|e| (e.id.clone(), self.input_along(e)))
                 .collect(),
             _ => Vec::new(),
         };
@@ -278,6 +279,9 @@ impl Engine {
             self.toast("warn", &format!("Loop guard: \"{}\" already ran {} times. Use Run flow or Reset to continue.", node.name, runs));
             return;
         }
+        // a "for each" link brought a list: this card takes the first share, a copy of it each other one
+        let taken = self.share_out(id, &node, taken);
+        let inputs: Vec<Input> = taken.iter().map(|(_, i)| i.clone()).collect();
         let (body, full) = self.render_parts(&node, &inputs);
         if !full.is_empty() {
             let qid = self.enqueue(id, full, body, Src::Flow, false);
@@ -394,6 +398,7 @@ impl Engine {
             .map(|i| match i.kind {
                 InputKind::Handover => format!("## Taking over from \"{}\"\n{}", i.name, i.text.trim()),
                 InputKind::Fixed => words::fixed(&i.name, &i.text),
+                InputKind::Part => format!("### Your part of the list from \"{}\"\n{}", i.name, i.text.trim()),
                 _ => format!("### Output of \"{}\"\n{}", i.name, self.piped(&i.from, i.text.trim())),
             })
             .collect::<Vec<_>>()
@@ -442,6 +447,11 @@ impl Engine {
                 full.push_str("\n\n");
                 full.push_str(&expand(&s.text, &|k| self.node_var(node, k)));
             }
+        }
+        // its answer goes down a "for each" link: the next step needs the jobs as a list
+        if self.lists_jobs(&node.id) {
+            full.push_str("\n\n");
+            full.push_str(&words::each_order(self.each_max()));
         }
         full
     }

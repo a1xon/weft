@@ -153,6 +153,7 @@ function edgeMenu(id, x, y) {
     { k: e.on === 'ok' ? '●' : ' ', label: 'only if the source succeeds', run: () => send('edge_set', { id, on: 'ok' }) },
     { k: e.on === 'fail' ? '●' : ' ', label: 'only if the source fails', run: () => send('edge_set', { id, on: 'fail' }) },
     { sep: true },
+    ...(S.cfg.each_max ? [{ k: e.each ? '●' : ' ', label: 'for each job it lists', hint: 'a copy of the next agent per job', run: () => setEach(id, !e.each) }] : []),
     { label: 'hand the result over again', run: () => send('handover', { from: e.from, to: e.to }) },
     { label: 'insert a step here', hint: 'double-click', run: () => spliceInto(id, 'agent') },
     { cap: 'put a gate on this link' },

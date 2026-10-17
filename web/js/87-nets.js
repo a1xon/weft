@@ -651,7 +651,7 @@ async function buildNet(net, o) {
   // only when a person rewires one)
   netBuilding++;
   const links = await Promise.all(net.links.filter(l => ids.get(l.from) && ids.get(l.to))
-    .map(l => req('edge_add', { from: ids.get(l.from), to: ids.get(l.to), on: l.on || 'done' })));
+    .map(l => req('edge_add', { from: ids.get(l.from), to: ids.get(l.to), on: l.on || 'done', each: !!l.each })));
   netBuilding--;
   const bad = links.find(r => !r.ok);
   if (bad) toast('warn', bad.error || 'a link of the network could not be drawn');
@@ -715,7 +715,8 @@ function agentBehind(id, seen = new Set()) {
    becomes {{task}}, the first agent's agent becomes @main (so it follows the agent you work with),
    the links keep their order */
 function captureNet(ids) {
-  const ns = ids.map(id => S.nodes.get(id)).filter(Boolean);
+  // (what a "for each" link copied is made again when the network runs)
+  const ns = ids.map(id => S.nodes.get(id)).filter(n => n && !n.each_of);
   if (!ns.some(n => kindOf(n) === 'agent')) return null;
   const sel = new Set(ns.map(n => n.id)), key = new Map(ns.map((n, i) => [n.id, 'k' + (i + 1)]));
   const x0 = Math.min(...ns.map(n => n.x)), y0 = Math.min(...ns.map(n => n.y));
@@ -743,7 +744,7 @@ function captureNet(ids) {
     return t;
   });
   return { id: 'my-' + Math.random().toString(36).slice(2, 8), title: '', about: '', nodes,
-    links: edges.map(e => ({ from: key.get(e.from), to: key.get(e.to), on: e.on || 'done' })) };
+    links: edges.map(e => ({ from: key.get(e.from), to: key.get(e.to), on: e.on || 'done', ...(e.each ? { each: true } : {}) })) };
 }
 function saveNetFrom(ids, x, y) {
   if (!Array.isArray(S.nets)) return toast('warn', 'Saving networks needs a newer weft: build and install it, then run weft once.', { ms: 8000 });

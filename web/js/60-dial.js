@@ -169,26 +169,59 @@ function gitMenu(c) {
   const ev = c.ev || { clientX: innerWidth / 2, clientY: innerHeight / 2 };
   popup([
     { cap: 'git: the agent is told what to do' },
-    { label: 'commit', hint: 'this agent commits its own work', run: () => spawnGit(c.id, c.at, 'commit') },
-    { label: 'push', hint: 'commit, then push when every commit is in', run: () => spawnGit(c.id, c.at, 'push') },
-    { label: 'open PR', hint: 'commit, push, and have a pull request opened', run: () => spawnGit(c.id, c.at, 'pr') },
+    { label: 'commit', hint: 'this agent commits its own work', run: () => spawnGit(c.id, c.at, 'commit').then(c.made) },
+    { label: 'push', hint: 'commit, then push when every commit is in', run: () => spawnGit(c.id, c.at, 'push').then(c.made) },
+    { label: 'open PR', hint: 'commit, push, and have a pull request opened', run: () => spawnGit(c.id, c.at, 'pr').then(c.made) },
   ], ev.clientX, ev.clientY);
 }
 /* a link into a commit that already has an agent: that agent gets its own commit, which joins the
-   same push, instead of the commit trying to be two agents' work */
-async function linkNodes(from, to) {
+   same push, instead of the commit trying to be two agents' work. Returns the card the link goes
+   into (that new commit, if so), null if there is no link. `skip`: a link that is going away;
+   `each`: a "for each" link (src/engine/each.rs). */
+async function linkNodes(from, to, on = 'done', skip = null, each = false) {
   const tn = S.nodes.get(to), fn = S.nodes.get(from);
-  if (tn && fn && kindOf(tn) === 'git' && tn.git_op === 'commit' && incoming(to).some(e => e.from !== from)) {
+  if (tn && fn && kindOf(tn) === 'git' && tn.git_op === 'commit' && incoming(to).some(e => e.from !== from && e.id !== skip)) {
     const after = [...S.edges.values()].filter(e => e.from === to).map(e => e.to);
     const id = await addGit(from, { x: tn.x, y: tn.y + nh(tn) + 70 }, 'commit');
-    if (!id) return;
+    if (!id) return null;
     if (tn.branch) patchNode(id, { branch: tn.branch }, 0);
     for (const a of after) send('edge_add', { from: id, to: a });
     toast('info', `A commit takes one agent's work, so ${hostOf(fn).name} got its own commit${after.length ? ' and joins the same push' : ''}.`, { ms: 7000 });
-    return;
+    return id;
   }
-  const r = await req('edge_add', { from, to });
+  const r = await req('edge_add', { from, to, on, each });
   if (!r.ok) toast('warn', r.error || 'could not link that');
+  return r.ok ? to : null;
+}
+
+/* grab a link and drag it: the end nearer to where it was grabbed comes loose and goes where it is
+   let go, onto a card or into empty space (the dial), as drawing a new link there would. Alt keeps
+   the old link too (a copy). The new link is made first, so a card that waits for all its inputs is
+   never one short in between; only a commit, which takes one agent, lets go of the old one first. */
+function grabLink(ev, id) {
+  const e = S.edges.get(id), a = e && S.nodes.get(e.from); if (!a) return;
+  const p = toWorld(ev.clientX, ev.clientY), t = targetPoint(e);
+  const head = Math.hypot(p.x - t.x, p.y - t.y) <= Math.hypot(p.x - a.x - nw(a), p.y - a.y - PY);
+  startConnect(ev, head ? e.from : e.to, head ? 'out' : 'in', id);
+}
+const dimLink = (id, on) => { const el = edgeEls.get(id); if (el) el.g.classList.toggle('moving', on); };
+async function moveLink(old, from, to, copy) {
+  const solo = !copy && to === old.to && kindOf(S.nodes.get(to)) === 'git' && S.nodes.get(to).git_op === 'commit';
+  const had = [...S.edges.values()].some(x => x.from === from && x.to === to);
+  if (solo) send('edge_del', { id: old.id });
+  const made = await linkNodes(from, to, old.on, solo ? old.id : null, !!old.each);
+  if (!made) { if (solo) send('edge_add', { from: old.from, to: old.to, on: old.on, each: !!old.each }); return; }
+  movedLink(old, from, made, copy, solo, had && made === to);
+}
+/* the new link from..to is there: the old one goes, and one ctrl+z puts it back (a link that was
+   there already, `had`, stays) */
+function movedLink(old, from, to, copy, gone = false, had = false) {
+  if (!copy && !gone) send('edge_del', { id: old.id });
+  const back = () => send('edge_add', { from: old.from, to: old.to, on: old.on, each: !!old.each });
+  const drop = () => { const e = !had && [...S.edges.values()].find(x => x.from === from && x.to === to); if (e) send('edge_del', { id: e.id }); };
+  S.undo.push(() => { if (copy) return drop(); if (gone) { drop(); back(); } else { back(); drop(); } });
+  const card = S.nodes.get(to !== old.to ? to : from);
+  toast('info', `link ${copy ? 'copied' : 'moved'} to ${card ? card.name : 'the new card'}`, { ms: 6000, action: { label: 'undo', run: undo } });
 }
 
 /* the connect gesture: click a diamond = what next; drag onto an agent = link; let go in empty space = the dial */
@@ -199,26 +232,29 @@ function agentFor(src) {
   if (n && kindOf(n) === 'agent' && (S.cfg.agents[n.agent] || n.agent === 'sh')) return n.agent;
   return S.lastAgent;
 }
-function startConnect(e, fromId, side) {
+/* move: the id of a link whose loose end this drag is (`grabLink`) */
+function startConnect(e, fromId, side, move = null) {
   if (e.button !== 0) return;
   e.preventDefault(); e.stopPropagation(); closeMenu(); closeFly();
   const n = S.nodes.get(fromId);
   const p0 = side === 'out' ? { x: n.x + nw(n), y: n.y + PY } : { x: n.x, y: n.y + PY };
   const sx = e.clientX, sy = e.clientY;
   let moved = false, over = null, last = e;
-  const opts = side === 'out' && n ? dialFor(n) : [];
+  const old = move && S.edges.get(move), loose = old ? (side === 'out' ? old.to : old.from) : null;
+  // (a hand off is no link, so a link's end cannot become one)
+  const opts = side === 'out' && n ? dialFor(n).filter(o => !old || o.key !== 'handoff') : [];
   const nodeAt = ev => { const t = document.elementFromPoint(ev.clientX, ev.clientY); const nd = t && t.closest && t.closest('.nw'); return nd ? nd.dataset.id : null; };
   const mv = ev => {
     last = ev;
     if (!moved && Math.hypot(ev.clientX - sx, ev.clientY - sy) < 5) return;
-    if (!moved) { moved = true; rubber.style.display = 'block'; $('#app').classList.add('connecting'); }
+    if (!moved) { moved = true; rubber.style.display = 'block'; $('#app').classList.add('connecting'); if (old) dimLink(move, true); }
     const p = toWorld(ev.clientX, ev.clientY);
     const [a, b] = side === 'out' ? [p0, p] : [p, p0];
     rubber.setAttribute('d', pathBetween(a.x, a.y, b.x, b.y));
     const t = nodeAt(ev);
     if (t !== over) {
       if (over && nodeEls.get(over)) nodeEls.get(over).root.classList.remove('drop');
-      over = t && t !== fromId ? t : null;
+      over = t && t !== fromId && t !== loose ? t : null;
       if (over) nodeEls.get(over).root.classList.add('drop');
     }
     // show where a new node would land
@@ -238,24 +274,34 @@ function startConnect(e, fromId, side) {
     $('#app').classList.remove('connecting');
     if (over && nodeEls.get(over)) nodeEls.get(over).root.classList.remove('drop');
     const t = moved ? nodeAt(ev) : null;
-    if (!(moved && !t && !ev.altKey && side === 'out' && opts.length > 1)) { rubber.style.display = 'none'; ghost.style.display = 'none'; }
+    if (!(moved && !t && !ev.altKey && side === 'out' && opts.length > 1)) { rubber.style.display = 'none'; ghost.style.display = 'none'; if (old) dimLink(move, false); }
     if (!moved) { // a plain click on the diamond: what comes next?
+      if (old) return selectEdge(move);
       const nn_ = S.nodes.get(fromId);
       if (side === 'out' && nn_ && kindOf(nn_) === 'agent') openNext(fromId);
       else spawnLinked(fromId, side === 'out' ? 'next' : 'prev');
       return;
     }
-    if (t && t !== fromId) { if (side === 'out') linkNodes(fromId, t); else linkNodes(t, fromId); return; }
+    const copy = !!old && (e.altKey || ev.altKey);
+    const link = (f, to) => old ? moveLink(old, f, to, copy) : linkNodes(f, to);
+    if (t && t !== fromId) { if (t === loose) return; if (side === 'out') link(fromId, t); else link(t, fromId); return; }
     if (t) return;
     const w = toWorld(ev.clientX, ev.clientY);
     const at = { x: side === 'out' ? w.x : w.x - NW, y: w.y - PY };
-    const make = agent => spawnAt(agent, at.x, at.y, side === 'out' ? { from: fromId } : { to: fromId });
+    // a link's end let go here: the card made here takes its place (and its condition)
+    const made = id => {
+      if (!old || !id) return;
+      const [f, to] = side === 'out' ? [fromId, id] : [id, fromId];
+      if (old.on !== 'done' || old.each) send('edge_add', { from: f, to, on: old.on, each: !!old.each });
+      movedLink(old, f, to, copy);
+    };
+    const make = agent => spawnAt(agent, at.x, at.y, side === 'out' ? { from: fromId } : { to: fromId }).then(made);
     if (ev.altKey) return typeMenu(ev.clientX, ev.clientY, make);
-    const run = (o, e2) => o.run({ id: fromId, at: { x: w.x, y: w.y - PY }, ev: e2 || ev });
+    const run = (o, e2) => Promise.resolve(o.run({ id: fromId, at: { x: w.x, y: w.y - PY }, ev: e2 || ev, made })).then(made);
     if (side === 'out' && opts.length === 1) return run(opts[0]);
     // the line and the card's outline stay where it was let go until an option is picked
     if (side === 'out' && opts.length) return openDial(ev.clientX, ev.clientY, opts,
-      (o, e2) => { rubber.style.display = 'none'; ghost.style.display = 'none'; if (o) run(o, e2); },
+      (o, e2) => { rubber.style.display = 'none'; ghost.style.display = 'none'; if (old) dimLink(move, false); if (o) run(o, e2); },
       () => { ghost.textContent = ''; });
     make(agentFor(fromId));
   };
@@ -282,6 +328,9 @@ function buildEdgeBar() {
     h('div', { style: 'font:600 calc(11.5px*var(--fs)) var(--display);letter-spacing:.04em;color:var(--i3);padding:8px 10px 4px;white-space:nowrap' }, `${s ? s.name : '?'}  →  ${t ? t.name : '?'}`),
     h('div', { class: 'seg', style: 'margin:0 8px' }, [['done', '›  always'], ['ok', '✓  if it succeeds'], ['fail', '✕  if it fails']].map(([v, label]) =>
       h('button', { 'aria-pressed': String(e.on === v), onclick: () => send('edge_set', { id: e.id, on: v }) }, label))),
+    S.cfg.each_max ? h('div', { style: 'display:flex;padding:6px 8px 0' }, h('button', { class: 'btn sm', 'aria-pressed': String(!!e.each),
+      title: 'the next agent is copied once per job this card lists; what comes after waits for all of them',
+      onclick: () => setEach(e.id, !e.each) }, '\u2200  for each job it lists')) : '',
     h('div', { style: 'padding:6px 10px;max-width:400px;font:calc(11.5px*var(--fs))/1.45 var(--mono);color:var(--i2);white-space:pre-wrap' },
       src && src.out ? 'carries: ' + (src.out.length > 140 ? src.out.slice(0, 140) + '…' : src.out) : 'carries nothing yet'),
     h('div', { style: 'display:flex;gap:6px;padding:0 8px 8px' },
