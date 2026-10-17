@@ -715,13 +715,15 @@ pub fn ensure_weft_gitignore(dir: &Path) {
     let p = dir.join(".weft").join(".gitignore");
     match fs::read_to_string(&p) {
         Err(_) => {
-            let _ = write_atomic(&p, b"run/\nshots/\nstate.json\narchive.json\n");
+            let _ = write_atomic(&p, b"run/\nshots/\nstate.json\narchive.json\narchive/\n");
         }
-        // a folder from before the archive existed
-        Ok(have) if !have.lines().any(|l| l.trim() == "archive.json") => {
-            let sep = if have.is_empty() || have.ends_with('\n') { "" } else { "\n" };
-            let _ = write_atomic(&p, format!("{have}{sep}archive.json\n").as_bytes());
+        // a folder from before the archive (or its packs) existed
+        Ok(have) => {
+            let miss: Vec<&str> = ["archive.json", "archive/"].into_iter().filter(|w| !have.lines().any(|l| l.trim() == *w)).collect();
+            if !miss.is_empty() {
+                let sep = if have.is_empty() || have.ends_with('\n') { "" } else { "\n" };
+                let _ = write_atomic(&p, format!("{have}{sep}{}\n", miss.join("\n")).as_bytes());
+            }
         }
-        Ok(_) => {}
     }
 }

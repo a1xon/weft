@@ -7,7 +7,9 @@
 
 use super::*;
 
-/// Everything filed, oldest first.
+/// Everything filed, oldest first: what the list shows and what it holds on to (ids, worktrees).
+/// The cards themselves, their links and what they knew are in one gzipped pack per drop
+/// (`.weft/archive/<id>.json.gz`), read only when a drop is opened or comes back.
 #[derive(Serialize, Deserialize, Default)]
 pub(super) struct Archive {
     #[serde(default)]
@@ -23,13 +25,168 @@ pub(super) struct Filed {
     /// filed by itself, not by a person
     #[serde(default)]
     pub(super) auto: bool,
+    #[serde(default)]
+    pub(super) cards: Vec<Card>,
+    /// the ids of every link that touched one of its cards
+    #[serde(default)]
+    pub(super) links: Vec<String>,
+    /// An archive from before the packs kept all of it here: it moves into its pack on load.
+    #[serde(default, skip_serializing)]
+    nodes: Vec<Node>,
+    #[serde(default, skip_serializing)]
+    edges: Vec<Edge>,
+    #[serde(default, skip_serializing)]
+    state: HashMap<String, Saved>,
+}
+
+/// A filed card as the list shows it.
+#[derive(Serialize, Deserialize, Clone)]
+pub(super) struct Card {
+    pub(super) id: String,
+    #[serde(default)]
+    pub(super) name: String,
+    #[serde(default)]
+    agent: String,
+    #[serde(default)]
+    git_op: GitOp,
+    #[serde(default)]
+    x: f64,
+    #[serde(default)]
+    y: f64,
+    #[serde(default)]
+    w: f64,
+    #[serde(default)]
+    h: f64,
+    /// the folder it worked in, and its worktree
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    cwd: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    worktree: Option<String>,
+    /// how it ended (None: it did not)
+    #[serde(default)]
+    ok: Option<bool>,
+    #[serde(default)]
+    since: u64,
+    /// the start of what it was asked and said
+    #[serde(default)]
+    asked: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    out: Option<String>,
+}
+
+/// All of a drop: its cards, every link that touched one of them, what each card knew (`Rt::to_saved`).
+#[derive(Serialize, Deserialize, Default)]
+pub(super) struct Pack {
     pub(super) nodes: Vec<Node>,
-    /// every link that touched one of its cards
     #[serde(default)]
     pub(super) edges: Vec<Edge>,
-    /// what each card knew (`Rt::to_saved`)
     #[serde(default)]
     pub(super) state: HashMap<String, Saved>,
+}
+
+impl Filed {
+    fn new(id: String, at: u64, auto: bool, pack: &Pack) -> Filed {
+        let cards = pack
+            .nodes
+            .iter()
+            .map(|n| {
+                let s = pack.state.get(&n.id);
+                let asked = s.map(|s| s.asked.trim()).filter(|a| !a.is_empty()).unwrap_or(n.prompt.trim());
+                Card {
+                    id: n.id.clone(),
+                    name: n.name.clone(),
+                    agent: n.agent.clone(),
+                    git_op: n.git_op,
+                    x: n.x,
+                    y: n.y,
+                    w: n.w,
+                    h: n.h,
+                    cwd: n.cwd.clone(),
+                    worktree: s.and_then(|s| s.worktree.clone()),
+                    ok: s.filter(|s| s.finished).map(|s| s.ok.unwrap_or(true)),
+                    since: s.map_or(0, |s| s.since),
+                    asked: head_chars(asked, 200),
+                    out: s.and_then(|s| s.output.as_deref()).map(|o| head_chars(o.trim(), 400)),
+                }
+            })
+            .collect();
+        Filed {
+            id,
+            at,
+            auto,
+            cards,
+            links: pack.edges.iter().map(|e| e.id.clone()).collect(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            state: HashMap::new(),
+        }
+    }
+}
+
+impl Filed {
+    /// What a drop from before the packs holds, while its pack could not be written.
+    fn unpacked(&self) -> Option<Pack> {
+        if self.nodes.is_empty() {
+            return None;
+        }
+        let state = serde_json::from_value(serde_json::to_value(&self.state).ok()?).ok()?;
+        Some(Pack { nodes: self.nodes.clone(), edges: self.edges.clone(), state })
+    }
+}
+
+impl Archive {
+    /// The archive of a folder (`path`: its index). One from before the packs is moved into them,
+    /// and the index is written again only once every pack is on disk.
+    pub(super) fn load(path: &Path) -> Archive {
+        let mut a: Archive = load_json(path).unwrap_or_default();
+        let dir = packs_dir(path);
+        let mut moved = 0;
+        for g in a.groups.iter_mut().filter(|g| !g.nodes.is_empty()) {
+            let pack =
+                Pack { nodes: std::mem::take(&mut g.nodes), edges: std::mem::take(&mut g.edges), state: std::mem::take(&mut g.state) };
+            if write_pack(&dir.join(pack_name(&g.id)), &pack).is_ok() {
+                *g = Filed::new(std::mem::take(&mut g.id), g.at, g.auto, &pack);
+                moved += 1;
+            } else {
+                (g.nodes, g.edges, g.state) = (pack.nodes, pack.edges, pack.state);
+            }
+        }
+        if moved > 0 && a.groups.iter().all(|g| g.nodes.is_empty()) {
+            a.save(path);
+        }
+        a
+    }
+
+    /// The index is read by weft alone: no indentation.
+    fn save(&self, path: &Path) {
+        if let Ok(s) = serde_json::to_vec(self) {
+            let _ = write_atomic(path, &s);
+        }
+    }
+}
+
+/// Where the packs of the archive with this index are.
+fn packs_dir(index: &Path) -> PathBuf {
+    index.with_extension("")
+}
+
+fn pack_name(gid: &str) -> String {
+    format!("{gid}.json.gz")
+}
+
+fn write_pack(path: &Path, pack: &Pack) -> std::io::Result<()> {
+    use std::io::Write;
+    let json = serde_json::to_vec(pack)?;
+    let mut z = flate2::write::GzEncoder::new(Vec::with_capacity(json.len() / 4), flate2::Compression::best());
+    z.write_all(&json)?;
+    write_atomic(path, &z.finish()?)
+}
+
+fn read_pack(path: &Path) -> Option<Pack> {
+    use std::io::Read;
+    let mut json = Vec::new();
+    flate2::read::GzDecoder::new(std::fs::File::open(path).ok()?).read_to_end(&mut json).ok()?;
+    serde_json::from_slice(&json).ok()
 }
 
 /// The archive keeps this many drops; the oldest make room.
@@ -124,10 +281,37 @@ impl Engine {
     pub(super) fn taken_ids(&self, edges: bool) -> Vec<String> {
         let filed = self.archive.groups.iter();
         if edges {
-            self.flow.edges.iter().map(|e| e.id.clone()).chain(filed.flat_map(|g| g.edges.iter().map(|e| e.id.clone()))).collect()
+            let legacy = filed.clone().flat_map(|g| g.edges.iter().map(|e| e.id.clone()));
+            self.flow.edges.iter().map(|e| e.id.clone()).chain(filed.flat_map(|g| g.links.iter().cloned())).chain(legacy).collect()
         } else {
-            self.flow.nodes.iter().map(|n| n.id.clone()).chain(filed.flat_map(|g| g.nodes.iter().map(|n| n.id.clone()))).collect()
+            let legacy = filed.clone().flat_map(|g| g.nodes.iter().map(|n| n.id.clone()));
+            self.flow
+                .nodes
+                .iter()
+                .map(|n| n.id.clone())
+                .chain(filed.flat_map(|g| g.cards.iter().map(|c| c.id.clone())))
+                .chain(legacy)
+                .collect()
         }
+    }
+
+    fn pack_path(&self, gid: &str) -> PathBuf {
+        packs_dir(&self.archive_path).join(pack_name(gid))
+    }
+
+    /// All of a drop, from its pack (or, if its pack could not be written yet, from memory).
+    fn open_pack(&self, g: &Filed) -> Option<Pack> {
+        if !g.nodes.is_empty() {
+            return g.unpacked();
+        }
+        read_pack(&self.pack_path(&g.id))
+    }
+
+    /// A drop leaves the archive: its pack goes with it.
+    fn take_group(&mut self, pos: usize) -> Filed {
+        let g = self.archive.groups.remove(pos);
+        let _ = std::fs::remove_file(self.pack_path(&g.id));
+        g
     }
 
     /// The canvas as flows: cards tied by a link, a takeover's lineage, a queued prompt's agent or a
@@ -312,12 +496,18 @@ impl Engine {
         let state: HashMap<String, Saved> =
             take.iter().filter_map(|id| Some((id.clone(), filed_state(self.rt.get(id)?.to_saved())))).collect();
         let gid = self.next_id("a", self.archive.groups.iter().map(|g| g.id.clone()));
+        let pack = Pack { nodes, edges, state };
+        // nothing leaves the canvas that the archive could not keep
+        if let Err(err) = write_pack(&self.pack_path(&gid), &pack) {
+            eprintln!("weft: could not file {}: {err}", take.join(", "));
+            return None;
+        }
         for id in &take {
             self.drop_node(id, false);
         }
-        self.archive.groups.push(Filed { id: gid.clone(), at: now_ms(), auto, nodes, edges, state });
+        self.archive.groups.push(Filed::new(gid.clone(), now_ms(), auto, &pack));
         while self.archive.groups.len() > KEEP_FILED {
-            let old = self.archive.groups.remove(0);
+            let old = self.take_group(0);
             self.forget_worktrees(&old);
         }
         self.state_dirty = true;
@@ -331,22 +521,21 @@ impl Engine {
     /// that has uncommitted changes).
     fn forget_worktrees(&self, gone: &Filed) {
         let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
-        for (id, wt) in gone.state.iter().filter_map(|(id, s)| Some((id, s.worktree.clone()?))) {
-            let used =
-                self.rt.values().any(|r| r.worktree.as_deref() == Some(wt.as_str()))
-                    || self.flow.nodes.iter().any(|n| n.cwd == wt)
-                    || self.archive.groups.iter().any(|g| {
-                        g.nodes.iter().any(|n| n.cwd == wt) || g.state.values().any(|s| s.worktree.as_deref() == Some(wt.as_str()))
-                    });
+        let legacy = gone.nodes.iter().map(|n| (n.cwd.clone(), gone.state.get(&n.id).and_then(|s| s.worktree.clone())));
+        let cards: Vec<(String, Option<String>)> = gone.cards.iter().map(|c| (c.cwd.clone(), c.worktree.clone())).chain(legacy).collect();
+        for (cwd, wt) in cards.into_iter().filter_map(|(cwd, wt)| Some((cwd, wt?))) {
+            let used = self.rt.values().any(|r| r.worktree.as_deref() == Some(wt.as_str()))
+                || self.flow.nodes.iter().any(|n| n.cwd == wt)
+                || self.archive.groups.iter().any(|g| {
+                    g.cards.iter().any(|c| c.cwd == wt || c.worktree.as_deref() == Some(wt.as_str()))
+                        || g.nodes.iter().any(|n| n.cwd == wt)
+                        || g.state.values().any(|s| s.worktree.as_deref() == Some(wt.as_str()))
+                });
             if used {
                 continue;
             }
             // (the repository it was cut from: the folder the agent worked in)
-            let dir = gone
-                .nodes
-                .iter()
-                .find(|n| n.id == *id && !n.cwd.trim().is_empty())
-                .map_or_else(|| self.boot.dir.clone(), |n| self.abs_dir(&n.cwd));
+            let dir = if cwd.trim().is_empty() { self.boot.dir.clone() } else { self.abs_dir(&cwd) };
             handle.spawn(async move {
                 let _ = tokio::process::Command::new("git").args(["-C"]).arg(dir).args(["worktree", "remove", &wt]).output().await;
             });
@@ -355,7 +544,7 @@ impl Engine {
 
     /// The archive changed: keep it on disk and show it. `filed`: the drop that just went in.
     fn archive_changed(&mut self, filed: Option<&str>) {
-        save_json(&self.archive_path, &self.archive);
+        self.archive.save(&self.archive_path);
         let m = json!({"t": "archive", "groups": self.archive_json(), "filed": filed});
         self.bcast(&m);
     }
@@ -367,16 +556,16 @@ impl Engine {
             .groups
             .iter()
             .map(|g| {
-                let nodes: Vec<Value> = g
-                    .nodes
+                // (one that could not be packed yet still holds it all)
+                let legacy = g.unpacked().map(|p| Filed::new(g.id.clone(), g.at, g.auto, &p));
+                let nodes: Vec<Value> = legacy
+                    .as_ref()
+                    .unwrap_or(g)
+                    .cards
                     .iter()
-                    .map(|n| {
-                        let s = g.state.get(&n.id);
-                        let asked = s.map(|s| s.asked.trim()).filter(|a| !a.is_empty()).unwrap_or(n.prompt.trim());
-                        json!({"id": n.id, "name": n.name, "agent": n.agent, "git_op": n.git_op, "x": n.x, "y": n.y, "w": n.w, "h": n.h,
-                               "ok": s.filter(|s| s.finished).map(|s| s.ok.unwrap_or(true)),
-                               "since": s.map_or(0, |s| s.since), "asked": head_chars(asked, 200),
-                               "out": s.and_then(|s| s.output.as_deref()).map(|o| head_chars(o.trim(), 400))})
+                    .map(|c| {
+                        json!({"id": c.id, "name": c.name, "agent": c.agent, "git_op": c.git_op, "x": c.x, "y": c.y, "w": c.w, "h": c.h,
+                               "ok": c.ok, "since": c.since, "asked": c.asked, "out": c.out})
                     })
                     .collect();
                 json!({"id": g.id, "at": g.at, "auto": g.auto, "nodes": nodes})
@@ -404,7 +593,10 @@ impl Engine {
         let Some(pos) = self.archive.groups.iter().position(|g| g.id == group) else {
             return json!({"ok": false, "error": "that is no longer in the archive"});
         };
-        let mut g = self.archive.groups.remove(pos);
+        let Some(mut g) = self.open_pack(&self.archive.groups[pos]) else {
+            return json!({"ok": false, "error": "its cards could not be read from the archive"});
+        };
+        self.take_group(pos);
         let (dx, dy) = (if dx.is_finite() { dx } else { 0.0 }, if dy.is_finite() { dy } else { 0.0 });
         let now = now_ms();
         // the same ids where they are free (they are, unless the files were edited by hand)
@@ -483,6 +675,9 @@ impl Engine {
         let Some(g) = self.archive.groups.iter().find(|g| g.id == group) else {
             return json!({"ok": false, "error": "that is no longer in the archive"});
         };
+        let Some(g) = self.open_pack(g) else {
+            return json!({"ok": false, "error": "its cards could not be read from the archive"});
+        };
         let nodes: Vec<Value> = g
             .nodes
             .iter()
@@ -501,7 +696,7 @@ impl Engine {
         let Some(pos) = self.archive.groups.iter().position(|g| g.id == group) else {
             return json!({"ok": false, "error": "that is no longer in the archive"});
         };
-        let g = self.archive.groups.remove(pos);
+        let g = self.take_group(pos);
         self.forget_worktrees(&g);
         self.archive_changed(None);
         json!({"ok": true})

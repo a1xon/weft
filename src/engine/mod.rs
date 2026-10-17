@@ -315,7 +315,7 @@ impl Engine {
             models_busy: std::collections::HashSet::new(),
             git_locks: HashMap::new(),
             last_save: Instant::now(),
-            archive: load_json(&archive_path).unwrap_or_default(),
+            archive: Archive::load(&archive_path),
             archive_path,
             archive_look: 0,
             active: Active::new(now_ms()),

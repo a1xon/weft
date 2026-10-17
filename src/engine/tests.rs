@@ -2139,10 +2139,15 @@ fn a_lone_finished_card_files_itself_after_ten_minutes_and_comes_back_as_it_was(
     assert!(e.node("n1").is_none() && !e.rt.contains_key("n1"));
     assert!(e.node("n2").is_some());
     let g = &e.archive.groups[0];
-    assert!(g.auto && g.nodes[0].name == "fix login");
-    assert_eq!(g.state["n1"].output.as_deref(), Some("result of n1"));
+    assert!(g.auto && g.cards[0].name == "fix login");
     let gid = g.id.clone();
     assert!(e.archive_path.exists(), "the archive is on disk");
+    // all of it is in the drop's gzipped pack, not in the index
+    let pack = e.archive_path.with_extension("").join(format!("{gid}.json.gz"));
+    assert_eq!(&std::fs::read(&pack).unwrap()[..2], &[0x1f, 0x8b]);
+    let index = std::fs::read_to_string(&e.archive_path).unwrap();
+    assert!(index.contains("fix the login") && !index.contains("\"state\"") && !index.contains("\"prompt\""), "the index has the list only");
+    assert_eq!(e.cmd_archive_get(gid.clone())["nodes"][0]["out"], "result of n1");
     // filed work keeps its id: a new card does not take it
     let r = e.cmd_node_add(json!({"agent": "claude", "prompt": "next"}), None, false);
     assert_eq!(r["id"], "n3");
@@ -2150,6 +2155,7 @@ fn a_lone_finished_card_files_itself_after_ten_minutes_and_comes_back_as_it_was(
     let r = e.cmd_revive(gid, 40.0, 0.0);
     assert_eq!(r["ids"], json!(["n1"]));
     assert!(e.archive.groups.is_empty());
+    assert!(!pack.exists(), "its pack left with it");
     assert_eq!(e.node("n1").unwrap().x, 40.0);
     assert_eq!(e.rt["n1"].output.as_deref(), Some("result of n1"));
     assert_eq!(e.eff_status("n1", &HashMap::new()), Status::Done);
@@ -2206,7 +2212,7 @@ fn a_flow_is_filed_as_one_a_quarter_hour_after_its_last_step_unless_something_ho
     // filed as one drop: its links go with it, the shared note stays with what it still feeds
     e.tick_archive();
     assert_eq!(e.archive.groups.len(), 1);
-    assert_eq!(e.archive.groups[0].nodes.len(), 5);
+    assert_eq!(e.archive.groups[0].cards.len(), 5);
     let ids: Vec<&str> = e.flow.nodes.iter().map(|n| n.id.as_str()).collect();
     assert_eq!(ids, vec!["n6", "n5"]);
     assert_eq!(e.flow.edges.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), vec!["e5"]);
@@ -2302,7 +2308,7 @@ fn what_is_still_at_work_stays_on_the_canvas_when_dropped_on_the_archive() {
     assert!(e.node("n1").is_some() && e.node("n2").is_none() && e.node("n3").is_none());
     let g = &e.archive.groups[0];
     assert!(!g.auto);
-    assert_eq!(g.edges.len(), 1);
+    assert_eq!(g.links, vec!["e1"]);
     // and it can be forgotten for good
     let gid = g.id.clone();
     assert_eq!(e.cmd_archive_get(gid.clone())["nodes"][0]["out"], "result of n2");
@@ -2318,12 +2324,49 @@ fn the_archive_file_stays_out_of_git() {
     let _ = std::fs::remove_dir_all(&dir);
     ensure_weft_gitignore(&dir);
     assert!(std::fs::read_to_string(&p).unwrap().lines().any(|l| l == "archive.json"));
-    // a folder from before the archive gets the line added, and what was there stays
+    // a folder from before the archive gets the lines added, and what was there stays
     write_atomic(&p, b"run/\nshots/\nstate.json").unwrap();
     ensure_weft_gitignore(&dir);
     ensure_weft_gitignore(&dir);
-    assert_eq!(std::fs::read_to_string(&p).unwrap(), "run/\nshots/\nstate.json\narchive.json\n");
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "run/\nshots/\nstate.json\narchive.json\narchive/\n");
+    // and one from before the packs gets theirs
+    write_atomic(&p, b"run/\narchive.json\n").unwrap();
+    ensure_weft_gitignore(&dir);
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "run/\narchive.json\narchive/\n");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_archive_from_before_the_packs_moves_into_them_and_keeps_everything() {
+    let mut e = engine();
+    add(&mut e, "n1", "fix login", "fix the login");
+    add(&mut e, "n2", "review", "review it");
+    link(&mut e, "e1", "n1", "n2", On::Done);
+    finished(&mut e, "n1", true, 30);
+    finished(&mut e, "n2", true, 20);
+    // the old layout: every drop whole in archive.json
+    let state: HashMap<String, Value> =
+        ["n1", "n2"].iter().map(|id| (id.to_string(), serde_json::to_value(e.rt[*id].to_saved()).unwrap())).collect();
+    let old = json!({"groups": [{"id": "a1", "at": 5, "auto": true, "nodes": e.flow.nodes, "edges": e.flow.edges, "state": state}]});
+    for id in ["n1", "n2"] {
+        e.drop_node(id, false);
+    }
+    write_atomic(&e.archive_path, old.to_string().as_bytes()).unwrap();
+    e.archive = Archive::load(&e.archive_path);
+    let g = &e.archive.groups[0];
+    assert_eq!(g.cards.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), vec!["fix login", "review"]);
+    assert_eq!(g.links, vec!["e1"]);
+    let index = std::fs::read_to_string(&e.archive_path).unwrap();
+    assert!(index.contains("\"cards\"") && !index.contains("\"state\""), "the index was written again, lean");
+    assert!(e.archive_path.with_extension("").join("a1.json.gz").exists());
+    assert_eq!(e.archive_json()[0]["nodes"][1]["out"], "result of n2");
+    // a second start finds nothing left to move, and the ids stay taken
+    e.archive = Archive::load(&e.archive_path);
+    assert_eq!(e.cmd_node_add(json!({"agent": "claude"}), None, false)["id"], "n3");
+    let r = e.cmd_revive("a1".into(), 0.0, 0.0);
+    assert_eq!(r["ids"], json!(["n1", "n2"]));
+    assert_eq!(e.rt["n2"].output.as_deref(), Some("result of n2"));
+    assert_eq!(e.flow.edges.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), vec!["e1"]);
 }
 
 #[test]

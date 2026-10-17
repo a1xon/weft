@@ -262,7 +262,10 @@ in the bottom left corner.
   over. *×* forgets it for good (its worktree goes too, as when a card is deleted).
 
 `archive_s` (600) and `archive_flow_s` (900) in `config.json` set the two times in seconds; `0`
-means never. The archive keeps the latest 100 drops.
+means never. The archive keeps the latest 100 drops. On disk it is a small index
+(`.weft/archive.json`: what the list shows) and one gzipped pack per drop (`.weft/archive/<id>.json.gz`:
+the cards, links and everything they knew), read only when you open or bring back that drop; an
+archive from an older weft is moved into packs on the first start.
 
 ### The git tree
 
@@ -583,7 +586,7 @@ Everything goes through one small local HTTP API, so scripts can drive a flow to
 | --- | --- |
 | `<project>/.weft/flow.json` | the graph; plain JSON, safe to commit and hand-edit |
 | `<project>/.weft/state.json`, `run/`, `shots/` | run state, prompt files, images; git-ignored |
-| `<project>/.weft/archive.json` | filed work: cards, links, results; git-ignored |
+| `<project>/.weft/archive.json`, `archive/` | filed work: an index, and a gzipped pack per drop (cards, links, results); git-ignored |
 | `~/.config/weft/config.json` | **your overrides only**, merged onto the defaults; also your saved networks |
 | `~/.local/state/weft/` | per board: the daemon's record (port, token), `<id>.live.json` (what it is doing, for the board list), its log; `recent` |
 
