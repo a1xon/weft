@@ -245,7 +245,7 @@ pub fn forget(dir: &Path) -> Result<(), String> {
         return Err("it is running: quit it first".into());
     }
     let id = project_id(dir);
-    for ext in ["json", "live.json", "log"] {
+    for ext in ["json", "live.json", "log", "lock"] {
         let _ = std::fs::remove_file(state_dir().join(format!("{id}.{ext}")));
     }
     crate::launch::forget(dir);

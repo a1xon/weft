@@ -4,7 +4,8 @@
 //! open (`web/dev.js`). Nothing to rebuild, nothing to restart.
 //!
 //! On when the folder weft serves is weft's own source (`web/index.html` and `src/web.rs`), or
-//! when `WEFT_WEB_DIR` names a folder of the same shape; `WEFT_WEB_DIR=off` turns it off.
+//! when `WEFT_WEB_DIR` names a folder of the same shape; `WEFT_WEB_DIR=off` turns it off. Every
+//! other board follows weft's own source too once that is a board, so all of them get the edits.
 //!
 //! To shed it: delete this file, `web/dev.js` and `tests/ui/dev.cjs`, then the lines marked
 //! `dev:` (`grep -rn 'dev:' src tests`) and the "Working on weft's UI" part of the README.
@@ -40,19 +41,21 @@ static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 /// Decided once, when the daemon starts: the folder the page comes from, if any.
 pub fn init(project: &Path) -> Option<&'static Path> {
-    DIR.get_or_init(|| pick(project, std::env::var_os("WEFT_WEB_DIR"))).as_deref()
+    let boards = || crate::boards::all().into_iter().map(|b| b.dir).collect();
+    DIR.get_or_init(|| pick(project, std::env::var_os("WEFT_WEB_DIR"), boards)).as_deref()
 }
 
 fn dir() -> Option<&'static Path> {
     DIR.get().and_then(|d| d.as_deref())
 }
 
-fn pick(project: &Path, env: Option<OsString>) -> Option<PathBuf> {
+fn pick(project: &Path, env: Option<OsString>, boards: impl FnOnce() -> Vec<PathBuf>) -> Option<PathBuf> {
+    let source = |d: &Path| d.join("src/web.rs").is_file();
     let dir = match env {
         Some(v) if v.is_empty() || v == "off" || v == "0" => return None,
         Some(v) => std::path::absolute(PathBuf::from(v)).ok()?,
-        None if project.join("src/web.rs").is_file() => project.join("web"),
-        None => return None,
+        None if source(project) => project.join("web"),
+        None => boards().into_iter().find(|d| source(d))?.join("web"),
     };
     dir.join("index.html").is_file().then_some(dir)
 }
@@ -232,12 +235,15 @@ mod tests {
     #[test]
     fn it_is_on_for_weft_itself_and_where_asked() {
         let r = repo();
-        assert_eq!(pick(&r, None), Some(r.join("web")), "weft's own source folder");
-        assert_eq!(pick(&r.join("src"), None), None, "any other folder");
-        assert_eq!(pick(&r, Some("off".into())), None, "turned off");
-        assert_eq!(pick(&r, Some("".into())), None, "turned off");
-        assert_eq!(pick(&r.join("src"), Some(r.join("web").into())), Some(r.join("web")), "asked for");
-        assert_eq!(pick(&r, Some(r.join("src").into())), None, "a folder without a page");
+        let none = Vec::new;
+        assert_eq!(pick(&r, None, none), Some(r.join("web")), "weft's own source folder");
+        assert_eq!(pick(&r.join("src"), None, none), None, "any other folder");
+        assert_eq!(pick(&r.join("src"), None, || vec![r.join("tests"), r.clone()]), Some(r.join("web")), "while weft is a board");
+        assert_eq!(pick(&r.join("src"), Some("off".into()), || vec![r.clone()]), None, "turned off");
+        assert_eq!(pick(&r, Some("off".into()), none), None, "turned off");
+        assert_eq!(pick(&r, Some("".into()), none), None, "turned off");
+        assert_eq!(pick(&r.join("src"), Some(r.join("web").into()), none), Some(r.join("web")), "asked for");
+        assert_eq!(pick(&r, Some(r.join("src").into()), none), None, "a folder without a page");
     }
 
     #[test]

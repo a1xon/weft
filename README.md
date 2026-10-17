@@ -903,7 +903,11 @@ weft --version                 # weft 0.1.0 (build 2026-10-14 04:56:11 UTC)
 The UI and fonts are inside the binary, so that one file is everything. Every build carries a
 stamp. Typing `weft` in a folder whose daemon was started by an *older* build replaces that
 daemon with the new one (its agents keep running in tmux and are adopted again; port and token
-stay), and an open browser tab reloads itself to the matching page. Nothing else to restart.
+stay), and an open browser tab reloads itself to the matching page. Nothing else to restart:
+every other running daemon notices the new binary within seconds and replaces itself the same
+way, so all boards get the upgrade, not only the one it was installed for (a daemon run from
+`target/` does not, as cargo rewrites it under the tests). Two replacements at once cannot start
+two daemons: each board's daemon holds `~/.local/state/weft/<id>.lock`.
 
 ### From the dock
 
@@ -941,7 +945,9 @@ longer parses reloads by itself once fixed.
 A file added under `css/` or `js/` is part of the next load (and must be listed in `web.rs`
 before the next build; `cargo test` says so).
 
-Changes to `src/` still need a build and `weft` once (the agents keep running).
+Every other board follows weft's `web/` too, once weft's source folder is a board itself (decided
+when a daemon starts), so all open dashboards get the edits, not only weft's own.
+Changes to `src/` still need a build and an install (every daemon takes it up; the agents keep running).
 `WEFT_WEB_DIR=<folder>` serves another copy of `web/` the same way; `WEFT_WEB_DIR=off` turns it
 off. It is a development aid, kept apart so it can go: `src/dev.rs`, `web/dev.js`,
 `tests/ui/dev.cjs` and the lines marked `dev:` (`grep -rn 'dev:' src tests`).

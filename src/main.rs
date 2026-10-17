@@ -262,6 +262,13 @@ async fn serve(args: &[String]) -> Result<(), String> {
     if let Some(i) = client::find_running(&dir).filter(|i| i.dir == dir) {
         return Err(format!("already running for {} (pid {}, port {})", dir.display(), i.pid, i.port));
     }
+    // one daemon per board, even when two `weft` replace the old one at once (an install noticed by
+    // the daemon itself and an agent's `weft open`): held until this process ends
+    let _ = std::fs::create_dir_all(model::state_dir());
+    let lock = std::fs::File::create(model::state_dir().join(format!("{}.lock", model::project_id(&dir)))).map_err(|e| e.to_string())?;
+    if lock.try_lock().is_err() {
+        return Err(format!("another daemon is starting for {}", dir.display()));
+    }
     let cfg = model::load_config();
     let proj = model::project_id(&dir);
     let session = format!("weft-{proj}");
@@ -333,6 +340,9 @@ async fn serve(args: &[String]) -> Result<(), String> {
         // dev: see src/dev.rs
         println!("weft: the page is read from {} and open tabs follow its edits (WEFT_WEB_DIR=off: embedded)", web.display());
     }
+    if let Ok(exe) = std::env::current_exe() {
+        tokio::spawn(follow_installs(exe, dir.clone()));
+    }
     let srv = axum::serve(listener, app);
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).map_err(|e| e.to_string())?;
     tokio::select! {
@@ -343,6 +353,51 @@ async fn serve(args: &[String]) -> Result<(), String> {
         _ = term.recv() => {}
     }
     Ok(())
+}
+
+/// A new build installed over the binary this daemon runs from replaces it, as typing `weft` in this
+/// folder would: every board gets the upgrade, not only the one it was installed for. Not for a
+/// build in `target/`, which cargo rewrites while tests run on it.
+async fn follow_installs(exe: PathBuf, dir: PathBuf) {
+    use std::os::unix::{fs::MetadataExt, process::CommandExt};
+    if exe.components().any(|c| c.as_os_str() == "target") {
+        return;
+    }
+    let look = |p: &PathBuf| std::fs::metadata(p).ok().map(|m| (m.ino(), m.len(), m.mtime()));
+    let mut seen = look(&exe);
+    loop {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let now = look(&exe);
+        if now.is_none() || now == seen {
+            continue;
+        }
+        // (one still being written does not run: asked again on the next look)
+        let Ok(out) = tokio::process::Command::new(&exe).arg("--version").output().await else { continue };
+        let says = String::from_utf8_lossy(&out.stdout);
+        if !out.status.success() || !says.contains("(build ") {
+            continue;
+        }
+        seen = now;
+        if says.contains(&format!("(build {})", model::BUILD)) {
+            continue;
+        }
+        // the agent that installed it may be replacing this board itself right now
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        eprintln!("weft: a new build was installed ({}); replacing this daemon with it", says.trim());
+        if let Ok(mut child) = std::process::Command::new(&exe)
+            .arg("open")
+            .arg(&dir)
+            .arg("--no-open")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .process_group(0)
+            .spawn()
+        {
+            std::thread::spawn(move || child.wait());
+        }
+        return;
+    }
 }
 
 // ------------------------------------------------------------------- stop
