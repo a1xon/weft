@@ -437,13 +437,7 @@ impl Engine {
         // an answer to the agent's own question continues the run it raised the question in
         let new_run = rt.issue.is_none() && (rt.finished || rt.steps.is_empty());
         if new_run {
-            rt.runs += 1;
-            rt.steps.clear();
-            rt.cause = cause;
-            rt.fresh = false;
-            rt.run_ms = now_ms();
-            rt.checks.eta_asked = 0;
-            rt.checks.eta = None;
+            rt.begin_run(cause);
         } else if cause == Cause::Flow {
             rt.cause = Cause::Flow;
         }

@@ -324,6 +324,8 @@ pub(super) struct Rt {
     pub(super) waiting: Option<Waiting>,
     /// a message pasted that has not been seen taken yet
     pub(super) typing: Option<Typing>,
+    /// what the person typed into the terminal from the page since their last Enter
+    pub(super) keyed: String,
     /// this session was told what weft is (the first line of its first message)
     pub(super) briefed: bool,
     /// this session was given the status line rule in full (later prompts get a one-line reminder)
@@ -672,6 +674,7 @@ impl Rt {
             issue: None,
             waiting: None,
             typing: None,
+            keyed: String::new(),
             briefed: false,
             ruled: false,
             worktree: None,
@@ -937,6 +940,17 @@ impl Rt {
         } else {
             Status::Busy
         }
+    }
+
+    /// A new run begins (not an answer to the agent's own question, which continues its run).
+    pub(super) fn begin_run(&mut self, cause: Cause) {
+        self.runs += 1;
+        self.steps.clear();
+        self.cause = cause;
+        self.fresh = false;
+        self.run_ms = now_ms();
+        self.checks.eta_asked = 0;
+        self.checks.eta = None;
     }
 
     /// A git step that finished once starts over: the old result and what it carried are dropped.

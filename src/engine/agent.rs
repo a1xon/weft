@@ -460,25 +460,63 @@ impl Engine {
     }
 
     pub(super) fn cmd_key(&mut self, id: String, k: String) -> Value {
-        if let (Some(rt), Some(t)) = (self.rt.get_mut(&id), &self.tmux) {
-            if let Some(p) = &rt.pane {
-                t.send_key(p, &k);
-                if k == "Enter" {
-                    rt.issue = None;
-                    if !rt.armed {
-                        rt.armed = true;
-                        rt.finished = false;
-                    }
-                }
+        let sent = match (self.rt.get(&id).and_then(|r| r.pane.clone()), &self.tmux) {
+            (Some(p), Some(t)) => {
+                t.send_key(&p, &k);
+                true
             }
+            _ => false,
+        };
+        if sent {
+            self.keyed(&id, &k);
         }
         json!({"ok": true})
+    }
+
+    /// A key the person pressed in the agent's terminal. An Enter after something typed into a
+    /// finished agent is a new message to it: it works again, and what it answers is its new result
+    /// (an answer to the question it asked continues the run it asked it in).
+    pub(super) fn keyed(&mut self, id: &str, k: &str) {
+        let idle_agent = self.node(id).is_some_and(|n| n.kind() == Kind::Agent && n.finish == Finish::Idle);
+        let Some(rt) = self.rt.get_mut(id) else { return };
+        match k {
+            "BSpace" => {
+                rt.keyed.pop();
+            }
+            "C-c" | "C-u" | "Escape" => rt.keyed.clear(),
+            "Enter" => {
+                let typed = std::mem::take(&mut rt.keyed);
+                let answered = rt.issue.take().is_some();
+                if !rt.armed {
+                    rt.armed = true;
+                    rt.finished = false;
+                    return;
+                }
+                if !rt.finished || !idle_agent || rt.attn || rt.cur.is_some() || rt.typing.is_some() || typed.trim().is_empty() {
+                    return;
+                }
+                if !answered {
+                    rt.begin_run(Cause::User);
+                }
+                let before = term::lines(&mut rt.parser);
+                rt.cur = Some(Step::new(typed.clone(), before));
+                rt.asked = typed;
+                rt.finished = false;
+                rt.waiting = None;
+                rt.last_change = Instant::now();
+                rt.ui = true;
+                self.set_status(id, Status::Busy);
+                self.state_dirty = true;
+            }
+            _ => {}
+        }
     }
 
     pub(super) fn cmd_text(&mut self, id: String, text: String, paste: bool) -> Value {
         if let (Some(rt), Some(t)) = (self.rt.get_mut(&id), &self.tmux) {
             if let Some(p) = rt.pane.clone() {
                 rt.issue = None;
+                rt.keyed.push_str(&text);
                 let bytes = if paste { term::paste_payload(rt.parser.screen(), &text) } else { text.into_bytes() };
                 t.send_bytes(&p, &bytes);
             }

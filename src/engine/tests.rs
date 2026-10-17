@@ -222,6 +222,39 @@ fn a_link_made_while_the_agent_answers_a_chat_gets_that_answer() {
 }
 
 #[test]
+fn a_finished_agent_given_something_new_in_its_terminal_works_again() {
+    let mut e = engine();
+    alive_agent(&mut e, "n1", "a");
+    e.rt.get_mut("n1").unwrap().armed = true;
+    e.settle("n1", false, "first".into());
+    assert_eq!(e.rt["n1"].status, Status::Failed);
+    let runs = e.rt["n1"].runs;
+    // keys that type nothing new, or an Enter on an empty line, do not start anything
+    e.keyed("n1", "Enter");
+    assert!(e.rt["n1"].finished && e.rt["n1"].cur.is_none());
+    e.rt.get_mut("n1").unwrap().keyed = "try it agaim".into();
+    e.keyed("n1", "BSpace");
+    e.rt.get_mut("n1").unwrap().keyed.push('n');
+    e.keyed("n1", "Enter");
+    let r = &e.rt["n1"];
+    assert!(!r.finished && r.armed && r.keyed.is_empty());
+    assert_eq!(r.status, Status::Busy);
+    assert_eq!(r.runs, runs + 1, "a new run");
+    assert_eq!(r.cause, Cause::User);
+    assert_eq!(r.cur.as_ref().map(|c| c.prompt.as_str()), Some("try it again"));
+    assert_eq!(r.asked, "try it again");
+    // its answer is the new result
+    e.step_done("n1", true, Some("second".into()), How::Signal);
+    assert_eq!(e.rt["n1"].output.as_deref(), Some("second"));
+    assert_eq!(e.rt["n1"].status, Status::Done);
+    // a dialog on the screen takes the Enter: no run
+    e.rt.get_mut("n1").unwrap().attn = true;
+    e.rt.get_mut("n1").unwrap().keyed = "2".into();
+    e.keyed("n1", "Enter");
+    assert!(e.rt["n1"].finished);
+}
+
+#[test]
 fn script_continues_until_the_queue_drains() {
     let mut e = engine();
     add(&mut e, "n1", "a", "go");

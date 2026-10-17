@@ -485,6 +485,8 @@ for a dialog). What it needs unfolds **under the card**: the dialog, with its
 numbered options as buttons (plus enter / esc), or an agent's question (below), readable and
 scrollable, with an answer box under it. Enter on the selected card puts the cursor there. Answering
 in its terminal works too: once nothing is open any more the card shows what it did before.
+Something new typed into a finished agent's terminal on the canvas (and Enter) makes it work again,
+like a message from the bar: the card is busy, the run counts, and its answer is the new result.
 
 ### Silence is not an answer
 
