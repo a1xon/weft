@@ -7,6 +7,8 @@ const W = process.env.SANDBOX, BIN = process.env.WEFT_UI_BIN;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
 const until = async (f, ms = 12000) => { const t = Date.now(); while (Date.now() - t < ms) { try { if (await f()) return true; } catch {} await sleep(250); } return false; };
+// a board whose agents are at work opens on the canvas, not the pad: open it the way N does
+const padUp = async pg => { await pg.waitForFunction(() => padShown); await pg.evaluate(() => pad.open || openPad()); await pg.waitForSelector('#pad:not([hidden]) textarea'); };
 const STATES = W + '/state/weft';
 const record = dir => fs.readdirSync(STATES).filter(f => f.endsWith('.json') && !f.endsWith('.live.json'))
   .map(f => ({ f, ...JSON.parse(fs.readFileSync(STATES + '/' + f, 'utf8')) })).find(i => i.dir === dir);
@@ -67,7 +69,9 @@ const weft = (args, cwd) => cp.execFileSync(BIN, args, { cwd: cwd || W, encoding
   ok(sub.includes('weft  ' + other + '\n') && sub.includes('new agents start in ' + other + '/sub'), '`weft` in other/sub opens the other board: ' + sub.split('\n')[0]);
   ok(!!record(other) && !record(other + '/sub'), 'and makes no board of its own');
   const p2 = await ctx.newPage();
-  await p2.goto(sub.trim().split('\n').pop().trim()); await p2.waitForSelector('#pad:not([hidden]) textarea');
+  await p2.goto(sub.trim().split('\n').pop().trim()); await p2.waitForFunction(() => padShown);
+  ok(await p2.locator('#pad').isHidden(), 'an agent there needs you: the page opens on its canvas, not the pad');
+  await padUp(p2);
   ok(await until(async () => (await p2.locator('#pad .pname').innerText()).trim() === 'sub'), 'that page starts new agents in sub: ' + await p2.locator('#pad .pname').innerText());
   ok(!/at=/.test(await p2.evaluate(() => location.href)), 'and the address forgets it again');
   await p2.close();
@@ -78,7 +82,7 @@ const weft = (args, cwd) => cp.execFileSync(BIN, args, { cwd: cwd || W, encoding
   await sleep(1200);
   await p.locator('.pboards .bdrow:not(.me):not(.bdnew)').click();
   ok(await until(() => p.evaluate(() => location.port).then(x => x === String(record(other).port))), 'a click on the other board switches the window to it');
-  await p.waitForSelector('#pad:not([hidden]) textarea');
+  await padUp(p);
   ok(await until(async () => /^other/.test((await rows(p))[0] || '') && /^proj/.test((await rows(p))[1] || '')), 'there it is first, the board you came from second: ' + JSON.stringify(await rows(p)));
   ok(await until(async () => (await p.title()).startsWith('other')), 'the window is titled after it');
   ok((await p.locator('#pad .pagents button[aria-pressed="true"]').innerText()) === 'codex', 'the agent chosen on the other board is chosen here too');
@@ -103,7 +107,7 @@ const weft = (args, cwd) => cp.execFileSync(BIN, args, { cwd: cwd || W, encoding
   const t0 = Date.now();
   await p.locator('.pboards .bdrow.asleep').click();
   ok(await until(() => p.evaluate(() => location.port).then(x => x === String(record(other).port)), 15000), `a click wakes it and switches over (${Date.now() - t0} ms)`);
-  await p.waitForSelector('#pad:not([hidden]) textarea');
+  await padUp(p);
   ok(await until(async () => (await p.locator('.nw').count()) === 1), 'with its card');
 
   // --- leaving a sleeping board off the list

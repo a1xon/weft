@@ -174,7 +174,8 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(report.length >= 15 && !bad.length, `every built-in network places right (${report.length}) ${bad.join(' | ')}`);
 
   // after a reload it is all still there
-  await p.reload(); await p.waitForSelector('#pad:not([hidden]) textarea'); await sleep(500);
+  // (its agents are at work, so the page opens on the canvas, not the pad)
+  await p.reload(); await p.waitForFunction(() => padShown); await sleep(500);
   ok((await p.$$eval('#nets .netchip', bs => bs.map(x => x.dataset.net)))[0] === 'council', 'and stays there after a reload');
   ok(errs.length === 0, 'no page errors ' + errs.join(' | '));
   await b.close();

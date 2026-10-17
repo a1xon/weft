@@ -108,7 +108,9 @@ function loadState(m) {
   applyBootAt();
   watchDir(newDir());   // the folder new agents start in, if it is not the project's
   if (S.focus) send('watch', { id: S.focus });
-  // the first thing you see: where you are, and a prompt waiting for you
-  if (!padShown) { padShown = true; openPad(); }
+  // the first thing you see: where you are, and a prompt waiting for you; unless agents are at work,
+  // then it is the board (the bar at the bottom still takes a prompt)
+  if (!padShown) { padShown = true; if (!boardActive()) openPad(); }
 }
 let padShown = false;
+const boardActive = () => [...S.rt.values()].some(r => ['busy', 'starting', 'attention'].includes(r.status));

@@ -15,7 +15,7 @@ socket and config) and runs, one fresh daemon each:
 | --- | --- |
 | `story.cjs` | the guided story: the launch pad, two agents in parallel, tests, push, counting gestures |
 | `features.cjs` | every gesture and node kind: drafts, links, splice, notes, approval gate, flyout, menus, gather, queue, library |
-| `pad.cjs` | the first screen: folder, agent / model / reasoning, addenda, remembered choices, start |
+| `pad.cjs` | the first screen: folder, agent / model / reasoning, addenda, remembered choices, start; a reload while an agent works opens on the canvas instead |
 | `folders.cjs` | other folders: the pad's headline picks a sibling repository (a few letters, enter), the agent starts there and wears its tag, a commit after it lands in that repository; ctrl+o / the folder line move selected agents, typed paths complete, a linked card inherits the folder, a missing folder fails loudly |
 | `tree.cjs` | the git tree in the corner: beside the bar, live (an uncommitted file, a commit made outside weft), a merge in two lanes, a commit unfolded with its files, another branch / every branch picked without checking out (kept per folder), folded to a box, above the bar in a narrow window, fit keeps cards out from under it; the remote: not-pushed commits marked, a push while folded unfolds it (arrow up, ripples) and folds again, a commit pushed from another clone found by asking the remote (dashed, arrow down), a pull |
 | `next.cjs` | then / hand over / branch from the ◇, the message bar's tab, the baton line |

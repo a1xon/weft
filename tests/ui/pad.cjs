@@ -170,7 +170,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await p.keyboard.press('n');
   await p.waitForSelector('#pad:not([hidden]) textarea');
   await p.locator('#pyolo').click();
-  await p.locator('#pad textarea').fill('Say hello in one word.');
+  await p.locator('#pad textarea').fill('Say hello in one word. LONG=25');
   await p.keyboard.press('Control+Enter');
   await p.waitForSelector('.nw[data-id="n2"]');
   await sleep(2500);
@@ -178,7 +178,11 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(flow2.nodes.find(n => n.id === 'n2').yolo === false, 'the card remembers that it asks first');
   ok(/yolo=off/.test(cp.execFileSync(BIN, ['read', 'n2', '-n', '60'], { cwd: W + '/proj', encoding: 'utf8' })), 'and the CLI was started without the flag');
   ok((await p.locator('.nw[data-id="n2"] .ag').innerText()).includes('asks first'), 'its card says so: ' + (await p.locator('.nw[data-id="n2"] .ag').innerText()));
-  await p.reload(); await p.waitForSelector('#pad:not([hidden]) textarea'); await sleep(500);
+  // --- with an agent at work a reload comes back to the board, not to the pad
+  ok(['starting', 'busy'].includes(await st('n2')), 'n2 is still working (' + await st('n2') + ')');
+  await p.reload(); await p.waitForSelector('.nw[data-id="n2"]'); await sleep(800);
+  ok(await p.locator('#pad').isHidden() && await p.locator('#omni').isVisible(), 'a reload while an agent works shows the board, the pad stays closed');
+  await p.keyboard.press('n'); await p.waitForSelector('#pad:not([hidden]) textarea'); await sleep(300);
   ok((await p.locator('#pyolo').getAttribute('aria-pressed')) === 'false', 'the choice survives a reload');
   await p.locator('#pyolo').click();   // back to the default for whoever uses this next
 
