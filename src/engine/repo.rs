@@ -33,13 +33,15 @@ async fn switch_branch(dir: &Path, branch: &str) -> Result<(), String> {
 
 /// `git add -A`, minus weft's own folder and anything that looks like a credential:
 /// weft commits and pushes on its own, so it must never sweep up secrets by accident.
+/// weft's folder is written `[.]weft/**`, not `.weft`: when `.gitignore` lists `.weft/`, git (2.53)
+/// takes an exclude that names it literally for an ignored path the add was asked for, and exits 1.
 fn add_args() -> Vec<&'static str> {
     vec![
         "add",
         "-A",
         "--",
         ".",
-        ":(exclude).weft",
+        ":(exclude,glob)[.]weft/**",
         ":(exclude,glob)**/.env",
         ":(exclude,glob)**/.env.*",
         ":(exclude,glob)**/*.pem",
@@ -247,4 +249,47 @@ pub(super) async fn facts_of(dir: &Path, res: &Result<String, String>) -> Option
 pub(super) fn lead_hash(line: &str) -> Option<String> {
     let t = line.split_whitespace().next()?;
     (t.len() >= 7 && t.len() <= 40 && t.chars().all(|c| c.is_ascii_hexdigit())).then(|| t.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sh(dir: &Path, args: &[&str]) {
+        let ok = std::process::Command::new("git").arg("-C").arg(dir).args(args).output().unwrap().status.success();
+        assert!(ok, "git {args:?}");
+    }
+
+    #[tokio::test]
+    async fn weft_commits_the_work_but_not_its_folder_or_a_secret_ignored_or_not() {
+        let dir = std::env::temp_dir().join(format!("weft-repo-{}", now_ms()));
+        std::fs::create_dir_all(dir.join(".weft/archive")).unwrap();
+        sh(&dir, &["init", "-q", "-b", "main"]);
+        sh(&dir, &["config", "user.name", "t"]);
+        sh(&dir, &["config", "user.email", "t@t"]);
+        let committed = |dir: PathBuf| async move {
+            let (_, files) = git_run(&dir, &["show", "--name-only", "--format=", "HEAD"]).await.unwrap();
+            files.lines().map(str::to_string).collect::<Vec<_>>()
+        };
+
+        // .weft not ignored
+        std::fs::write(dir.join("a.rs"), "a").unwrap();
+        std::fs::write(dir.join(".weft/flow.json"), "{}").unwrap();
+        std::fs::write(dir.join(".env"), "TOKEN=x").unwrap();
+        let said = commit_work(&dir, "", false, "first", "", None).await.unwrap();
+        assert!(said.ends_with(" first"), "{said}");
+        assert_eq!(committed(dir.clone()).await, ["a.rs"]);
+
+        // .gitignore lists .weft/ (as this repository's does): git add must not fail on it
+        std::fs::write(dir.join(".gitignore"), ".weft/\n").unwrap();
+        std::fs::write(dir.join(".weft/archive/1.json.gz"), "x").unwrap();
+        std::fs::write(dir.join("b.rs"), "b").unwrap();
+        let said = commit_work(&dir, "", false, "second", "", None).await.unwrap();
+        assert!(said.ends_with(" second"), "{said}");
+        assert_eq!(committed(dir.clone()).await, [".gitignore", "b.rs"]);
+        let (_, left) = git_run(&dir, &["status", "--porcelain", "--untracked-files=all"]).await.unwrap();
+        assert_eq!(left.trim(), "?? .env");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
