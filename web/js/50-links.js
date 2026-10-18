@@ -39,7 +39,7 @@ function renderTicker() {
   for (const [id, r] of S.rt) { const n = S.nodes.get(id); if (kindOf(n) === 'note') continue; if (r.status in c) c[r.status]++; }
   const work = c.busy + c.starting;
   $('#tick').replaceChildren(...nn([
-    work ? h('span', { class: 'tk am' }, h('b', {}, work), ' working') : null,
+    work ? h('span', { class: 'tk am wk', title: 'show the next card that is working', onclick: nextWorking }, h('b', {}, work), ' working') : null,
     c.waiting ? h('span', { class: 'tk' }, h('b', {}, c.waiting), ' waiting') : null,
     c.attention ? h('span', { class: 'tk vi', title: 'jump to what needs you', onclick: () => {
       const id = [...S.rt.entries()].find(([, r]) => r.status === 'attention')?.[0];
@@ -49,6 +49,15 @@ function renderTicker() {
     readyChip(),
     c.done ? h('span', { class: 'tk gr' }, h('b', {}, c.done), ' done') : null,
   ]));
+}
+/* the "working" chip steps through the working cards, in reading order (top to bottom, left to right) */
+let lastWorking = null;
+function nextWorking() {
+  const ids = [...S.rt.entries()].filter(([id, r]) => ['busy', 'starting'].includes(r.status) && S.nodes.has(id) && kindOf(S.nodes.get(id)) !== 'note')
+    .map(([id]) => S.nodes.get(id)).sort((a, b) => a.y - b.y || a.x - b.x).map(n => n.id);
+  if (!ids.length) return;
+  const id = ids[(ids.indexOf(lastWorking) + 1) % ids.length];
+  lastWorking = id; select([id]); centerOn(id);
 }
 setInterval(() => {
   if (document.hidden) return;

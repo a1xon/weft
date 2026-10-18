@@ -10,6 +10,8 @@
 .tk{font:500 calc(11.5px*var(--fs)) var(--mono);color:var(--i2);padding:2px 9px;border:1px solid var(--l1);white-space:nowrap}
 .tk b{font-weight:600;color:var(--i0)}
 .tk.am{color:var(--am);border-color:rgba(255,180,84,.4)}
+.tk.wk{cursor:pointer}
+.tk.wk:hover{background:rgba(255,180,84,.12);border-color:var(--am)}
 .tk.vi{color:var(--vi);border-color:var(--vi);cursor:pointer;animation:blink 1.2s steps(2) infinite}
 .tk.gr{color:var(--gr);border-color:rgba(61,220,151,.35)}
 .tk.rd{color:var(--rd);border-color:rgba(255,92,122,.45)}
