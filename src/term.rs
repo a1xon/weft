@@ -350,9 +350,12 @@ pub fn dialog_on(text: &str, patterns: &[String]) -> bool {
         let under_rule = i > 0 && rows[i - 1].chars().all(|c| BORDER.contains(c));
         numbered(t) || marked.is_some_and(|r| numbered(r) || (!r.is_empty() && !under_rule))
     };
+    // every row with a phrase counts: an option may be one ("Yes, I trust this folder" under the
+    // highlighted "❯ No, exit"), and then the dialog's footer, its last line, is what tells it
     rows.iter()
-        .position(|l| patterns.iter().any(|p| !p.is_empty() && l.contains(p.as_str())))
-        .is_some_and(|at| at + 1 == rows.len() || (at..rows.len()).any(choice))
+        .enumerate()
+        .filter(|(_, l)| patterns.iter().any(|p| !p.is_empty() && l.contains(p.as_str())))
+        .any(|(at, _)| at + 1 == rows.len() || (at..rows.len()).any(choice))
 }
 
 fn is_tool_call(t: &str) -> bool {
@@ -678,6 +681,15 @@ All five slug tests now pass."
         // the real dialogs, as Claude Code, Codex and agy draw them
         let trust = "Quick safety check: do you trust this folder?\n\n ❯ 1. Yes, I trust this folder\n   2. No, exit\n\n Enter to confirm · Esc to cancel";
         assert!(dialog_on(trust, &claude));
+        // Claude Code 2.1.302 numbers nothing and highlights "No, exit": weft took it for no dialog,
+        // typed the task, and its Enter picked "No, exit"
+        let claude_now = crate::model::Config::default().agents["claude"].attention.clone();
+        let trust_now = "─────────\n Accessing workspace:\n\n /home/piet/CAD/cad-project\n\n Quick safety check: Is this a project you \
+                         created or one you trust? (Like your own code, a well-known open\n source project, or work from your team). \
+                         If not, take a moment to review what's in this folder first.\n\n Claude Code'll be able to read, edit, and \
+                         execute files here.\n\n Security guide\n\n ❯ No, exit\n   Yes, I trust this folder\n\n Enter to confirm · \
+                         Esc to cancel\n\n\n";
+        assert!(dialog_on(trust_now, &claude_now));
         let perm = "● Bash(rm -rf build)\n\n Bash command\n   rm -rf build\n Do you want to proceed?\n ❯ 1. Yes\n   2. No, and tell Claude what to do differently (esc)";
         assert!(dialog_on(perm, &claude));
         let update = "✨ Update available! 0.155 -> 0.162\n\n› 1. Update now (runs `npm install -g @openai/codex`)\n  2. Skip\n  3. Skip until next version\n\n  Press enter to continue";

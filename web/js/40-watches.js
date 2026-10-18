@@ -20,6 +20,29 @@ function tidyUnder(el) {
    Each question it asks comes with quick answers that write into that box (94-reader.js); a report
    that asked them can also be let go as it is ("skip all"). */
 const DIALOG_OPT = /^\s*(?:[❯›>]\s*)?(\d)[.)]\s+(\S.*?)\s*$/;
+/* the options of a dialog that numbers nothing, each with how far it is from the highlighted one
+   (the last row marked ❯ › >): the rows that start where its label starts, above and below it; a
+   deeper row is an option's description, a shallower one or a key hint ("↑/↓ Navigate · enter
+   Confirm") ends the list */
+function dialogMoves(rows) {
+  const MARK = /^(\s*[❯›>]\s+)(\S.*?)\s*$/, HINT = /\s·\s|[↑↓←→]/;
+  const at = rows.map(x => MARK.exec(x)).map((m, i) => m && !HINT.test(m[2]) ? i : -1).filter(i => i >= 0).pop();
+  if (at === undefined) return [];
+  const col = MARK.exec(rows[at])[1].length, out = [{ label: MARK.exec(rows[at])[2], at }];
+  const walk = step => {
+    for (let i = at + step; i >= 0 && i < rows.length; i += step) {
+      const t = rows[i].trimEnd(), ind = t.length - t.trimStart().length;
+      if (!t.trim() || ind > col) continue;
+      if (ind < col || HINT.test(t)) return;
+      out.push({ label: t.trim(), at: i });
+    }
+  };
+  walk(-1); walk(1);
+  if (out.length < 2) return [];
+  out.sort((a, b) => a.at - b.at);
+  const me = out.findIndex(o => o.at === at);
+  return out.map((o, i) => ({ label: o.label, by: i - me }));
+}
 function renderPlea(id, n, r) {
   const el = nodeEls.get(id); if (!el) return;
   const on = !!r && r.status === 'attention' && isWatchable(n) && (!!r.issue || r.alive);
@@ -69,10 +92,20 @@ function renderPlea(id, n, r) {
       if (m && !seen.has(m[1])) { seen.add(m[1]); picks.push(m); }
     }
     const key_ = (label, k, tip) => h('button', { class: 'fbtn key', title: tip, onclick: ev => { ev.stopPropagation(); send('key', { id, k }); } }, label);
+    // options without numbers (Claude Code's trust dialog: "❯ No, exit" over "Yes, I trust this
+    // folder") are reached with the arrow keys from the highlighted one, then Enter
+    const moves = picks.length ? [] : dialogMoves([...p.q.children].map(d => d.textContent));
     p.opts.replaceChildren(...picks.map(([, num, label]) => h('button', { class: 'fbtn opt', title: `press ${num}`,
-      onclick: ev => { ev.stopPropagation(); send('text', { id, text: num, paste: false }); } }, h('b', {}, num), label)));
-    p.tip.replaceChildren(h('span', {}, picks.length ? 'pick an answer, or open the terminal' : 'answer it in the terminal'),
-      h('span', { class: 'sp' }), key_('enter', 'Enter', 'confirm what is highlighted'), key_('esc', 'Escape', 'cancel the dialog'));
+      onclick: ev => { ev.stopPropagation(); send('text', { id, text: num, paste: false }); } }, h('b', {}, num), label)),
+      ...moves.map(({ label, by }) => h('button', { class: 'fbtn opt', title: by ? `${Math.abs(by)}× ${by > 0 ? '↓' : '↑'}, then enter` : 'enter',
+        onclick: ev => {
+          ev.stopPropagation();
+          for (let i = 0; i < Math.abs(by); i++) send('key', { id, k: by > 0 ? 'Down' : 'Up' });
+          send('key', { id, k: 'Enter' });
+        } }, label)));
+    p.tip.replaceChildren(h('span', {}, picks.length || moves.length ? 'pick an answer, or open the terminal' : 'answer it in the terminal'),
+      h('span', { class: 'sp' }), key_('↑', 'Up', 'highlight the option above'), key_('↓', 'Down', 'highlight the option below'),
+      key_('enter', 'Enter', 'confirm what is highlighted'), key_('esc', 'Escape', 'cancel the dialog'));
   }
 }
 function mkPlea(id) {

@@ -7,7 +7,7 @@ an optional trust dialog, clarifying questions, and the `weft done` completion
 protocol. It is deterministic, instant and free, and it really edits files in the
 textkit example so downstream test steps genuinely pass or fail.
 
-    sim-agent.py [--name NAME] [--think SECONDS] [--trust] [--chatty]
+    sim-agent.py [--name NAME] [--think SECONDS] [--trust | --trust-arrows] [--chatty]
                  [--model M | -m M] [--effort LEVEL | -c model_reasoning_effort=LEVEL]
                  [--dangerously-skip-permissions | --dangerously-bypass-approvals-and-sandbox]
 
@@ -36,6 +36,8 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--name", default="sim")
 ap.add_argument("--think", type=float, default=2.5)
 ap.add_argument("--trust", action="store_true")
+# the trust dialog as Claude Code 2.1.302 draws it: no numbers, "No, exit" highlighted, ↑/↓ then Enter
+ap.add_argument("--trust-arrows", action="store_true")
 ap.add_argument("--chatty", action="store_true")
 # a TUI that is still starting up or reads the Enter as a newline, like the real ones under load
 ap.add_argument("--eat-enter", type=int, default=0, help="read the first N Enters as a newline in the input box")
@@ -606,6 +608,24 @@ def main():
             if b"2" in ch:
                 restore()
                 sys.exit(1)
+        W("\x1b[2J\x1b[H")
+    if args.trust_arrows:
+        opts, sel, trusted = ["No, exit", "Yes, I trust this folder"], 0, False
+        while not trusted:
+            W("\x1b[2J\x1b[H\r\n Accessing workspace:\r\n\r\n " + os.getcwd() + "\r\n\r\n Quick safety check: Is this a project you"
+              " created or one you trust?\r\n\r\n Security guide\r\n\r\n"
+              + "".join((" \x1b[94m❯ %s\x1b[39m\r\n" if i == sel else "   %s\r\n") % o for i, o in enumerate(opts))
+              + "\r\n Enter to confirm · Esc to cancel\r\n")
+            # keys that come in one read are taken one after the other, as Claude Code does
+            for k in re.findall(rb"\x1b\[[AB]|.", os.read(fd, 16), re.S):
+                if k in (b"\x1b[A", b"\x1b[B"):
+                    sel = max(0, min(len(opts) - 1, sel + (1 if k == b"\x1b[B" else -1)))
+                elif k in (b"\r", b"\x1b"):
+                    if k == b"\x1b" or sel == 0:
+                        restore()
+                        sys.exit(1)
+                    trusted = True
+                    break
         W("\x1b[2J\x1b[H")
     tune = "  model=%s effort=%s yolo=%s" % (args.model or "default", args.effort or "default", "on" if YOLO else "off")
     say("\x1b[1m ▐▛███▜▌  SimAgent (%s)\x1b[0m" % args.name, " ▝▜█████▛▘ " + os.getcwd() + tune, "")

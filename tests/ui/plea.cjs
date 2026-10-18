@@ -71,6 +71,25 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(await waitSt(truster, ['ready', 'idle', 'starting'], 15000), 'picked, the agent is ready (' + await st(truster) + ')');
   ok(await waitFor(async () => (await plea(truster).count()) === 0, 5000), 'and the dialog folds away');
 
+  // --- Claude Code 2.1.302 numbers nothing and highlights "No, exit": the Enter of a typed task
+  // picked it and the agent quit. A message waits for the dialog, whose options move there and confirm
+  const doubter = await add({ agent: 'claude', name: 'doubter', cmd: `python3 ${SIM} --name claude --trust-arrows --think 1`, prompt: '', x: 1120, y: 300 });
+  await p.evaluate(id => send('start', { id }), doubter);
+  ok(await waitSt(doubter, ['attention'], 30000), 'an agent at the unnumbered trust dialog needs you (' + await st(doubter) + ')');
+  ok(await waitFor(async () => (await plea(doubter).getAttribute('data-mode').catch(() => '')) === 'dialog', 8000), 'that dialog unfolds under the card');
+  const opts2 = await plea(doubter).locator('.popts .opt').allInnerTexts();
+  ok(opts2.length === 2 && /No, exit/.test(opts2[0]) && /trust this folder/.test(opts2[1]), 'its options are buttons (' + opts2.join(' | ') + ')');
+  await p.evaluate(id => send('send', { id, text: 'Say hello to the folder.', mode: 'auto' }), doubter);
+  await sleep(2500);
+  ok(await st(doubter) === 'attention', 'a message sent meanwhile is not typed into the dialog (' + await st(doubter) + ')');
+  await p.evaluate(id => centerOn(id), doubter); await sleep(400);
+  await p.screenshot({ path: W + '/plea-2b-unnumbered.png' });
+  // (the bar and the git tree may cover it here: the button itself is what is tested)
+  await plea(doubter).locator('.popts .opt').nth(1).dispatchEvent('click');
+  ok(await waitFor(async () => (await plea(doubter).count()) === 0, 8000), 'picked, the dialog folds away');
+  ok(await waitSt(doubter, ['busy'], 15000), 'and the message that waited goes to work (' + await st(doubter) + ')');
+  ok(await waitSt(doubter, ['done'], 30000), 'and comes back done (' + await st(doubter) + ')');
+
   // --- a queued prompt rewired after another agent is asked of that agent
   const step = await add({ agent: 'step', host: asker, name: 'prompt 2', prompt: 'and now wrap.py', x: 1120, y: 560, draft: true });
   await p.evaluate(([a, s]) => send('edge_add', { from: a, to: s }), [asker, step]);

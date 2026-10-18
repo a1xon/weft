@@ -635,10 +635,18 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
         AgentCfg {
             cmd: "claude".into(),
             label: "Claude Code".into(),
-            // the second is the one-time "bypass permissions" acceptance; the last two are its own question
-            // tool (AskUserQuestion: "Enter to select · ↑/↓ to navigate · Esc to cancel", then a review
-            // page): typing into it would pick an answer for the person
-            attention: strings(&["Yes, I trust this folder", "Do you want to proceed?", "Yes, I accept", "Enter to select ·", "Ready to submit your answers?"]),
+            // the second is the one-time "bypass permissions" acceptance; then its own question tool
+            // (AskUserQuestion: "Enter to select · ↑/↓ to navigate · Esc to cancel", then a review
+            // page): typing into it would pick an answer for the person; the last is the footer of the
+            // trust dialog, which since 2.1.302 numbers nothing and highlights "No, exit"
+            attention: strings(&[
+                "Yes, I trust this folder",
+                "Do you want to proceed?",
+                "Yes, I accept",
+                "Enter to select ·",
+                "Ready to submit your answers?",
+                "Enter to confirm · Esc to cancel",
+            ]),
             model_arg: "--model {}".into(),
             models: strings(&["opus", "sonnet", "haiku"]),
             effort_arg: "--effort {}".into(),
