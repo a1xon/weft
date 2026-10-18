@@ -393,11 +393,7 @@ pub(super) struct Rt {
     pub(super) unstarted: Option<(u64, Vec<(String, Input)>)>,
     pub(super) runs: u32,
     pub(super) cause: Cause,
-    /// A user-started run produced a result nobody has been handed yet.
-    pub(super) fresh: bool,
-    /// This agent has fired its links since the last reset.
-    pub(super) propagated: bool,
-    /// links made while it was busy: its next result goes down them even when it is not `propagated`
+    /// links that have yet to get its result: it had none for them yet, or more to do first (`propagate`)
     pub(super) unsent: Vec<String>,
     /// this run answers a gate's (or a step's) request: its result goes there, not down the links
     pub(super) reply_to: Option<String>,
@@ -751,8 +747,6 @@ impl Rt {
             unstarted: None,
             runs: 0,
             cause: Cause::Flow,
-            fresh: false,
-            propagated: false,
             unsent: Vec::new(),
             reply_to: None,
             run_ms: 0,
@@ -814,8 +808,6 @@ impl Rt {
             steps: self.steps.clone(),
             asked: self.asked.clone(),
             cause: self.cause,
-            fresh: self.fresh,
-            propagated: self.propagated,
             unsent: self.unsent.clone(),
             gate: self.gate.held.clone(),
             gate_phase: self.gate.phase,
@@ -869,8 +861,6 @@ impl Rt {
         self.steps = s.steps;
         self.asked = s.asked;
         self.cause = s.cause;
-        self.fresh = s.fresh;
-        self.propagated = s.propagated;
         self.unsent = s.unsent;
         self.gate.held = s.gate;
         self.gate.phase = s.gate_phase;
@@ -1030,7 +1020,6 @@ impl Rt {
         self.runs += 1;
         self.steps.clear();
         self.cause = cause;
-        self.fresh = false;
         self.run_ms = now_ms();
         self.checks.eta_asked = 0;
         self.checks.eta = None;
@@ -1075,8 +1064,6 @@ impl Rt {
         self.output = None;
         self.steps.clear();
         self.asked.clear();
-        self.fresh = false;
-        self.propagated = false;
         self.unsent.clear();
         self.cause = Cause::Flow;
         self.reply_to = None;
@@ -1151,10 +1138,6 @@ pub(super) struct Saved {
     pub(super) asked: String,
     #[serde(default)]
     pub(super) cause: Cause,
-    #[serde(default)]
-    pub(super) fresh: bool,
-    #[serde(default)]
-    pub(super) propagated: bool,
     #[serde(default)]
     pub(super) unsent: Vec<String>,
     #[serde(default)]

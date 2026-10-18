@@ -369,7 +369,7 @@ impl Engine {
             }
             return;
         }
-        let (propagate, unsent) = {
+        {
             let Some(rt) = self.rt.get_mut(id) else { return };
             rt.finished = true;
             rt.armed = true;
@@ -377,15 +377,7 @@ impl Engine {
             rt.ok = Some(ok);
             rt.output = Some(out.clone());
             rt.ui = true;
-            let go = rt.cause == Cause::Flow || !rt.propagated;
-            if go {
-                rt.propagated = true;
-                rt.fresh = false;
-            } else {
-                rt.fresh = true;
-            }
-            (go, std::mem::take(&mut rt.unsent))
-        };
+        }
         self.set_status(id, if ok { Status::Done } else { Status::Failed });
         self.state_dirty = true;
         let last_look: Vec<Check> =
@@ -397,23 +389,9 @@ impl Engine {
             // what links hand on is capped; the whole text stays reachable by path
             let _ = write_atomic(&self.out_path(id), out.as_bytes());
         }
-        if propagate {
-            self.propagate(id, ok, &out);
-        } else {
-            // links made while it worked have had nothing yet: they get this result
-            let name = self.node(id).map(|n| n.name.clone()).unwrap_or_default();
-            let edges: Vec<Edge> =
-                self.flow.edges.iter().filter(|e| e.from == id && e.on.matches(ok) && unsent.contains(&e.id)).cloned().collect();
-            let all = !edges.is_empty() && self.flow.edges.iter().filter(|e| e.from == id && e.on.matches(ok)).count() == edges.len();
-            for e in edges {
-                self.deliver_input(&e, id, &name, ok, &out);
-            }
-            if all {
-                if let Some(rt) = self.rt.get_mut(id) {
-                    rt.fresh = false;
-                }
-            }
-        }
+        // whatever set it to work (the flow, a message from the person, its terminal), what it says
+        // now is its result, and the cards after it take it up
+        self.propagate(id, ok, &out);
         // agents that were waiting for this one to finish can have their handover note now
         let waiting: Vec<String> = self
             .rt
@@ -642,6 +620,8 @@ impl Engine {
             rt.ui = true;
         }
         self.state_dirty = true;
+        // (what waited for that work to be done goes on)
+        self.recheck_joins();
         json!({"ok": true})
     }
 
@@ -664,6 +644,7 @@ impl Engine {
             rt.ui = true;
         }
         self.state_dirty = true;
+        self.recheck_joins();
         json!({"ok": true})
     }
 

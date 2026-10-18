@@ -141,12 +141,31 @@ fn promise_any_fires_once_and_the_loop_guard_stops_runaways() {
     e.cfg.max_runs = 3;
     link(&mut e, "e1", "n1", "n3", On::Done);
     link(&mut e, "e2", "n2", "n3", On::Done);
+    // c feeds b again: a loop
+    link(&mut e, "e3", "n3", "n2", On::Done);
     e.settle("n1", true, "x".into());
     assert_eq!(e.rt["n3"].queue.len(), 1, "any fires on the first input");
     // c "ran" three times already: further automatic triggers are refused
     e.rt.get_mut("n3").unwrap().runs = 3;
     e.settle("n2", true, "y".into());
     assert_eq!(e.rt["n3"].queue.len(), 1, "loop guard caps automatic re-triggers");
+}
+
+#[test]
+fn a_card_on_no_loop_runs_as_often_as_it_is_given_something_new() {
+    // a deploy after a push that pushes all day long
+    let mut e = engine();
+    add(&mut e, "a", "a", "go");
+    add(&mut e, "d", "d", "deploy {{inputs}}");
+    e.cfg.max_runs = 3;
+    link(&mut e, "e1", "a", "d", On::Done);
+    for i in 0..5 {
+        ran(&mut e, "a", &format!("pushed {i}"));
+        let q = queued(&e, "d");
+        assert_eq!(q.len(), 1, "round {i}: {q:?}");
+        assert!(q[0].contains(&format!("pushed {i}")));
+        ran(&mut e, "d", "deployed");
+    }
 }
 
 #[test]
@@ -168,25 +187,28 @@ fn connecting_to_a_settled_agent_delivers_immediately() {
 }
 
 #[test]
-fn a_result_from_chatting_waits_for_a_hand_over() {
+fn a_chat_with_a_done_card_goes_on_down_its_links() {
     let mut e = engine();
     add(&mut e, "n1", "a", "go");
     add(&mut e, "n2", "b", "next {{inputs}}");
+    e.rt.get_mut("n2").unwrap().alive = true;
     link(&mut e, "e1", "n1", "n2", On::Done);
-    // first run is caused by the flow: it propagates
-    e.rt.get_mut("n1").unwrap().cause = Cause::Flow;
     e.settle("n1", true, "first".into());
-    assert_eq!(e.rt["n2"].queue.len(), 1);
-    e.rt.get_mut("n2").unwrap().queue.clear();
-    // the user chats with the settled agent: that run does not cascade
+    assert_eq!(queued(&e, "n2").len(), 1);
+    ran(&mut e, "n2", "b1");
+    // the person sets the settled agent to work again: what follows waits for it, as for any new result
     {
         let r = e.rt.get_mut("n1").unwrap();
         r.finished = false;
+        r.armed = true;
         r.cause = Cause::User;
     }
+    assert_eq!(e.eff_status("n2", &e.blocked_map()), Status::Waiting);
     e.settle("n1", true, "second".into());
-    assert!(e.rt["n2"].queue.is_empty());
-    assert!(e.rt["n1"].fresh, "the result is flagged as not handed over");
+    let q = queued(&e, "n2");
+    assert_eq!(q.len(), 1, "{q:?}");
+    assert!(q[0].contains("second") && !q[0].contains("first"), "{}", q[0]);
+    assert_eq!(e.rt["n2"].queue[0].src, Src::Flow, "and what b says goes on too");
 }
 
 #[test]
@@ -207,18 +229,12 @@ fn a_link_made_while_the_agent_answers_a_chat_gets_that_answer() {
     e.add_edge("n1", "n3", On::Done).unwrap();
     assert!(e.rt["n3"].queue.is_empty(), "nothing to hand on while it works");
     e.settle("n1", true, "second".into());
-    assert_eq!(e.rt["n3"].queue.len(), 1, "the new link gets the answer");
-    assert!(e.rt["n3"].queue[0].text.contains("second"));
-    assert!(e.rt["n2"].queue.is_empty(), "the link that had its result does not get the chat");
-    assert!(e.rt["n1"].fresh);
-    // the next chat stays where it is, as on any link
-    {
-        let r = e.rt.get_mut("n1").unwrap();
-        r.finished = false;
+    for to in ["n2", "n3"] {
+        let q = queued(&e, to);
+        assert_eq!(q.len(), 1, "{to}: {q:?}");
+        assert!(q[0].contains("second"), "{}", q[0]);
     }
-    e.rt.get_mut("n3").unwrap().queue.clear();
-    e.settle("n1", true, "third".into());
-    assert!(e.rt["n3"].queue.is_empty());
+    assert!(e.rt["n1"].unsent.is_empty());
 }
 
 #[test]
@@ -1313,6 +1329,9 @@ fn a_gate_between_the_agent_and_the_commit_still_asks_that_agent() {
     e.flow.nodes.iter_mut().find(|n| n.id == "c").unwrap().draft = false;
     link(&mut e, "e1", "a", "g", On::Done);
     link(&mut e, "e2", "g", "c", On::Ok);
+    // (the agent has its result: the gate took it)
+    e.rt.get_mut("a").unwrap().output = Some("fixed it".into());
+    e.rt.get_mut("a").unwrap().finished = true;
     e.rt.get_mut("g").unwrap().gate.targets = vec!["a".into()];
     e.settle("g", true, "### Output of \"slug\"\nfixed it".into());
     let q: Vec<String> = e.rt["a"].queue.iter().map(|q| q.text.clone()).collect();
@@ -3304,11 +3323,14 @@ fn a_git_step_run_again_takes_up_what_came_in_and_a_gate_with_an_open_round_chec
     e.git_arrival("c", "e1", "a", "slug", false, "could not finish");
     assert_eq!(e.rt["c"].status, Status::Failed);
     assert_eq!(e.cmd_retry("c".into(), String::new(), String::new())["ok"], false, "nothing that came in can be taken up");
-    // the agent did it after all (as it does once it was run again): now the commit can
-    e.rt.get_mut("a").unwrap().propagated = true;
-    e.rt.get_mut("a").unwrap().cause = Cause::User;
-    e.settle("a", true, "slug fixed".into());
-    assert_eq!(e.rt["c"].status, Status::Failed, "(a chat is not handed on)");
+    // the agent did it after all (fixed by hand, nothing came down the link): now the commit can
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.output = Some("slug fixed".into());
+        r.ok = Some(true);
+        r.finished = true;
+    }
+    assert_eq!(e.rt["c"].status, Status::Failed);
     assert_eq!(e.cmd_retry("c".into(), String::new(), String::new())["ok"], true);
     assert!(!e.rt["c"].finished, "a new round");
     assert!(e.rt["a"].queue.iter().any(|q| q.src == Src::Reply("c".into())), "the agent is asked to commit its work");
@@ -3472,25 +3494,26 @@ fn a_branch_that_does_not_go_on_lets_the_junction_go() {
 }
 
 #[test]
-fn a_chat_with_a_card_before_the_junction_does_not_hold_it() {
+fn a_chat_with_a_card_before_the_junction_holds_it() {
     let mut e = engine();
     done_junction(&mut e);
-    // the person asks a something: that answer stays with a, so it is nothing to wait for
+    // the person asks a something: a works again, and t does not start without what it says
     {
         let r = e.rt.get_mut("a").unwrap();
         r.finished = false;
         r.armed = true;
         r.cause = Cause::User;
     }
-    // (a link made meanwhile gets that answer: still nothing that comes to t)
-    add(&mut e, "y", "y", "go");
-    e.add_edge("a", "y", On::Done).unwrap();
-    assert_eq!(e.rt["a"].unsent, vec!["e3".to_string()]);
     add(&mut e, "c", "c", "go");
     ran(&mut e, "c", "C result");
     e.add_edge("c", "t", On::Done).unwrap();
-    assert_eq!(queued(&e, "t").len(), 1);
-    // the same while a works for the flow: then t waits for it
+    assert!(e.rt["t"].queue.is_empty(), "a was green once, but it is at work again");
+    assert_eq!(e.eff_status("t", &e.blocked_map()), Status::Waiting);
+    ran(&mut e, "a", "A chat answer");
+    let q = queued(&e, "t");
+    assert_eq!(q.len(), 1, "{q:?}");
+    assert!(q[0].contains("A chat answer") && q[0].contains("C result") && !q[0].contains("B result"), "{}", q[0]);
+    // the same while a works for the flow
     let mut e = engine();
     done_junction(&mut e);
     e.rt.get_mut("a").unwrap().queue.push_back(QItem { id: 9, text: "again".into(), shown: "again".into(), src: Src::Flow });
@@ -3840,14 +3863,12 @@ fn a_done_card_waits_again_while_a_new_result_comes_down_its_link() {
     ran(&mut e, "a", "plan v1");
     ran(&mut e, "b", "built v1");
     assert_eq!(e.eff_status("b", &HashMap::new()), Status::Done);
-    // a person chatting with the card before it changes nothing down its link
+    // the card before it works again (here a person chats with it): b is no longer done, and what is
+    // typed into it waits
     {
         let r = e.rt.get_mut("a").unwrap();
         (r.cause, r.armed, r.finished) = (Cause::User, true, false);
     }
-    assert_eq!(e.eff_status("b", &HashMap::new()), Status::Done);
-    // the card before it runs again in the flow: b is no longer done, and what is typed into it waits
-    e.rt.get_mut("a").unwrap().cause = Cause::Flow;
     assert_eq!(e.eff_status("b", &HashMap::new()), Status::Waiting);
     e.cmd_send("b".into(), "also add a test".into(), SendMode::Auto, true);
     assert_eq!(e.rt["b"].status, Status::Done, "not started on what was typed");
@@ -3933,7 +3954,7 @@ fn a_junction_at_three_of_four_is_not_done_and_nothing_after_it_runs_before_it_d
 }
 
 #[test]
-fn a_card_at_work_for_the_flow_makes_every_card_after_it_wait_again() {
+fn a_card_at_work_again_makes_every_card_after_it_wait_again() {
     let mut e = engine();
     for id in ["a", "b", "c"] {
         add(&mut e, id, id, "go {{inputs}}");
@@ -3943,14 +3964,12 @@ fn a_card_at_work_for_the_flow_makes_every_card_after_it_wait_again() {
     for id in ["a", "b", "c"] {
         ran(&mut e, id, &format!("{id}1"));
     }
-    // a chat with a: its answer stays with it, so nothing after it changes
+    // a works again (a chat with it as much as the flow): every card after it waits, and so does
+    // one linked after them now
     {
         let r = e.rt.get_mut("a").unwrap();
         (r.cause, r.armed, r.finished) = (Cause::User, true, false);
     }
-    assert_eq!((shown(&e, "b"), shown(&e, "c")), (Status::Done, Status::Done));
-    // a runs again for the flow: every card after it waits, and so does one linked after them now
-    e.rt.get_mut("a").unwrap().cause = Cause::Flow;
     assert_eq!((shown(&e, "b"), shown(&e, "c")), (Status::Waiting, Status::Waiting));
     add(&mut e, "d", "d", "go {{inputs}}");
     e.add_edge("c", "d", On::Done).unwrap();
@@ -4078,4 +4097,155 @@ fn a_lone_card_that_goes_quiet_on_a_question_asks_the_person() {
     assert!(!e.rt["a"].finished, "it asked, so it is not done");
     assert_eq!(e.rt["a"].issue.as_deref(), Some("Want me to fix Safari as well?"));
     assert!(e.rt["a"].cur.as_ref().and_then(|c| c.report.as_deref()).is_some_and(|r| r.contains("Fixed the flicker")));
+}
+
+fn add_step(e: &mut Engine, id: &str, host: &str, prompt: &str) {
+    let mut st = node(id, id, prompt);
+    st.agent = "step".into();
+    st.host = host.into();
+    e.flow.nodes.push(st);
+    e.rt.insert(id.into(), Rt::new(80, 24));
+}
+
+/// The agent takes up the prompt at the front of its queue, for a queued-prompt card, and answers it.
+fn answer(e: &mut Engine, agent: &str, out: &str) {
+    {
+        let r = e.rt.get_mut(agent).unwrap();
+        let q = r.queue.pop_front().expect("a queued prompt");
+        let Src::Reply(step) = q.src else { panic!("not a queued prompt: {:?}", q.src) };
+        r.reply_to = Some(step);
+        r.finished = false;
+    }
+    e.settle(agent, true, out.into());
+}
+
+#[test]
+fn what_follows_a_card_waits_for_the_prompts_queued_on_it() {
+    // the user's rubbermetrics n100: green once, but a prompt queued on it while it worked is still
+    // to be answered; the agent and the commit after it wait for that
+    let mut e = engine();
+    alive_agent(&mut e, "a", "hero");
+    add_step(&mut e, "s", "a", "also fix the feed");
+    add(&mut e, "b", "b", "test {{inputs}}");
+    e.rt.get_mut("b").unwrap().alive = true;
+    git_node(&mut e, "c", "commit", "commit");
+    link(&mut e, "e1", "a", "b", On::Done);
+    link(&mut e, "e2", "a", "c", On::Done);
+    link(&mut e, "e3", "a", "s", On::Done);
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.armed = true;
+        r.runs = 1;
+    }
+    e.settle("a", true, "hero done".into());
+    assert_eq!(e.rt["a"].queue.len(), 1, "only the queued prompt is asked: {:?}", queued(&e, "a"));
+    assert_eq!(e.rt["a"].queue[0].src, Src::Reply("s".into()));
+    assert!(e.rt["b"].queue.is_empty() && e.rt["b"].inputs.is_empty(), "b does not start");
+    assert!(e.rt["c"].git.seen.is_empty(), "nothing is committed yet");
+    assert!(e.waits_for_links("b") && e.waits_for_links("c"));
+    answer(&mut e, "a", "feed fixed");
+    assert_eq!(e.rt["s"].output.as_deref(), Some("feed fixed"));
+    assert_eq!(e.rt["a"].output.as_deref(), Some("hero done"), "a's own result is what goes on");
+    let q = queued(&e, "b");
+    assert_eq!(q.len(), 1, "{q:?}");
+    assert!(q[0].contains("hero done"), "{}", q[0]);
+    assert_eq!(e.rt["c"].git.seen, vec!["e2".to_string()], "now it is committed");
+    assert!(e.rt["a"].queue.iter().any(|q| q.src == Src::Reply("c".into())), "a commits all of it");
+    assert!(e.rt["a"].unsent.is_empty());
+}
+
+#[test]
+fn a_card_linked_after_one_that_answers_a_queued_prompt_waits_for_it() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "hero");
+    add_step(&mut e, "s", "a", "also fix the feed");
+    ran(&mut e, "a", "hero done");
+    e.add_edge("a", "s", On::Done).unwrap();
+    assert_eq!(e.rt["a"].queue[0].src, Src::Reply("s".into()));
+    // a takes it up; meanwhile a new card is linked after a
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.queue.clear();
+        r.reply_to = Some("s".into());
+        r.finished = false;
+    }
+    add(&mut e, "b", "b", "test {{inputs}}");
+    e.rt.get_mut("b").unwrap().alive = true;
+    assert_eq!(e.add_edge("a", "b", On::Done), Ok(false));
+    assert!(e.rt["b"].queue.is_empty(), "a was green once, but it has more to do");
+    assert!(e.waits_for_links("b"));
+    e.settle("a", true, "feed fixed".into());
+    let q = queued(&e, "b");
+    assert_eq!(q.len(), 1, "{q:?}");
+    assert!(q[0].contains("hero done") && !q[0].contains("feed fixed"), "{}", q[0]);
+}
+
+#[test]
+fn a_chain_of_queued_prompts_is_answered_before_what_follows_the_agent() {
+    // a -> s1 -> s2, all asked of a; b after a waits for both, and s1 does not wait for s2
+    let mut e = engine();
+    alive_agent(&mut e, "a", "hero");
+    add_step(&mut e, "s1", "a", "one more");
+    add_step(&mut e, "s2", "a", "and another");
+    add(&mut e, "b", "b", "test {{inputs}}");
+    e.rt.get_mut("b").unwrap().alive = true;
+    link(&mut e, "e1", "a", "b", On::Done);
+    link(&mut e, "e2", "a", "s1", On::Done);
+    link(&mut e, "e3", "s1", "s2", On::Done);
+    ran(&mut e, "a", "A1");
+    assert_eq!(e.rt["a"].queue.iter().map(|q| q.src.clone()).collect::<Vec<_>>(), vec![Src::Reply("s1".into())]);
+    assert!(e.rt["b"].queue.is_empty());
+    answer(&mut e, "a", "S1");
+    assert_eq!(e.rt["a"].queue.iter().map(|q| q.src.clone()).collect::<Vec<_>>(), vec![Src::Reply("s2".into())]);
+    assert!(e.rt["b"].queue.is_empty(), "s2 is still to be answered");
+    answer(&mut e, "a", "S2");
+    let q = queued(&e, "b");
+    assert_eq!(q.len(), 1, "{q:?}");
+    assert!(q[0].contains("A1"), "{}", q[0]);
+    // prompts queued side by side on the agent wait in its queue, not for each other
+    let mut e = engine();
+    alive_agent(&mut e, "a", "hero");
+    add_step(&mut e, "s1", "a", "one more");
+    add_step(&mut e, "s2", "a", "and another");
+    link(&mut e, "e1", "a", "s1", On::Done);
+    link(&mut e, "e2", "a", "s2", On::Done);
+    ran(&mut e, "a", "A1");
+    assert_eq!(e.rt["a"].queue.len(), 2);
+}
+
+#[test]
+fn what_a_done_agent_is_told_in_its_terminal_goes_on_too() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "a");
+    add(&mut e, "b", "b", "next {{inputs}}");
+    e.rt.get_mut("b").unwrap().alive = true;
+    link(&mut e, "e1", "a", "b", On::Done);
+    ran(&mut e, "a", "first");
+    ran(&mut e, "b", "b1");
+    e.rt.get_mut("a").unwrap().keyed = "also do y".into();
+    e.keyed("a", "Enter");
+    assert_eq!(e.rt["a"].status, Status::Busy);
+    assert!(e.waits_for_links("b"), "b waits for a again");
+    e.step_done("a", true, Some("did y".into()), How::Signal);
+    let q = queued(&e, "b");
+    assert_eq!(q.len(), 1, "{q:?}");
+    assert!(q[0].contains("did y") && !q[0].contains("first"), "{}", q[0]);
+}
+
+#[test]
+fn deleting_the_prompt_queued_on_a_card_lets_what_follows_go() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "hero");
+    add_step(&mut e, "s", "a", "also fix the feed");
+    add(&mut e, "b", "b", "test {{inputs}}");
+    e.rt.get_mut("b").unwrap().alive = true;
+    link(&mut e, "e1", "a", "b", On::Done);
+    link(&mut e, "e2", "a", "s", On::Done);
+    ran(&mut e, "a", "hero done");
+    assert!(e.rt["b"].queue.is_empty());
+    e.cmd(None, Cmd::NodeDel { id: "s".into() });
+    assert!(e.rt["a"].queue.is_empty());
+    let q = queued(&e, "b");
+    assert_eq!(q.len(), 1, "{q:?}");
+    assert!(q[0].contains("hero done"), "{}", q[0]);
 }

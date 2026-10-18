@@ -88,7 +88,7 @@ async function updateReaderLive(force) {
   r0.st.innerHTML = ICON[rt ? rt.status : 'new'] || ICON.new; r0.st.style.color = 'var(--i2)';
   r0.stx.textContent = statusText(n, rt);
   const busy = !!(rt && (rt.status === 'busy' || rt.status === 'starting'));
-  const key = rt ? [rt.out_n, rt.ok, rt.steps, rt.asked, rt.fresh, busy, rt.issue, rt.report, rt.out && rt.out.slice(0, 200)].join('\u0001') : '';
+  const key = rt ? [rt.out_n, rt.ok, rt.steps, rt.asked, busy, rt.issue, rt.report, rt.out && rt.out.slice(0, 200)].join('\u0001') : '';
   if (!force && key === RD.key) return;
   RD.key = key;
   const seq = ++RD.seq;
@@ -108,7 +108,6 @@ async function updateReaderLive(force) {
   body.replaceChildren(...nn([
     issue ? h('div', { class: 'rissue' }, h('h3', {}, `${n.name} asks you`), h('div', { class: 'cli' }, cliView(issue, asked))) : null,
     busy && RD.text ? h('p', { class: 'note rwork' }, `${n.name} is working: this is its answer from before, the next one shows here when it is in.`) : null,
-    rt && rt.fresh ? h('p', { class: 'note rfresh' }, 'You started this run by chatting, so it has not been handed on: hand it over, or drag the card\u2019s \u25c7 to another agent.') : null,
     r.asked ? h('details', { class: 'rask' }, h('summary', {}, h('span', { class: 'rk' }, 'asked '), r.asked.split('\n').find(l => l.trim()) || ''),
       h('div', { class: 'cli dim' }, cliView(r.asked))) : null,
     h('div', { class: 'cli ' + (r.status === false ? 'bad' : RD.text ? 'ok' : 'dim') }, RD.text ? cliView(RD.text, blocks) : '(no result yet)'),

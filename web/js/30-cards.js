@@ -32,9 +32,8 @@ function mkNode(n) {
   el.live = h('div', { class: 'live', title: 'click to open the terminal large' }, el.pvin);
   el.lA = h('button', { class: 'lt' }, 'result');
   el.lL = h('button', { class: 'lt' }, 'live');
-  el.hand = h('div', { class: 'handnote', hidden: true }, 'result ready — drag ◇ to hand it on');
   el.lens = h('div', { class: 'lens' }, el.lA, el.lL);
-  el.body = h('div', { class: 'body' }, el.ans, el.live, el.hand, el.lens);
+  el.body = h('div', { class: 'body' }, el.ans, el.live, el.lens);
   el.stx = h('span', { class: 'stx' });
   el.q = h('button', { class: 'qchip', hidden: true, title: 'queued prompts: select the agent to manage them' });
   el.bRun = h('button', { class: 'ib', html: ICON.play });
@@ -337,7 +336,6 @@ function renderNode(id) {
   el.root.dataset.st = st;
   el.root.dataset.kind = k;
   el.root.classList.toggle('sel', S.sel.has(id));
-  el.root.classList.toggle('fresh', !!(r && r.fresh));
   const iconKey = k === 'agent' ? st : k;
   if (el._icon !== iconKey) { el._icon = iconKey; el.st.innerHTML = ICON[iconKey] || ICON.new; }
   if (el.nm.textContent !== n.name && !el.renaming) { el.nm.textContent = n.name; el.nm.title = n.name + ' · double-click to rename'; }
@@ -368,7 +366,6 @@ function renderNode(id) {
   el.lL.classList.toggle('on', lens === 'live');
   el.ans.hidden = lens !== 'ans';
   el.live.hidden = lens !== 'live';
-  el.hand.hidden = !(r && r.fresh && lens === 'ans' && k === 'agent');
   const rows = r && r.pv && r.pv.length ? r.pv : null;
   const liveKey = rows ? rows.join('\n') : 'none';
   if (liveKey !== el._liveKey) {

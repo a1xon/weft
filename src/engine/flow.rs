@@ -3,11 +3,26 @@
 use super::*;
 
 impl Engine {
-    /// Fire every outgoing link whose condition matches.
+    /// Fire every outgoing link whose condition matches. A link whose result is not final yet (the
+    /// card still has prompts queued on it to answer, a card before it works) keeps it in `unsent`
+    /// until it is: `recheck_joins` hands it on then.
     pub(super) fn propagate(&mut self, id: &str, ok: bool, out: &str) {
         let Some(name) = self.node(id).map(|n| n.name.clone()) else { return };
-        let edges: Vec<Edge> = self.flow.edges.iter().filter(|e| e.from == id && e.on.matches(ok)).cloned().collect();
+        let mut edges: Vec<Edge> = self.flow.edges.iter().filter(|e| e.from == id && e.on.matches(ok)).cloned().collect();
+        // the prompts queued on the same agent go first: they are its work, and what is linked after
+        // it waits for them
+        let agent = self.resolve_host(id);
+        edges.sort_by_key(|e| !self.node(&e.to).is_some_and(|n| n.kind() == Kind::Step && n.host == agent));
         for e in edges {
+            if self.pending(&e) {
+                if let Some(r) = self.rt.get_mut(id).filter(|r| !r.unsent.contains(&e.id)) {
+                    r.unsent.push(e.id.clone());
+                }
+                continue;
+            }
+            if let Some(r) = self.rt.get_mut(id) {
+                r.unsent.retain(|u| *u != e.id);
+            }
             self.deliver_input(&e, id, &name, ok, out);
         }
     }
@@ -67,7 +82,6 @@ impl Engine {
             rt.ok = Some(true);
             rt.output = Some(text.clone());
             rt.armed = true;
-            rt.propagated = true;
             rt.ui = true;
             rt.set_status(Status::Done);
         }
@@ -99,10 +113,10 @@ impl Engine {
         let rt = &self.rt[to];
         let fresh = |e: &Edge| rt.inputs.iter().any(|(i, _)| *i == e.id);
         let have = incoming.iter().filter(|e| fresh(e)).count();
-        // (what came down a link whose card has a newer result on the way is not final: it waits for that)
+        // (what came down a link whose card has more to do is not final: it waits for that)
         let ready = match node.join {
-            Join::All => incoming.iter().all(|e| (fresh(e) && !self.coming(e)) || self.resolved(e)),
-            Join::Any => true,
+            Join::All => incoming.iter().all(|e| (fresh(e) && !self.pending(e)) || self.resolved(e)),
+            Join::Any => incoming.iter().any(|e| fresh(e) && !self.pending(e)),
         };
         if have > 0 && ready {
             self.trigger(to, false);
@@ -110,22 +124,27 @@ impl Engine {
     }
 
     /// Is what came down this link final for now: its card has a result the link takes, and neither
-    /// it nor a card before it works on a new one? (A card the person chats with keeps the result its
-    /// links had: the answer to the chat stays with it.)
+    /// it nor a card before it has more to do (`pending`)?
     pub(super) fn resolved(&self, e: &Edge) -> bool {
         let Some(src) = self.rt.get(&e.from) else { return false };
         let ok = src.ok.unwrap_or(true);
         // (a git step builds on what came in: a failed one there is nothing to commit or push)
         let git = self.node(&e.to).is_some_and(|n| n.kind() == Kind::Git);
-        src.output.is_some() && e.on.matches(ok) && (ok || !git) && !self.coming(e)
+        src.output.is_some() && e.on.matches(ok) && (ok || !git) && !self.pending(e)
+    }
+
+    /// Is a result held back at the link's card until that has done everything it was given?
+    fn held(&self, e: &Edge) -> bool {
+        // (one whose card ended the other way never gets it)
+        self.rt.get(&e.from).is_some_and(|r| r.unsent.contains(&e.id) && (!r.finished || e.on.matches(r.ok.unwrap_or(true))))
     }
 
     /// Does a card wait for its links: it holds only some of what a new round needs (a junction at
-    /// 3/4), a new result is on its way down one of them, or a card before it has not finished (one
-    /// added there, or a junction further up that waits)? Then what it had is not final: it is not
-    /// shown done, a card linked after it gets its next result, not this one, and what is typed into
-    /// it waits with it (a deploy before its push). Before it has run, it waits until what it needs
-    /// has all come.
+    /// 3/4), a new result is on its way down one of them (or held back at its card until that has
+    /// answered what is queued on it), or a card before it has not finished (one added there, or a
+    /// junction further up that waits)? Then what it had is not final: it is not shown done, a card
+    /// linked after it gets its next result, not this one, and what is typed into it waits with it (a
+    /// deploy before its push). Before it has run, it waits until what it needs has all come.
     pub(super) fn waits_for_links(&self, id: &str) -> bool {
         let (Some(node), Some(rt)) = (self.node(id), self.rt.get(id)) else { return false };
         if node.draft || node.kind() == Kind::Note {
@@ -138,7 +157,7 @@ impl Engine {
         if !incoming.is_empty() && self.part_in(id) {
             return true;
         }
-        if incoming.iter().any(|e| !fresh(e) && self.coming(e)) {
+        if incoming.iter().any(|e| (!fresh(e) && self.coming(e)) || self.held(e)) {
             return true;
         }
         let ins = |e: &&Edge| fresh(e) || self.resolved(e);
@@ -155,13 +174,25 @@ impl Engine {
     /// card before it does, or one of them has not finished (`unfinished`). A loop back through the
     /// card it leads to does not count.
     fn coming(&self, e: &Edge) -> bool {
+        self.ahead(e, false)
+    }
+
+    /// Is what this link carries not final yet: a new result is `coming`, or its card (or one before
+    /// it) still has prompts queued on it to answer? What follows waits until it has done everything
+    /// it was given: that work changes the files too, and a commit or a test run after it would miss
+    /// it. (A prompt queued after the link's own end waits for this card, not the other way round.)
+    pub(super) fn pending(&self, e: &Edge) -> bool {
+        self.ahead(e, true)
+    }
+
+    fn ahead(&self, e: &Edge, queued: bool) -> bool {
         let mut seen = std::collections::HashSet::new();
-        let mut todo = vec![(e.from.clone(), e.id.clone())];
-        while let Some((at, via)) = todo.pop() {
+        let mut todo = vec![e.from.clone()];
+        while let Some(at) = todo.pop() {
             if at == e.to || !seen.insert(at.clone()) {
                 continue;
             }
-            if self.at_work(&at, &via) {
+            if self.at_work(&at) || (queued && self.answers_queued(&at, &e.to)) {
                 return true;
             }
             // (one that waits for what this link leads to is after it, in a loop, not before it)
@@ -172,9 +203,21 @@ impl Engine {
             if self.node(&at).is_none_or(|n| n.draft) {
                 continue;
             }
-            todo.extend(self.flow.edges.iter().filter(|x| x.to == at).map(|x| (x.from.clone(), x.id.clone())));
+            todo.extend(self.flow.edges.iter().filter(|x| x.to == at).map(|x| x.from.clone()));
         }
         false
+    }
+
+    /// Does the agent answer, or have queued, a prompt of a queued-prompt card other than `to` and the
+    /// cards after it?
+    fn answers_queued(&self, id: &str, to: &str) -> bool {
+        let Some(r) = self.rt.get(id) else { return false };
+        // (its own queued prompts wait in its queue, one after the other, not for each other)
+        if self.node(to).is_some_and(|n| n.kind() == Kind::Step && n.host == id) {
+            return false;
+        }
+        let other = |s: &str| s != to && self.node(s).is_some_and(|n| n.kind() == Kind::Step) && !self.leads_to(to, s);
+        r.reply_to.as_deref().is_some_and(other) || r.queue.iter().any(|q| matches!(&q.src, Src::Reply(s) if other(s)))
     }
 
     /// Has the card no final result yet: it has never run (a task added before the cards after it),
@@ -194,6 +237,11 @@ impl Engine {
         }
     }
 
+    /// Does a path of links lead from the card back to it?
+    fn in_loop(&self, id: &str) -> bool {
+        self.flow.edges.iter().any(|e| e.from == id && self.leads_to(&e.to, id))
+    }
+
     /// Does a path of links lead from `from` to `to`?
     fn leads_to(&self, from: &str, to: &str) -> bool {
         let mut seen = std::collections::HashSet::new();
@@ -209,10 +257,11 @@ impl Engine {
         false
     }
 
-    /// Is the card working on a result that will go down its link `via` (or queued to)? What an agent
-    /// answers for a queued prompt or a gate goes there, and an answer to a chat after its links had
-    /// their result goes only to links made since: none of that comes down the others.
-    fn at_work(&self, id: &str, via: &str) -> bool {
+    /// Is the card working on a result that will go down its links (or is one queued)? Whatever it
+    /// was given counts, the flow's task as much as a message from the person that set it to work
+    /// again. What an agent answers for a queued prompt or for weft (a commit, a check, a handover
+    /// note) goes to who asked, not down its links.
+    fn at_work(&self, id: &str) -> bool {
         let (Some(n), Some(r)) = (self.node(id), self.rt.get(id)) else { return false };
         match n.kind() {
             Kind::Note => false,
@@ -223,13 +272,8 @@ impl Engine {
             }
             k if k.is_gate() => !r.finished && r.gate.held.is_some(),
             _ => {
-                let hands_on = |cause: Cause| cause == Cause::Flow || !r.propagated || r.unsent.iter().any(|u| u == via);
-                let works = r.armed && !r.finished && r.reply_to.is_none() && hands_on(r.cause);
-                let queued = r.queue.iter().any(|q| match q.src {
-                    Src::Flow => true,
-                    Src::You => hands_on(Cause::User),
-                    Src::Reply(_) => false,
-                });
+                let works = r.armed && !r.finished && r.reply_to.is_none();
+                let queued = r.queue.iter().any(|q| !matches!(q.src, Src::Reply(_)));
                 works || queued || r.hand.phase != HandPhase::None
             }
         }
@@ -237,8 +281,25 @@ impl Engine {
 
     /// A card settled. It may have been what a junction still waited for, also when nothing came
     /// down its links (a failure on an "only if it succeeds" link, or a card before it that did not
-    /// run on): the junctions that hold inputs look again.
+    /// run on): results held back at a card that had more to do go on, and the junctions that hold
+    /// inputs look again.
     pub(super) fn recheck_joins(&mut self) {
+        let due: Vec<Edge> = self
+            .flow
+            .edges
+            .iter()
+            .filter(|e| self.rt.get(&e.from).is_some_and(|r| r.unsent.contains(&e.id)) && !self.pending(e))
+            .cloned()
+            .collect();
+        for e in due {
+            let Some(r) = self.rt.get_mut(&e.from) else { continue };
+            r.unsent.retain(|u| *u != e.id);
+            let (Some(out), ok) = (r.output.clone(), r.ok.unwrap_or(true)) else { continue };
+            if e.on.matches(ok) {
+                let name = self.node(&e.from).map(|n| n.name.clone()).unwrap_or_default();
+                self.deliver_input(&e, &e.from, &name, ok, &out);
+            }
+        }
         let held: Vec<String> = self.rt.iter().filter(|(_, r)| !r.inputs.is_empty()).map(|(i, _)| i.clone()).collect();
         for id in held {
             if self.node(&id).is_some_and(|n| n.kind() != Kind::Git) {
@@ -300,7 +361,9 @@ impl Engine {
             _ => Vec::new(),
         };
         let runs = self.rt.get(id).map_or(0, |r| r.runs);
-        let looping = node.kind() == Kind::Agent && !manual && runs >= self.cfg.max_runs;
+        // (only a card on a loop can be set off again and again by the flow alone; one that is not
+        // runs as often as the cards before it give it something new)
+        let looping = node.kind() == Kind::Agent && !manual && runs >= self.cfg.max_runs && self.in_loop(id);
         // what arrives before the card has taken up what it was given last goes out with that, as one
         let (joined, at) = if looping { (Vec::new(), None) } else { self.take_unstarted(id) };
         let taken = {
@@ -453,7 +516,6 @@ impl Engine {
         if let Some(rt) = self.rt.get_mut(id) {
             rt.step_wait = None;
             rt.cause = Cause::Flow;
-            rt.propagated = false;
         }
         self.settle(id, ok, text.to_string());
     }

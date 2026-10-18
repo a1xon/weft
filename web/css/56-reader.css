@@ -32,7 +32,7 @@
 .cli .mt th{color:var(--i0);font-weight:700}
 
 .rask{max-width:124ch;margin:0 0 16px}
-#reader .rfresh,#reader .rwork{margin:0 0 12px;color:var(--cy)}
+#reader .rwork{margin:0 0 12px;color:var(--cy)}
 
 /* questions the answer asks you: a violet line beside them, quick answers that go into the bar */
 .cli .qb{position:relative}

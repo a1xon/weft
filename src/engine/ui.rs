@@ -140,7 +140,7 @@ impl Engine {
             "t": "rt", "id": id, "status": status, "alive": rt.alive, "armed": rt.armed,
             "runs": rt.runs, "since": rt.since, "arrived": arrived, "need": need, "ok": rt.ok,
             "out": out, "out_n": rt.output.as_ref().map_or(0, |o| o.len()), "wt": rt.worktree,
-            "queue": queue, "asked": head_chars(rt.asked.trim(), 300), "fresh": rt.fresh,
+            "queue": queue, "asked": head_chars(rt.asked.trim(), 300),
             "cause": rt.cause, "blocked": blocked.get(id), "steps": rt.steps.len(),
             "step_now": rt.cur.is_some(), "pv": pv,
             "gate": rt.gate.held.as_deref().map(|g| head_chars(g, 700)), "git": git,

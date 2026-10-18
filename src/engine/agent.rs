@@ -334,7 +334,6 @@ impl Engine {
                     rt.runs += 1;
                     rt.steps.clear();
                     rt.cause = Cause::Flow;
-                    rt.fresh = false;
                     rt.cur = Some(Step::new(String::new(), Vec::new()));
                 } else {
                     rt.armed = false;

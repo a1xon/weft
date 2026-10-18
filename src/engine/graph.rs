@@ -157,31 +157,26 @@ impl Engine {
             self.rehost(to, &agent);
         }
         self.flow_changed();
-        // an agent that has a result hands it over, also while it is busy answering a queued prompt
-        // (that answer goes to its step; its own result stays what it was); not while a card before
-        // it has not finished: that result is not final, the link gets the next one
+        // a card that has a result hands it over (also while it answers weft's own request, which
+        // goes back to weft); not while it or a card before it has more to do: that result is not
+        // final, the link gets it once they are done (a prompt queued on it, `recheck_joins`) or the
+        // next one (`propagate`)
+        let e = self.flow.edges.iter().find(|e| e.id == eid).cloned().unwrap();
         let settled = self
             .rt
             .get(from)
             .and_then(|r| if r.finished || r.reply_to.is_some() { r.output.clone().map(|o| (o, r.ok.unwrap_or(true))) } else { None })
-            .filter(|_| !self.waits_for_links(from));
+            .filter(|_| !self.pending(&e));
         let arrived = self.rt.get(to).is_some_and(|r| r.inputs.iter().any(|(i, _)| *i == eid));
-        if let (Some((out, ok)), false) = (settled, arrived) {
+        if let (Some((out, ok)), false) = (settled.clone(), arrived) {
             // a link that took this result before (only its condition changed) does not hand it on twice
             if on.matches(ok) && !was.is_some_and(|w| w.matches(ok)) {
                 let name = self.node(from).map(|n| n.name.clone()).unwrap_or_default();
-                let e = self.flow.edges.iter().find(|e| e.id == eid).cloned().unwrap();
-                if let Some(r) = self.rt.get_mut(from) {
-                    r.fresh = false;
-                    r.propagated = true;
-                }
                 self.deliver_input(&e, from, &name, ok, &out);
                 return Ok(true);
             }
         }
-        // linked while busy: the result it is working on goes down this link when it comes,
-        // also if it answers what the person typed after its links had fired
-        if new && !arrived {
+        if new && !arrived && settled.is_none() {
             if let Some(r) = self.rt.get_mut(from) {
                 r.unsent.push(eid);
             }
@@ -413,6 +408,8 @@ impl Engine {
     pub(super) fn cmd_node_del(&mut self, id: String) -> Value {
         self.drop_node(&id, true);
         self.flow_changed();
+        // (what waited for it, or for the links it took along, goes on)
+        self.recheck_joins();
         json!({"ok": true})
     }
 
@@ -485,6 +482,7 @@ impl Engine {
         }
         // (a queued prompt whose agent is no longer behind it follows the link that is left: `reconcile_hosts`)
         self.flow_changed();
+        self.recheck_joins();
         json!({"ok": true})
     }
 
@@ -504,8 +502,6 @@ impl Engine {
             }
         }
         if let Some(r) = self.rt.get_mut(&from) {
-            r.fresh = false;
-            r.propagated = true;
             r.ui = true;
         }
         json!({"ok": true})

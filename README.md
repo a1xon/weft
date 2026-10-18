@@ -85,14 +85,22 @@ A link that delivered stays delivered, like a promise that resolved before. Link
 finished junction and it waits for that one alone, then runs again with only the new result (its
 session still has the others, and the note rides along) and hands its answer down the same chain.
 While a card before it works on something new, it waits for that too, so a round started further
-up still meets in one run; it shows *waiting* again meanwhile, not *done*. No card is *done* while
-anything before it is unfinished: a card at work for the flow, a task added before it that has not
-run yet, a junction that holds only some of a new round (*waiting · 3/4 in*, a push whose commits
-are not all in). That goes all the way down the chain, and a card linked after one of them gets
-its next result, not the one it had. A message typed into a
-card that waits for its links (a deploy before its push is in) does not start it: it goes in after
-the card's own task once they are in. An agent whose process has ended starts a new session, which is given
-every result again. A gate holds only what is new; a push is described below.
+up still meets in one run; it shows *waiting* again meanwhile, not *done*. Whatever sets a finished
+card to work again (the flow, a message from you in the bar or in its terminal, a retry), what it
+answers is its new result and goes down its links: the cards after it run again with only that.
+No card starts, or is *done*, while anything before it is unfinished: a card at work again, a task
+added before it that has not run yet, a junction that holds only some of a new round (*waiting ·
+3/4 in*, a push whose commits are not all in), or a card that was green but still has prompts
+queued on it (*same agent* cards) to answer. Then what follows it (another agent, a commit, a
+deploy) waits until it has answered them all and gets its result then, so a commit after it takes
+that work too; what it answered for a queued prompt goes on from that card. That goes all the way
+down the chain, and a card linked after one of them gets its next result, not the one it had. A
+message typed into a card that waits for its links (a deploy before its push is in) does not start
+it: it goes in after the card's own task once they are in. An agent whose process has ended starts
+a new session, which is given every result again. A gate holds only what is new; a push is
+described below. Only a card on a loop is no longer started by the flow once it has run `max_runs`
+(25) times (*Loop guard*: run it by hand, or reset); one on no loop runs as often as the cards
+before it give it something new.
 
 ### For each: one agent per job
 
@@ -127,7 +135,7 @@ option (after a PR: the next agent), letting go adds it at once.
 
 | Slice | What | Context |
 | --- | --- | --- |
-| **right** | **queue a prompt.** A *same agent* card appears; its prompt is asked of the very same agent in its own session, and the **answer comes back into that card** (and goes on from there). The agent's own result is left as it was. Rewire the card after another agent (or after a gate on one) and it is asked of that agent, and so are the cards behind it. An agent is not sent back what it said itself in that session, only what comes from elsewhere. | everything it knows |
+| **right** | **queue a prompt.** A *same agent* card appears; its prompt is asked of the very same agent in its own session, and the **answer comes back into that card** (and goes on from there). The agent's own result is left as it was, and what is linked after the agent waits until it has answered. Rewire the card after another agent (or after a gate on one) and it is asked of that agent, and so are the cards behind it. An agent is not sent back what it said itself in that session, only what comes from elsewhere. | everything it knows |
 | **lower left** | **hand off.** A draft agent that will take over the work; on enter the old agent writes the handover note | a fresh session plus the note |
 | **upper left** | **git**: commit, push or open a PR (below) | |
 
@@ -626,7 +634,8 @@ numbered options as buttons (plus enter / esc), or an agent's question (below), 
 scrollable, with an answer box under it. Enter on the selected card puts the cursor there. Answering
 in its terminal works too: once nothing is open any more the card shows what it did before.
 Something new typed into a finished agent's terminal on the canvas (and Enter) makes it work again,
-like a message from the bar: the card is busy, the run counts, and its answer is the new result.
+like a message from the bar: the card is busy, the run counts, and its answer is the new result,
+which goes down its links like any other.
 
 ### Silence is not an answer
 
