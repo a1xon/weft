@@ -28,8 +28,37 @@ impl Engine {
         self.boot.dir.join(".weft").join("shots")
     }
 
+    /// Where a round's screenshot goes. The name says when the round opened: a gate that runs again
+    /// asks for a new file, and a page never shows the image it keeps of an earlier round instead.
     pub(super) fn shot_path(&self, gate: &str, round: u32, src: &str) -> PathBuf {
-        self.shots_dir().join(format!("{gate}-r{round}-{src}.png"))
+        match self.rt.get(gate).map_or(0, |r| r.gate.opened) {
+            // (a round an older build opened told the agent the name without it)
+            0 => self.shots_dir().join(format!("{gate}-r{round}-{src}.png")),
+            opened => self.shots_dir().join(format!("{gate}-{opened}-r{round}-{src}.png")),
+        }
+    }
+
+    /// After a restart (or a revive): a gate that was asking agents goes on waiting for those that
+    /// came back and still have its request, queued or being answered. With none left, it is the
+    /// person's turn, as after a capture or a test run the restart cut short.
+    pub(super) fn resume_gates(&mut self, ids: &[String]) {
+        for id in ids {
+            let Some(r) = self.rt.get(id).filter(|r| r.gate.phase == GatePhase::Asking) else { continue };
+            let holds = |t: &String| {
+                self.rt.get(t).is_some_and(|a| {
+                    a.alive && (a.reply_to.as_deref() == Some(id) || a.queue.iter().any(|q| matches!(&q.src, Src::Reply(g) if g == id)))
+                })
+            };
+            let wait: Vec<String> = r.gate.targets.iter().filter(|t| holds(t)).cloned().collect();
+            let Some(r) = self.rt.get_mut(id) else { continue };
+            if wait.is_empty() {
+                r.gate.cut_short();
+                r.set_status(Status::Attention);
+            } else {
+                r.gate.wait = wait;
+            }
+            r.ui = true;
+        }
     }
 
     /// A round opens: upstream results arrived at a gate.
@@ -60,6 +89,7 @@ impl Engine {
             let Some(rt) = self.rt.get_mut(id) else { return };
             rt.gate.held = Some(held);
             rt.gate.round = 1;
+            rt.gate.opened = now_ms().max(rt.gate.opened + 1);
             rt.gate.shots.clear();
             rt.gate.out.clear();
             rt.gate.wait.clear();
@@ -175,6 +205,10 @@ impl Engine {
         let Some(kind) = self.node(gate).map(|n| n.kind()) else { return };
         let (done, stage) = {
             let Some(rt) = self.rt.get_mut(gate) else { return };
+            // (an answer to a request the gate took back, or that a pasted image made moot, is not this round's)
+            if !rt.gate.wait.iter().any(|w| w == from) {
+                return;
+            }
             rt.gate.wait.retain(|w| w != from);
             if !ok {
                 rt.gate.failed = true;
@@ -222,6 +256,96 @@ impl Engine {
             (Kind::Tests, _) => self.gate_run_tests(gate),
             _ => self.gate_review(gate),
         }
+    }
+
+    /// A round shows what came in, and a new result is on its way from before it (the agent was set
+    /// to work again, a prompt was queued on it, a card before it works): what it shows or asks for is
+    /// about to change. The round is taken back: its screenshot and requests are withdrawn, and the
+    /// gate waits with what it held until the cards before it are done, then starts over (and asks
+    /// for a new screenshot). A CI check watches what was pushed, which a new push replaces itself.
+    pub(super) fn tick_gates(&mut self) {
+        let stale: Vec<String> = self
+            .flow
+            .nodes
+            .iter()
+            .filter(|n| n.kind().is_gate() && !n.ci)
+            // (an image pasted onto an idle gate, or a gate fired with nothing, holds nothing from its links)
+            .filter(|n| self.rt.get(&n.id).is_some_and(|r| !r.finished && r.gate.held.as_deref().is_some_and(|h| !h.is_empty())))
+            .filter(|n| self.round_links(&n.id).iter().any(|e| self.pending(e)))
+            .map(|n| n.id.clone())
+            .collect();
+        for id in stale {
+            self.gate_take_back(&id);
+        }
+    }
+
+    /// The links whose results a gate's open round holds: all of them for "all", only those it took
+    /// for "any" (one that did not come yet is not in the round).
+    fn round_links(&self, id: &str) -> Vec<Edge> {
+        let (Some(node), Some(rt)) = (self.node(id), self.rt.get(id)) else { return Vec::new() };
+        let took: Option<Vec<&str>> = rt.unstarted.as_ref().map(|(_, t)| t.iter().map(|(e, _)| e.as_str()).collect());
+        self.flow
+            .edges
+            .iter()
+            .filter(|e| e.to == id && !self.is_const_edge(e))
+            .filter(|e| node.join == Join::All || took.as_ref().is_none_or(|t| t.contains(&e.id.as_str())))
+            .cloned()
+            .collect()
+    }
+
+    fn gate_take_back(&mut self, id: &str) {
+        let Some(join) = self.node(id).map(|n| n.join) else { return };
+        // what the round held goes back to the gate as what came in, so it starts over with it: a new
+        // result coming down a link takes its place, and one whose card only answered what was queued
+        // on it counts again once that is done. (A round from before a restart says what it took only
+        // in its text: the links' results are taken again.)
+        let took = self.rt.get_mut(id).and_then(|r| r.unstarted.take()).map(|(_, t)| t);
+        let mut back: Vec<(String, Input)> = Vec::new();
+        for e in self.flow.edges.iter().filter(|e| e.to == id && !self.is_const_edge(e)) {
+            // ("any" goes on with what is not about to change, and waits for the rest)
+            if join == Join::Any && self.pending(e) {
+                continue;
+            }
+            let had = match &took {
+                Some(t) => t.iter().find(|(eid, _)| *eid == e.id).map(|(_, i)| i.clone()),
+                None => {
+                    let has = self.rt.get(&e.from).is_some_and(|s| s.output.is_some() && e.on.matches(s.ok.unwrap_or(true)));
+                    has.then(|| self.input_along(e))
+                }
+            };
+            if let Some(i) = had {
+                back.push((e.id.clone(), i));
+            }
+        }
+        let asked = {
+            let Some(rt) = self.rt.get_mut(id) else { return };
+            let targets = std::mem::take(&mut rt.gate.targets);
+            let opened = rt.gate.opened;
+            rt.gate.reset();
+            // (the card still says whose work it waits for; the next round's screenshots get new names)
+            rt.gate.targets = targets.clone();
+            rt.gate.opened = opened;
+            for (eid, i) in back {
+                if !rt.inputs.iter().any(|(x, _)| *x == eid) {
+                    rt.inputs.push((eid, i));
+                }
+            }
+            rt.ok = None;
+            rt.set_status(Status::Waiting);
+            targets
+        };
+        // a request still waiting in an agent's queue is withdrawn; one it is answering now is let be
+        // (its answer is not this round's: `gate_response`)
+        for t in asked {
+            if let Some(r) = self.rt.get_mut(&t) {
+                r.queue.retain(|q| !matches!(&q.src, Src::Reply(g) if g == id));
+                r.ui = true;
+            }
+        }
+        self.state_dirty = true;
+        self.touch_downstream(id);
+        // ("any" may have something to go on with already)
+        self.check_join(id);
     }
 
     /// Run the suite: with the node's command if it has one, else by asking the agent to run it.

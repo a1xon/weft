@@ -487,6 +487,8 @@ impl Engine {
                 }
             }
         }
+        let ids: Vec<String> = self.rt.keys().cloned().collect();
+        self.resume_gates(&ids);
     }
 
     pub async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Ev>) {
@@ -737,6 +739,7 @@ impl Engine {
         self.tick_talk();
         self.tick_boards();
         self.tick_limits();
+        self.tick_gates();
         let now = Instant::now();
         let alive: Vec<String> = self.rt.iter().filter(|(_, r)| r.alive).map(|(i, _)| i.clone()).collect();
         for id in alive {

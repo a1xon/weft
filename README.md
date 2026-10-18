@@ -195,6 +195,12 @@ One chip, two placements. Drop a check from the tray (bottom left):
     scripts, `go.mod`, pytest or unittest, Gradle, Maven, mix, a `make test` target), and whatever
     you type in a network's box is remembered for that folder. A check is a tests gate that only
     runs (its options say *just run*), so a gate after it still asks the agent behind both.
+  * A gate shows what came in. When the work before it goes on (the agent is set to work again
+    from the bar, its terminal or a note on one of its screenshots, a prompt is queued on it, a
+    card is added before it), its round is taken back: the screenshot or decision it waited for
+    leaves it, a request still queued on the agent is withdrawn, and the card *waits for* that
+    agent. Once everything before it is finished, it starts over with the newest results (a new
+    screenshot, under a new name). A CI check is not taken back: a new push gets new runs anyway.
   * *CI*: after a push or a pull request, the CI runs of the pushed commit must pass (GitHub
     Actions, read with `gh run list --commit`). The card shows one pill per run, live. Red sends
     the end of each failed run's log (`gh run view --log-failed`) to the agent that did the work.
@@ -204,7 +210,9 @@ One chip, two placements. Drop a check from the tray (bottom left):
     starts within 3 minutes (no workflows, or none for this change) it passes and says so.
 * **on an agent: a watch.** Nothing is blocked. While the agent works, evidence collects in a
   grid under its card: newest first, small, each with its own **steer field** and ✓.
-  * *Enter* in a field steers the agent right now ("the header is cut off"); ✓ approves.
+  * *Enter* in a field steers the agent right now ("the header is cut off"); ✓ approves. A
+    finished agent takes it as a new message (like one from the bar): what it does then is its
+    new result, and the cards after it wait for that.
   * Click a picture to zoom; arrows walk the series; the steer field is there too.
   * Evidence arrives when the agent shows it (`weft shot <png>`; it is told once how), when you
     press *take one*, every N seconds while it works, or when you paste / drop an image.

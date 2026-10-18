@@ -410,15 +410,17 @@ fn a_screenshot_gate_asks_the_agent_shows_the_image_and_is_a_barrier() {
 
     e.settle("a", true, "built the checkout".into());
     // the gate has asked the upstream agent, in its own session, ahead of anything else
+    let path = e.shot_path("g", 1, "a");
+    let name = |p: &PathBuf| p.file_name().unwrap().to_string_lossy().into_owned();
     let req = e.rt["a"].queue.front().expect("a request was queued on the agent");
     assert_eq!(req.src, Src::Reply("g".into()));
-    assert!(req.text.contains("the checkout page") && req.text.contains("g-r1-a.png"), "{}", req.text);
+    assert!(req.text.contains("the checkout page") && req.text.contains(&name(&path)), "{}", req.text);
+    assert!(name(&path).starts_with("g-") && name(&path).ends_with("-r1-a.png"), "{}", name(&path));
     assert!(req.text.contains("/bin/weft done"));
     assert_eq!(e.rt["g"].gate.phase, GatePhase::Asking);
     assert!(e.rt["b"].queue.is_empty(), "nothing downstream starts while the gate is open");
 
     // the agent saves the file and answers; the answer must not fire a's own links
-    let path = e.shot_path("g", 1, "a");
     std::fs::create_dir_all(e.shots_dir()).unwrap();
     std::fs::write(&path, b"\x89PNG\r\n\x1a\n").unwrap();
     e.rt.get_mut("a").unwrap().reply_to = Some("g".into());
@@ -426,7 +428,7 @@ fn a_screenshot_gate_asks_the_agent_shows_the_image_and_is_a_barrier() {
     e.settle("a", true, "shows the cart with two items".into());
     assert_eq!(e.rt["g"].gate.phase, GatePhase::Review);
     assert_eq!(e.rt["g"].status, Status::Attention);
-    assert_eq!(e.rt["g"].gate.shots, vec!["g-r1-a.png".to_string()]);
+    assert_eq!(e.rt["g"].gate.shots, vec![name(&path)]);
     assert_eq!(e.rt["a"].output.as_deref(), Some("built the checkout"), "the agent keeps its real result");
     assert!(e.rt["b"].queue.is_empty(), "still blocked until a human confirms");
 
@@ -434,12 +436,12 @@ fn a_screenshot_gate_asks_the_agent_shows_the_image_and_is_a_barrier() {
     e.cmd(None, Cmd::GateChanges { id: "g".into(), text: "make the button blue".into() });
     assert_eq!(e.rt["g"].gate.round, 2);
     assert_eq!(e.rt["g"].gate.phase, GatePhase::Asking);
+    let p2 = e.shot_path("g", 2, "a");
     let again = e.rt["a"].queue.front().unwrap();
-    assert!(again.text.contains("make the button blue") && again.text.contains("g-r2-a.png"), "{}", again.text);
+    assert!(again.text.contains("make the button blue") && again.text.contains(&name(&p2)), "{}", again.text);
     assert!(e.rt["b"].queue.is_empty());
 
     // second screenshot arrives and is confirmed: the barrier opens and the image is handed on
-    let p2 = e.shot_path("g", 2, "a");
     std::fs::write(&p2, b"\x89PNG\r\n\x1a\n").unwrap();
     e.rt.get_mut("a").unwrap().reply_to = Some("g".into());
     e.rt.get_mut("a").unwrap().queue.clear();
@@ -447,7 +449,7 @@ fn a_screenshot_gate_asks_the_agent_shows_the_image_and_is_a_barrier() {
     assert_eq!(e.cmd(None, Cmd::Approve { id: "g".into(), ok: true })["ok"], true);
     assert_eq!(e.rt["g"].status, Status::Done);
     let t = &e.rt["b"].queue[0].text;
-    assert!(t.contains("Approved screenshot") && t.contains("g-r2-a.png"), "{t}");
+    assert!(t.contains("Approved screenshot") && t.contains(&name(&p2)), "{t}");
 }
 
 #[test]
@@ -4248,4 +4250,183 @@ fn deleting_the_prompt_queued_on_a_card_lets_what_follows_go() {
     let q = queued(&e, "b");
     assert_eq!(q.len(), 1, "{q:?}");
     assert!(q[0].contains("hero done"), "{}", q[0]);
+}
+
+/// The agent takes up the screenshot request at the front of its queue, saves the image where the
+/// gate asked for it and answers. Returns the file's name.
+fn shoot(e: &mut Engine, gate: &str, agent: &str, said: &str) -> String {
+    let p = e.shot_path(gate, e.rt[gate].gate.round, agent);
+    std::fs::create_dir_all(e.shots_dir()).unwrap();
+    std::fs::write(&p, b"\x89PNG\r\n\x1a\n").unwrap();
+    answer(e, agent, said);
+    p.file_name().unwrap().to_string_lossy().into_owned()
+}
+
+#[test]
+fn a_screenshot_waiting_for_you_is_taken_back_while_its_agent_works_again_and_asked_for_anew() {
+    // the user's rubbermetrics n102: a screenshot to confirm after n100, which was already at work on a revision
+    let mut e = engine();
+    alive_agent(&mut e, "a", "hero");
+    add_kind(&mut e, "g", "screenshot", "shot", "");
+    add(&mut e, "b", "commit", "ship {{inputs}}");
+    link(&mut e, "e1", "a", "g", On::Done);
+    link(&mut e, "e2", "g", "b", On::Ok);
+    ran(&mut e, "a", "hero v1");
+    let first = shoot(&mut e, "g", "a", "the hero, v1");
+    assert_eq!(e.rt["g"].status, Status::Attention);
+    assert_eq!(e.rt["g"].gate.shots, vec![first.clone()]);
+
+    // the person asks for a revision: what the screenshot shows is about to change
+    e.cmd_send("a".into(), "make the button red".into(), SendMode::Auto, true);
+    e.tick_gates();
+    assert!(e.rt["g"].gate.held.is_none() && e.rt["g"].gate.shots.is_empty(), "the screenshot is taken back");
+    assert_eq!(e.eff_status("g", &HashMap::new()), Status::Waiting);
+    assert_eq!(e.cmd(None, Cmd::Approve { id: "g".into(), ok: true })["ok"], false, "nothing to confirm while it waits");
+    assert!(e.waits_for_links("b") && e.rt["b"].queue.is_empty());
+    e.tick_gates();
+    assert_eq!(e.rt["g"].status, Status::Waiting, "and it stays taken back");
+
+    // the revision is done: the gate asks for a screenshot of it, under a new name
+    ran(&mut e, "a", "hero v2");
+    let req = e.rt["a"].queue.front().expect("the gate asks again");
+    assert_eq!(req.src, Src::Reply("g".into()));
+    let held = e.rt["g"].gate.held.clone().unwrap_or_default();
+    assert!(held.contains("hero v2") && !held.contains("hero v1"), "{held}");
+    let second = shoot(&mut e, "g", "a", "the hero, v2");
+    assert_ne!(first, second, "a new file: the page keeps the images it showed by name");
+    assert_eq!(e.rt["g"].status, Status::Attention);
+    assert_eq!(e.cmd(None, Cmd::Approve { id: "g".into(), ok: true })["ok"], true);
+    let q = queued(&e, "b");
+    assert!(q.len() == 1 && q[0].contains("hero v2") && q[0].contains(&second), "{q:?}");
+}
+
+#[test]
+fn a_screenshot_waiting_for_you_is_taken_back_while_a_prompt_queued_on_its_agent_waits() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "hero");
+    add_kind(&mut e, "g", "screenshot", "shot", "");
+    link(&mut e, "e1", "a", "g", On::Done);
+    ran(&mut e, "a", "hero v1");
+    let first = shoot(&mut e, "g", "a", "the hero, v1");
+    // a prompt is queued on the agent: what it does for it changes the files too
+    add_step(&mut e, "s", "a", "also fix the feed");
+    e.add_edge("a", "s", On::Done).unwrap();
+    assert_eq!(e.rt["a"].queue[0].src, Src::Reply("s".into()));
+    e.tick_gates();
+    assert!(e.rt["g"].gate.shots.is_empty() && e.rt["g"].status == Status::Waiting);
+    // answered: nothing new comes down a's link, so the gate starts over with what it held and asks again
+    answer(&mut e, "a", "feed fixed");
+    let req = e.rt["a"].queue.front().expect("the gate asks again");
+    assert_eq!(req.src, Src::Reply("g".into()));
+    assert!(e.rt["g"].gate.held.as_deref().is_some_and(|h| h.contains("hero v1")));
+    assert_ne!(shoot(&mut e, "g", "a", "the hero with the feed"), first);
+    assert_eq!(e.rt["g"].status, Status::Attention);
+}
+
+#[test]
+fn an_answer_to_a_screenshot_request_that_was_taken_back_does_not_open_the_round_again() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "hero");
+    add_kind(&mut e, "g", "screenshot", "shot", "");
+    link(&mut e, "e1", "a", "g", On::Done);
+    ran(&mut e, "a", "hero v1");
+    // a takes the request up; meanwhile a revision is queued on it
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        assert_eq!(r.queue.pop_front().map(|q| q.src), Some(Src::Reply("g".into())));
+        r.reply_to = Some("g".into());
+        r.finished = false;
+    }
+    e.cmd(None, Cmd::QueueAdd { id: "a".into(), text: "make the button red".into(), front: false });
+    e.tick_gates();
+    assert_eq!(e.rt["g"].status, Status::Waiting);
+    // its answer to the old request comes in: the gate goes on waiting for the revision
+    let p = e.shot_path("g", 1, "a");
+    std::fs::create_dir_all(e.shots_dir()).unwrap();
+    std::fs::write(&p, b"\x89PNG\r\n\x1a\n").unwrap();
+    e.settle("a", true, "the hero, v1".into());
+    assert_eq!(e.rt["g"].status, Status::Waiting);
+    assert!(e.rt["g"].gate.shots.is_empty() && e.rt["g"].gate.held.is_none());
+    assert_eq!(e.rt["a"].output.as_deref(), Some("hero v1"), "nor is it a's result");
+}
+
+#[test]
+fn an_any_gate_is_taken_back_only_for_what_its_round_holds() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "a");
+    alive_agent(&mut e, "c", "c");
+    add_kind(&mut e, "g", "approve", "gate", "");
+    e.flow.nodes.iter_mut().find(|n| n.id == "g").unwrap().join = Join::Any;
+    link(&mut e, "e1", "a", "g", On::Done);
+    link(&mut e, "e2", "c", "g", On::Done);
+    ran(&mut e, "a", "a v1");
+    assert_eq!(e.rt["g"].status, Status::Attention);
+    // c has not finished yet, but the round has a's result only: it stays
+    e.tick_gates();
+    assert_eq!(e.rt["g"].status, Status::Attention);
+    e.cmd(None, Cmd::QueueAdd { id: "a".into(), text: "again".into(), front: false });
+    e.tick_gates();
+    assert_eq!(e.rt["g"].status, Status::Waiting, "a's result is about to change");
+    assert!(e.rt["g"].inputs.is_empty(), "nothing to go on with until a or c is done");
+    ran(&mut e, "a", "a v2");
+    assert_eq!(e.rt["g"].status, Status::Attention);
+    assert!(e.rt["g"].gate.held.as_deref().is_some_and(|h| h.contains("a v2")));
+}
+
+#[test]
+fn a_note_on_a_finished_agents_screenshot_is_a_new_run_and_a_check_after_it_asks_again() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "hero");
+    add_kind(&mut e, "g", "screenshot", "shot", "");
+    link(&mut e, "e1", "a", "g", On::Done);
+    e.cmd(None, Cmd::CheckAdd { node: "a".into(), kind: CheckKind::Shot, subject: String::new(), cmd: String::new(), every_s: 0 });
+    ran(&mut e, "a", "hero v1");
+    shoot(&mut e, "g", "a", "the hero, v1");
+    e.feed_push("a", "c1", "a-1.png", "the hero", None);
+    let id = e.rt["a"].checks.feed[0].id;
+    // typed into the finished agent's session it would be a turn nobody waits for: it is queued as the
+    // person's message, which starts a new run once the agent is calm
+    e.cmd(None, Cmd::FeedAct { node: "a".into(), item: id, text: "a flag is missing".into() });
+    let q = &e.rt["a"].queue;
+    assert!(q.len() == 1 && q[0].src == Src::You && q[0].text.contains("a flag is missing"), "{:?}", queued(&e, "a"));
+    assert_eq!(e.rt["a"].checks.feed[0].state, FeedState::Steered);
+    e.tick_gates();
+    assert_eq!(e.rt["g"].status, Status::Waiting);
+    ran(&mut e, "a", "flag added");
+    assert!(e.rt["g"].gate.held.as_deref().is_some_and(|h| h.contains("flag added")));
+    assert_eq!(e.rt["a"].queue.front().map(|q| q.src.clone()), Some(Src::Reply("g".into())));
+}
+
+#[test]
+fn a_screenshot_gate_goes_on_asking_an_agent_that_came_back_after_a_restart() {
+    let mut e = engine();
+    alive_agent(&mut e, "a", "hero");
+    alive_agent(&mut e, "b", "footer");
+    add_kind(&mut e, "g", "screenshot", "shot", "");
+    add_kind(&mut e, "h", "screenshot", "shot", "");
+    link(&mut e, "e1", "a", "g", On::Done);
+    link(&mut e, "e2", "b", "h", On::Done);
+    ran(&mut e, "a", "hero v1");
+    ran(&mut e, "b", "footer v1");
+    let told = e.rt["a"].queue[0].text.clone();
+    // the daemon restarts: a came back with the request still queued, b did not come back
+    for id in ["a", "b", "g", "h"] {
+        let mut r = Rt::new(80, 24);
+        r.restore(serde_json::from_value(serde_json::to_value(e.rt[id].to_saved()).unwrap()).unwrap());
+        r.alive = id == "a";
+        e.rt.insert(id.into(), r);
+    }
+    e.resume_steps();
+    assert_eq!((e.rt["g"].gate.phase, e.rt["g"].status), (GatePhase::Asking, Status::Busy));
+    assert_eq!(e.rt["g"].gate.wait, vec!["a".to_string()]);
+    assert_eq!((e.rt["h"].gate.phase, e.rt["h"].status), (GatePhase::Review, Status::Attention));
+    assert!(e.rt["h"].gate.out.contains("interrupted by a restart"), "{}", e.rt["h"].gate.out);
+    // the screenshot is looked for where a was told to save it
+    let shot = shoot(&mut e, "g", "a", "the hero, v1");
+    assert!(told.contains(&shot), "{shot} not in {told}");
+    assert_eq!(e.rt["g"].gate.shots, vec![shot]);
+    assert_eq!(e.rt["g"].status, Status::Attention);
+    // (a round an older build opened kept the name without the stamp)
+    e.rt.get_mut("g").unwrap().gate.opened = 0;
+    assert!(e.shot_path("g", 2, "a").ends_with("g-r2-a.png"));
 }

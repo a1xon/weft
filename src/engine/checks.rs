@@ -443,7 +443,15 @@ impl Engine {
                 msg.push_str(&format!("\n\nTest output:\n{}", it.note.trim()));
             }
             msg.push_str("\n\nPlease adjust that and carry on.");
-            self.steer(&node, &msg);
+            if self.rt.get(&node).is_some_and(|r| r.finished) {
+                // a finished agent set to work again: a new run, like a message from the bar, and what
+                // it says then is its result for the cards after it (a check there asks again)
+                let full = self.node(&node).map_or_else(|| msg.clone(), |n| self.with_addenda(n, &msg));
+                self.enqueue(&node, full, msg.clone(), Src::You, false);
+                self.restart_if_queued(&node);
+            } else {
+                self.steer(&node, &msg);
+            }
             if let Some(f) = self.rt.get_mut(&node).and_then(|r| r.checks.feed.iter_mut().find(|f| f.id == item)) {
                 f.state = FeedState::Steered;
                 f.reply = head_chars(&text, 300);

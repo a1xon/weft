@@ -439,6 +439,8 @@ pub(super) struct GateRound {
     pub(super) failed: bool,
     /// bumped when a round restarts: a capture or test run that finishes late is dropped
     pub(super) gen: u64,
+    /// when the gate last opened a round (ms, only ever goes up): its screenshots are named after it
+    pub(super) opened: u64,
     /// a CI check: its watch of the runs is going on, the commit it looks at, and what the runs show
     pub(super) ci: bool,
     pub(super) ci_sha: String,
@@ -450,6 +452,13 @@ impl GateRound {
     pub(super) fn reset(&mut self) {
         let gen = self.gen + 1;
         *self = GateRound { gen, ..GateRound::default() };
+    }
+
+    /// A restart cut what the round was doing short: it is the person's turn.
+    pub(super) fn cut_short(&mut self) {
+        self.phase = GatePhase::Review;
+        self.wait.clear();
+        self.out = format!("{}\n(interrupted by a restart: retake or run it again)", self.out).trim().to_string();
     }
 }
 
@@ -815,6 +824,8 @@ impl Rt {
             gate_shots: self.gate.shots.clone(),
             gate_out: self.gate.out.clone(),
             gate_targets: self.gate.targets.clone(),
+            gate_stage: self.gate.stage,
+            gate_opened: self.gate.opened,
             git_seen: self.git.seen.clone(),
             git_log: self.git.log.clone(),
             git_carry: self.git.carry.clone(),
@@ -868,9 +879,12 @@ impl Rt {
         self.gate.shots = s.gate_shots;
         self.gate.out = s.gate_out;
         self.gate.targets = s.gate_targets;
-        if matches!(self.gate.phase, GatePhase::Asking | GatePhase::Running) {
-            self.gate.phase = GatePhase::Review;
-            self.gate.out = format!("{}\n(interrupted by a restart: retake or run it again)", self.gate.out).trim().to_string();
+        self.gate.stage = s.gate_stage;
+        self.gate.opened = s.gate_opened;
+        // a capture or test run went with the daemon; what it asked of an agent may still be answered
+        // (`resume_gates` looks)
+        if self.gate.phase == GatePhase::Running {
+            self.gate.cut_short();
         }
         self.git.seen = s.git_seen;
         self.git.log = s.git_log;
@@ -890,7 +904,9 @@ impl Rt {
                 self.since = s.since;
             }
         }
-        if self.gate.held.is_some() || (self.issue.is_some() && !self.finished) {
+        if self.gate.phase == GatePhase::Asking {
+            self.status = Status::Busy;
+        } else if self.gate.held.is_some() || (self.issue.is_some() && !self.finished) {
             self.status = Status::Attention;
         } else if !self.finished && !self.queue.is_empty() {
             // no process came back with the state and weft starts none by itself: what is queued
@@ -1152,6 +1168,11 @@ pub(super) struct Saved {
     pub(super) gate_out: String,
     #[serde(default)]
     pub(super) gate_targets: Vec<String>,
+    /// what an asking gate asked for, and when its round opened (its screenshots' names)
+    #[serde(default)]
+    pub(super) gate_stage: GateStage,
+    #[serde(default)]
+    pub(super) gate_opened: u64,
     #[serde(default)]
     pub(super) git_seen: Vec<String>,
     #[serde(default)]

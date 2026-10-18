@@ -297,6 +297,8 @@ function statusText(n, r) {
     if (st === 'busy') return r.gate_phase === 'running' ? `running${k === 'tests' ? ' the suite' : ''}${round}` : `asking ${who}${round}`;
     if (st === 'done') return `${k === 'gate' ? 'approved' : 'passed'} ${age(r.since)} ago`;
     if (st === 'failed') return `rejected ${age(r.since)} ago`;
+    // (all in, and still waiting: a card before it works again, and the round starts over when it is done)
+    if (st === 'waiting' && r.need && r.arrived.length >= r.need) return `waits for ${who} to finish`;
     return r.need ? `holds \u00b7 ${r.arrived.length}/${r.need} in` : 'holds the flow';
   }
   if (n.deploy) { const t = deployText(n, r); if (t) return t; }
@@ -386,6 +388,9 @@ function renderNode(id) {
       key = 'shot-ask:' + r.gate_round; build = () => ({ cls: 'ans hint', kids: [`asking ${(r.gate_to || ['the agent'])[0]} to take a screenshot\u2026`] });
     } else if (r && r.gate_out && r.gate) {
       key = 'shot-note:' + r.gate_out; build = () => ({ cls: 'ans bad', kids: [r.gate_out, h('span', { class: 'src' }, '\npaste or drop an image here, or press retake.')] });
+    } else if (r && st === 'waiting' && r.need && r.arrived.length >= r.need) {
+      const who = (r.gate_to || [])[0] || 'the agent';
+      key = 'shot-again:' + who; build = () => ({ cls: 'ans hint', kids: [`${who} is still at work: a new screenshot is asked for once it is done.`] });
     } else {
       key = 'shot0:' + st; build = () => ({ cls: 'ans hint', kids: [st === 'done' ? 'confirmed.' : st === 'failed' ? 'rejected.' : n.subject ? `holds the flow until you confirm a screenshot of ${n.subject}.` : 'asks the agent upstream for a screenshot and holds the flow until you confirm it.'] });
     }

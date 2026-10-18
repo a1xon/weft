@@ -675,6 +675,8 @@ impl Engine {
             self.rt.insert(n.id.clone(), rt);
             self.flow.nodes.push(n);
         }
+        // (nothing it asked comes back with it)
+        self.resume_gates(&order);
         for n in self.flow.nodes.iter_mut().filter(|n| order.contains(&n.id)) {
             if let Some(t) = ids.get(&n.takeover) {
                 n.takeover = t.clone();
