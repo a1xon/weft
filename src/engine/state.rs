@@ -513,6 +513,10 @@ pub(super) struct GitRound {
     /// the repositories still to push (or to open a pull request in) this round, and the one at hand
     pub(super) repos: VecDeque<PathBuf>,
     pub(super) at: Option<PathBuf>,
+    /// where each repository was pushed to this round ("<folder> <hash>"), and where it was in the
+    /// round this push last handed on: a round that ends there brings the cards after it nothing new
+    pub(super) heads: Vec<String>,
+    pub(super) handed: Vec<String>,
     /// a push nobody armed: what git says it has left to do, and when it was last looked at (loose.rs)
     pub(super) left: Option<Left>,
     pub(super) looked: u64,
@@ -830,6 +834,7 @@ impl Rt {
             git_log: self.git.log.clone(),
             git_carry: self.git.carry.clone(),
             git_facts: self.git.facts.clone(),
+            git_handed: self.git.handed.clone(),
             since: self.since,
             revived: self.revived,
             cur: self.cur.clone(),
@@ -890,6 +895,7 @@ impl Rt {
         self.git.log = s.git_log;
         self.git.carry = s.git_carry;
         self.git.facts = s.git_facts;
+        self.git.handed = s.git_handed;
         self.cur = s.cur;
         self.reply_to = s.reply_to;
         self.step_wait = s.step_wait;
@@ -1181,6 +1187,8 @@ pub(super) struct Saved {
     pub(super) git_carry: Vec<Carry>,
     #[serde(default)]
     pub(super) git_facts: Facts,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) git_handed: Vec<String>,
     /// when its status last changed (ms since the epoch; kept for a finished node: "done 2h ago")
     #[serde(default)]
     pub(super) since: u64,

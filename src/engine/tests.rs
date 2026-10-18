@@ -3922,6 +3922,55 @@ async fn a_push_with_a_commit_still_to_come_is_not_done_and_what_is_linked_after
     assert!(q[0].contains("tabs") && q[0].contains("wrap") && !q[0].contains("slug"), "{}", q[0]);
 }
 
+#[tokio::test]
+async fn a_push_that_sends_nothing_new_hands_nothing_on() {
+    // (rubbermetrics n90 -> n71 -> n82: "commit now" twice on a commit with nothing to commit, and
+    // the agent after the push did its whole task again on the same input, twice)
+    let mut e = engine();
+    commit_with(&mut e, "c1", "slug");
+    git_node(&mut e, "p", "push", "push");
+    e.flow.nodes.iter_mut().find(|n| n.id == "p").unwrap().draft = false;
+    link(&mut e, "e1", "c1", "p", On::Done);
+    add(&mut e, "d", "deploy", "deploy {{inputs}}");
+    link(&mut e, "e2", "p", "d", On::Done);
+    let pushed = |e: &mut Engine, res: Result<String, String>, head: &str| {
+        let gen = e.rt["p"].git.gen;
+        let f = Facts { branch: "feature".into(), head: format!("{head} Fix slug"), ..Default::default() };
+        e.on_git("p".into(), gen, GitJobKind::Push, res, Some(f));
+    };
+    committed(&mut e, "c1", true);
+    pushed(&mut e, Ok("pushed feature to origin".into()), "a1b2c3d");
+    assert_eq!(queued(&e, "d").len(), 1);
+    ran(&mut e, "d", "deployed a1b2c3d");
+    // the commit again with nothing new: the push ends at the same commit, the deploy keeps its result
+    committed(&mut e, "c1", true);
+    assert!(e.rt["p"].git.finishing);
+    pushed(&mut e, Ok("pushed feature to origin".into()), "a1b2c3d");
+    assert_eq!(shown(&e, "p"), Status::Done);
+    let out = e.rt["p"].output.clone().unwrap();
+    assert!(out.starts_with("Nothing new to push: `feature` on `origin`"), "{out}");
+    assert!(queued(&e, "d").is_empty() && e.rt["d"].inputs.is_empty(), "{:?}", queued(&e, "d"));
+    assert_eq!(shown(&e, "d"), Status::Done);
+    assert_eq!(e.rt["d"].output.as_deref(), Some("deployed a1b2c3d"));
+    // what it hands on survives a restart
+    let mut back = Rt::new(80, 24);
+    back.restore(serde_json::from_value(serde_json::to_value(e.rt["p"].to_saved()).unwrap()).unwrap());
+    assert_eq!(back.git.handed, e.rt["p"].git.handed);
+    // a new commit is news
+    committed(&mut e, "c1", true);
+    pushed(&mut e, Ok("pushed feature to origin".into()), "d4e5f6a");
+    assert_eq!(queued(&e, "d").len(), 1);
+    ran(&mut e, "d", "deployed d4e5f6a");
+    // a round that failed went on as a failure: the same commit pushed after it is news again
+    committed(&mut e, "c1", true);
+    pushed(&mut e, Err("push failed: no network".into()), "d4e5f6a");
+    assert_eq!(queued(&e, "d").len(), 1);
+    ran(&mut e, "d", "nothing to deploy");
+    committed(&mut e, "c1", true);
+    pushed(&mut e, Ok("pushed feature to origin".into()), "d4e5f6a");
+    assert_eq!(queued(&e, "d").len(), 1);
+}
+
 #[test]
 fn a_junction_at_three_of_four_is_not_done_and_nothing_after_it_runs_before_it_does() {
     let mut e = engine();

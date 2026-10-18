@@ -342,6 +342,11 @@ impl Engine {
 
     /// The agent has nothing left to do: its result is final for this run.
     pub(super) fn settle(&mut self, id: &str, ok: bool, out: String) {
+        self.settle_as(id, ok, out, true);
+    }
+
+    /// `settle`; with `hand_on` false the result stays at the card: the cards after it had it already.
+    pub(super) fn settle_as(&mut self, id: &str, ok: bool, out: String, hand_on: bool) {
         // a turn that ended has likely changed files
         self.refresh_project();
         let reply = self.rt.get_mut(id).and_then(|r| {
@@ -391,7 +396,9 @@ impl Engine {
         }
         // whatever set it to work (the flow, a message from the person, its terminal), what it says
         // now is its result, and the cards after it take it up
-        self.propagate(id, ok, &out);
+        if hand_on {
+            self.propagate(id, ok, &out);
+        }
         // agents that were waiting for this one to finish can have their handover note now
         let waiting: Vec<String> = self
             .rt

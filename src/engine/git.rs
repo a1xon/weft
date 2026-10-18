@@ -41,6 +41,9 @@ fn carry_add(v: &mut Vec<Carry>, c: Carry) {
     }
 }
 
+/// The log line of a push round that ended where the one it last handed on did.
+const NOTHING_NEW: &str = "nothing new since the push it handed on last: the steps after it keep what they have";
+
 /// What a commit or push step hands on, as plain text: what happened to the repository, then who
 /// did the work (what each was asked, what it said, which commit came of it). The tail of a piped
 /// result is what survives a cut, so the long part is budgeted to stay well under the limit.
@@ -55,6 +58,9 @@ fn git_report(node: &Node, dirs: &[PathBuf], log: &[String], facts: &Facts, carr
     } else if !facts.pr.is_empty() {
         let title = if facts.pr_title.is_empty() { String::new() } else { format!("\nTitle: {}", facts.pr_title) };
         format!("Opened a pull request for {b}: {}{title}", facts.pr)
+    } else if log.iter().any(|l| l == NOTHING_NEW) {
+        let what = if several { "every repository".to_string() } else { b.clone() };
+        format!("Nothing new to push: {what} on `{remote}` is where it was when this step last handed it on.")
     } else {
         match last {
             Some(l) if l.starts_with("pushed ") && several => format!("Pushed each repository to `{remote}`."),
@@ -457,6 +463,7 @@ impl Engine {
             if do_push {
                 // what the pushes really add is the truth about the commits
                 rt.git.facts.commits.clear();
+                rt.git.heads.clear();
             }
             if do_push || op == GitOp::Pr {
                 let repos = self.git_repos(id);
@@ -487,8 +494,19 @@ impl Engine {
                 }
                 return self.git_pr_next(id);
             }
+            // (a round that ends where the one it last handed on did has nothing new for the cards after
+            // it: "commit now" on a commit with nothing to commit ran the step after the push again)
+            let news = self.rt.get_mut(id).is_none_or(|r| {
+                let news = r.git.heads.is_empty() || r.git.heads != r.git.handed;
+                if news {
+                    r.git.handed = r.git.heads.clone();
+                } else {
+                    r.git.log.push(NOTHING_NEW.to_string());
+                }
+                news
+            });
             let out = self.git_report(id);
-            return self.git_round_done(id, true, out);
+            return self.git_round_end(id, true, out, news);
         };
         let several = self.git_repos(id).len() > 1;
         // a push with no branch of its own pushes the branch the commits before it went to
@@ -684,6 +702,11 @@ impl Engine {
     }
 
     pub(super) fn git_round_done(&mut self, id: &str, ok: bool, out: String) {
+        self.git_round_end(id, ok, out, true);
+    }
+
+    /// The round is over; with `hand_on` false the cards after it keep what they have.
+    fn git_round_end(&mut self, id: &str, ok: bool, out: String, hand_on: bool) {
         if let Some(rt) = self.rt.get_mut(id) {
             rt.git.seen.clear();
             rt.git.jobs.clear();
@@ -692,8 +715,12 @@ impl Engine {
             rt.git.busy = false;
             rt.git.wait = None;
             rt.git.conflicts = 0;
+            if !ok {
+                // what follows is handed the failure: the next round that goes through is news to it
+                rt.git.handed.clear();
+            }
         }
-        self.settle(id, ok, out);
+        self.settle_as(id, ok, out, hand_on);
     }
 
     pub(super) fn on_git(&mut self, id: String, gen: u64, job: GitJobKind, res: Result<String, String>, facts: Option<Facts>) {
@@ -725,6 +752,9 @@ impl Engine {
                 }
                 rt.git.log.push(format!("{line}{there}"));
                 if let Some(f) = facts {
+                    if let (true, Some(at), Some(h)) = (push, rt.git.at.as_ref(), lead_hash(&f.head)) {
+                        rt.git.heads.push(format!("{} {h}", at.display()));
+                    }
                     // (a push's facts are what it really added: the commits were cleared when the pushes began)
                     rt.git.facts.absorb(f);
                 }
