@@ -90,17 +90,7 @@ impl Engine {
         let node = self.node(id);
         let incoming: Vec<&Edge> = self.flow.edges.iter().filter(|e| e.to == id).collect();
         let is_git = node.is_some_and(|n| n.kind() == Kind::Git);
-        let arrived: Vec<&str> = incoming
-            .iter()
-            .filter(|e| {
-                // (a git step's inputs stay after its round: what it has this round is `seen`)
-                self.is_const_edge(e)
-                    || (!is_git && rt.inputs.iter().any(|(i, _)| *i == e.id))
-                    || (is_git && rt.git.seen.contains(&e.id))
-                    || self.resolved(e)
-            })
-            .map(|e| e.id.as_str())
-            .collect();
+        let arrived: Vec<&str> = incoming.iter().filter(|e| self.link_in(e)).map(|e| e.id.as_str()).collect();
         let need = match node.map(|n| n.join) {
             Some(Join::Any) => 1.min(incoming.len()),
             _ => incoming.len(),

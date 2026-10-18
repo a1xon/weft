@@ -81,6 +81,11 @@ arrived; switch it to `≥1` for the first (`Promise.any`). A junction that can 
 satisfied shows *blocked by …* instead of waiting forever. Notes are constants you can point any
 agent at; they never trigger anything.
 
+A link is lit while what it carries is in at its card, marches amber while the card before it works
+on something that will come down it, and is dotted while it is still to come; the ring of a junction
+counts the same way. An agent answering a prompt queued for another card works for that card: its
+other links stay lit, and what already ran with its result stays *done*.
+
 A link that delivered stays delivered, like a promise that resolved before. Link a new card into a
 finished junction and it waits for that one alone, then runs again with only the new result (its
 session still has the others, and the note rides along) and hands its answer down the same chain.
@@ -317,7 +322,8 @@ agent can go straight to *open PR*; the explicit chain is just easier to read.
   Where you want to look before something leaves the machine, put a [check](#checks-gates-and-watches)
   on the link before it: *approve* holds it for your OK, *check* has a command pass, *CI* waits for
   green. A push that ran with the commits it had pushes again, on its own, for a commit linked into it
-  later.
+  later. One whose round already holds a commit waits when that commit's agent is set to work again
+  (you answered its question, a chat): it goes out once that work is committed too, not without it.
 
 #### Loose ends
 

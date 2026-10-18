@@ -164,10 +164,13 @@ impl Engine {
         if rt.git.seen.is_empty() {
             return false;
         }
-        // a link that handed on in an earlier round, with nothing new coming down it, is still in
+        // a link that handed on in an earlier round, with nothing new coming down it, is still in; one
+        // this round took waits while its card (or one before it) has more to do, as a junction does
+        // (`check_join`): the push would go out without that work. ("commit & push now" goes ready or not.)
+        let took = |e: &Edge| rt.git.seen.contains(&e.id) && (rt.git.force || !self.pending(e));
         match self.node(id).map(|n| n.join) {
             Some(Join::Any) => true,
-            _ => self.flow.edges.iter().filter(|e| e.to == id).all(|e| rt.git.seen.contains(&e.id) || self.resolved(e)),
+            _ => self.flow.edges.iter().filter(|e| e.to == id).all(|e| took(e) || self.resolved(e)),
         }
     }
 

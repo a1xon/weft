@@ -133,6 +133,26 @@ impl Engine {
         src.output.is_some() && e.on.matches(ok) && (ok || !git) && !self.pending(e)
     }
 
+    /// Is what this link carries in at its card, as the card's status sees it (the link is drawn lit,
+    /// the junction counts it)? A card that ran with it keeps it until a new result is on its way down
+    /// it: what its agent answers for a prompt queued on it goes elsewhere. A card that has still to
+    /// run (or holds part of a round) has it once it is final for it, as its junction decides.
+    pub(super) fn link_in(&self, e: &Edge) -> bool {
+        let (Some(to), Some(rt)) = (self.node(&e.to), self.rt.get(&e.to)) else { return false };
+        if self.is_const_edge(e) {
+            return true;
+        }
+        let git = to.kind() == Kind::Git;
+        if rt.finished && !self.part_in(&e.to) {
+            let Some(src) = self.rt.get(&e.from) else { return false };
+            let ok = src.ok.unwrap_or(true);
+            return src.output.is_some() && e.on.matches(ok) && (ok || !git) && !self.coming(e) && !self.held(e);
+        }
+        // (a git step's inputs stay after its round: what it has this round is `seen`)
+        let fresh = if git { rt.git.seen.contains(&e.id) } else { rt.inputs.iter().any(|(i, _)| *i == e.id) };
+        (fresh && !self.pending(e)) || self.resolved(e)
+    }
+
     /// Is a result held back at the link's card until that has done everything it was given?
     fn held(&self, e: &Edge) -> bool {
         // (one whose card ended the other way never gets it)

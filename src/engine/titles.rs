@@ -34,7 +34,16 @@ pub(super) fn git_title(op: GitOp, tasks: &[String]) -> String {
 /// A model's answer as a card name: its last line, without quotes, labels or a final period.
 pub(super) fn clean_title(out: &str) -> Option<String> {
     let line = out.lines().map(str::trim).rfind(|l| !l.is_empty())?;
-    let line = ["Title:", "Name:"].iter().find_map(|p| line.strip_prefix(p)).unwrap_or(line);
+    // ("Title:", "Card name:", "**Name:**")
+    let label = |l: &str| {
+        let words: Vec<&str> = l.split_whitespace().collect();
+        let last = words.last().map(|w| w.trim_matches(['*', '_']).to_lowercase()).unwrap_or_default();
+        words.len() <= 3 && (last == "name" || last == "title")
+    };
+    let line = match line.split_once(':') {
+        Some((l, rest)) if label(l) => rest,
+        _ => line,
+    };
     let t = line.trim_matches(|c: char| c.is_whitespace() || "\"'`*_#.\u{201C}\u{201D}".contains(c));
     let n = t.chars().count();
     // a sentence is not a name (an error, or the model talking)

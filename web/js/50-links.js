@@ -165,7 +165,8 @@ function styleEdge(e) {
   const arrived = !!(to && to.arrived.includes(e.id));
   el.g.dataset.k = e.on;
   el.g.classList.toggle('arr', arrived);
-  el.g.classList.toggle('run', !!(from && from.status === 'busy') && !arrived);
+  // (as the junction's segment: a card that works or starts sends something down a link that is not in)
+  el.g.classList.toggle('run', !!(from && (from.status === 'busy' || from.status === 'starting')) && !arrived);
   el.g.classList.toggle('sel', S.selEdge === e.id);
   el.tx.textContent = e.on === 'ok' ? '✓' : e.on === 'fail' ? '✕' : '›';
   el.title.textContent = { done: 'fires when the source finishes (click to change)', ok: 'fires only if the source succeeds (click to change)', fail: 'fires only if the source fails (click to change)' }[e.on];

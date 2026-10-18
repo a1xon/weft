@@ -252,6 +252,12 @@ mod tests {
         git(&mut e, "p", GitOp::Push, true);
         link(&mut e, "e1", "a", "c", On::Done);
         link(&mut e, "e2", "c", "p", On::Done);
+        // the agent and the commit before it are done; the commit hands on what it committed
+        for (id, out) in [("a", "slug done"), ("c", "abc1234 slug: done")] {
+            let r = e.rt.get_mut(id).unwrap();
+            r.finished = true;
+            r.output = Some(out.into());
+        }
         e.git_arrival("p", "e2", "c", "commit", true, "abc1234 slug: done");
         assert!(e.git_all_in("p") && !e.rt["p"].finished, "it waits for the person");
         let gen = e.rt["p"].git.gen;

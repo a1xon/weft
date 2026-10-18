@@ -1231,6 +1231,7 @@ fn messages_to_a_queued_prompt_go_to_its_agent() {
 fn a_commit_resolves_when_its_agents_have_committed_and_goes_on() {
     let mut e = engine();
     alive_agent(&mut e, "a", "build ui");
+    finished(&mut e, "a", true, 1);
     add_kind(&mut e, "c", "commit", "git", "");
     e.flow.nodes.iter_mut().find(|n| n.id == "c").unwrap().git_op = GitOp::Commit;
     link(&mut e, "e1", "a", "c", On::Done);
@@ -1510,6 +1511,7 @@ fn a_pull_request_nobody_can_write_fails_with_a_reason() {
     git_node(&mut e, "r", "open PR", "pr");
     e.flow.nodes.iter_mut().find(|n| n.id == "r").unwrap().draft = false;
     link(&mut e, "x", "p", "r", On::Done);
+    finished(&mut e, "p", true, 1);
     e.rt.get_mut("r").unwrap().git.seen = vec!["x".into()];
     // the push before it is done, but none of the agents that did the work is running any more
     e.git_pump("r", true);
@@ -2753,6 +2755,10 @@ fn a_model_answer_becomes_a_short_card_name() {
     assert_eq!(clean_title("Fix slugify umlauts\n").as_deref(), Some("Fix slugify umlauts"));
     assert_eq!(clean_title("\"Fix German Umlaut Slugification.\"").as_deref(), Some("Fix German Umlaut Slugification"));
     assert_eq!(clean_title("Sure!\n\nTitle: **Wrap text tests**").as_deref(), Some("Wrap text tests"));
+    // (rubbermetrics n130 was named "Card name: Summarize system and verify")
+    assert_eq!(clean_title("Card name: Summarize system and verify").as_deref(), Some("Summarize system and verify"));
+    assert_eq!(clean_title("**Name:** Block bad IPs").as_deref(), Some("Block bad IPs"));
+    assert_eq!(clean_title("Fix rename: keep the folder").as_deref(), Some("Fix rename: keep the folder"));
     // whole words only when it runs long
     assert_eq!(clean_title("Rework the archive countdown chip and footer").as_deref(), Some("Rework the archive countdown chip and"));
     assert_eq!(clean_title("   \n"), None);
@@ -4229,6 +4235,85 @@ fn a_card_linked_after_one_that_answers_a_queued_prompt_waits_for_it() {
     let q = queued(&e, "b");
     assert_eq!(q.len(), 1, "{q:?}");
     assert!(q[0].contains("hero done") && !q[0].contains("feed fixed"), "{}", q[0]);
+}
+
+/// The link is drawn lit, and the junction counts it.
+fn lit(e: &Engine, edge: &str) -> bool {
+    e.link_in(e.flow.edges.iter().find(|x| x.id == edge).unwrap())
+}
+
+#[test]
+fn a_link_stays_lit_while_its_agent_answers_a_prompt_queued_for_another_card() {
+    // (rubbermetrics n122 answering its queued prompt n130: the link to its commit n124, done long
+    // before, marched as if work came down it, and the links on from its commits went dark, while
+    // those cards stayed green)
+    let mut e = engine();
+    alive_agent(&mut e, "a", "crawl");
+    ran(&mut e, "a", "crawl done");
+    add(&mut e, "b", "b", "test {{inputs}}");
+    finished(&mut e, "b", true, 5);
+    commit_with(&mut e, "c", "crawl");
+    committed(&mut e, "c", true);
+    e.rt.get_mut("c").unwrap().git.seen.clear();
+    add_step(&mut e, "s", "a", "summarize it");
+    link(&mut e, "e1", "a", "b", On::Done);
+    link(&mut e, "e2", "a", "c", On::Done);
+    link(&mut e, "e3", "a", "s", On::Done);
+    // a answers the prompt queued after it: what it says goes to s, not down its other links
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.reply_to = Some("s".into());
+        r.finished = false;
+    }
+    e.rt.get_mut("s").unwrap().step_wait = Some("a".into());
+    assert!(lit(&e, "e1") && lit(&e, "e2"), "b and c ran with a's result, and nothing new comes down to them");
+    assert_eq!((shown(&e, "b"), shown(&e, "c")), (Status::Done, Status::Done));
+    // a card linked after it now has still to run: it waits until a is done with that
+    add(&mut e, "d", "d", "deploy {{inputs}}");
+    e.add_edge("a", "d", On::Done).unwrap();
+    let ad = e.flow.edges.iter().find(|x| x.from == "a" && x.to == "d").unwrap().id.clone();
+    assert!(!lit(&e, &ad) && e.waits_for_links("d"));
+    // a works for itself again (a chat): its answer comes down every link, and the cards wait for it
+    e.rt.get_mut("a").unwrap().reply_to = None;
+    assert!(!lit(&e, "e1") && !lit(&e, "e2"));
+    assert_eq!((shown(&e, "b"), shown(&e, "c")), (Status::Waiting, Status::Waiting));
+}
+
+#[tokio::test]
+async fn a_push_waits_while_an_agent_whose_commit_its_round_took_works_again() {
+    // (rubbermetrics n71, 18 Oct: n108's commit was in the push's open round when the person answered
+    // n108's question; n108 worked on, and the push went out as soon as the last other commit came in,
+    // without that work, which then had to be pushed again)
+    let mut e = engine();
+    alive_agent(&mut e, "a", "scraping");
+    ran(&mut e, "a", "rules done");
+    commit_with(&mut e, "c1", "scraping");
+    commit_with(&mut e, "c2", "canary");
+    git_node(&mut e, "p", "push", "push");
+    e.flow.nodes.iter_mut().find(|n| n.id == "p").unwrap().draft = false;
+    link(&mut e, "e0", "a", "c1", On::Done);
+    link(&mut e, "e1", "c1", "p", On::Done);
+    link(&mut e, "e2", "c2", "p", On::Done);
+    committed(&mut e, "c1", true);
+    e.rt.get_mut("c1").unwrap().git.seen.clear();
+    assert_eq!(e.rt["p"].git.seen, vec!["e1".to_string()]);
+    assert!(lit(&e, "e1"));
+    // the person answers a: it works again
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.finished = false;
+        r.armed = true;
+    }
+    assert!(!lit(&e, "e1"), "what c1 brought is about to change");
+    committed(&mut e, "c2", true);
+    assert!(!e.rt["p"].git.finishing, "the push waits for that work");
+    assert_eq!(shown(&e, "p"), Status::Waiting);
+    // a is done: its commit asks it to commit, and the push goes out with all of it
+    e.settle("a", true, "rules done, and the ones it was told".into());
+    assert!(e.rt["a"].queue.iter().any(|q| q.src == Src::Reply("c1".into())), "{:?}", queued(&e, "a"));
+    assert!(!e.rt["p"].git.finishing, "not before c1 has committed it");
+    committed(&mut e, "c1", true);
+    assert!(e.rt["p"].git.finishing, "now it pushes");
 }
 
 #[test]
