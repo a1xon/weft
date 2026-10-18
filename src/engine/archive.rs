@@ -315,9 +315,17 @@ impl Engine {
         g
     }
 
+    /// A link into a push (or a pull request) whose work went out in a round that is over: a push that
+    /// stays on the canvas collects the commits of one piece of work after another, and what it has sent
+    /// no longer ties that work to it. (After a failed round the next one takes it up again: it still does.)
+    fn pushed_through(&self, e: &Edge) -> bool {
+        let (Some(to), Some(rt)) = (self.node(&e.to), self.rt.get(&e.to)) else { return false };
+        to.kind() == Kind::Git && to.pushes() && rt.ok != Some(false) && !rt.git.seen.contains(&e.id) && self.resolved(e)
+    }
+
     /// The canvas as flows: cards tied by a link, a takeover's lineage, a queued prompt's agent or a
-    /// talk belong together. Notes are context, not work: a note goes along with the one flow it feeds, and one that
-    /// feeds none or several belongs to none.
+    /// talk belong together, but not work a push has already sent (`pushed_through`). Notes are context,
+    /// not work: a note goes along with the one flow it feeds, and one that feeds none or several belongs to none.
     pub(super) fn flows(&self) -> Vec<Vec<String>> {
         fn root(up: &mut [usize], mut i: usize) -> usize {
             while up[i] != i {
@@ -334,6 +342,7 @@ impl Engine {
             .flow
             .edges
             .iter()
+            .filter(|e| !self.pushed_through(e))
             .map(|e| (e.from.as_str(), e.to.as_str()))
             .chain(self.flow.nodes.iter().flat_map(|n| [&n.takeover, &n.host, &n.twin].map(|o| (n.id.as_str(), o.as_str()))))
             .chain(self.flow.talks.iter().map(|t| (t.a.as_str(), t.b.as_str())));

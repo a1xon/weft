@@ -3644,6 +3644,43 @@ async fn a_pushed_push_given_a_new_commit_pushes_again_with_only_that_commit() {
 }
 
 #[tokio::test]
+async fn work_a_push_has_sent_goes_to_the_archive_while_the_push_waits_for_the_next() {
+    let mut e = engine();
+    at_work(&mut e);
+    commit_with(&mut e, "c1", "slug");
+    commit_with(&mut e, "c2", "wrap");
+    git_node(&mut e, "p", "push", "push");
+    e.flow.nodes.iter_mut().find(|n| n.id == "p").unwrap().draft = false;
+    link(&mut e, "e1", "c1", "p", On::Done);
+    link(&mut e, "e2", "c2", "p", On::Done);
+    committed(&mut e, "c1", true);
+    committed(&mut e, "c2", true);
+    e.on_git("p".into(), 0, GitJobKind::Push, Ok("pushed feature to origin".into()), Some(Facts::default()));
+    // the push stays for what comes next: a commit whose agent still works is linked in
+    commit_with(&mut e, "c3", "tabs");
+    e.add_edge("c3", "p", On::Done).unwrap();
+    for c in ["c1", "c2"] {
+        e.rt.get_mut(c).unwrap().since = now_ms() - 20 * 60_000;
+    }
+    let mut flows = e.flows();
+    flows.iter_mut().for_each(|f| f.sort());
+    flows.sort();
+    assert_eq!(flows, vec![vec!["c1".to_string()], vec!["c2".to_string()], vec!["c3".to_string(), "p".to_string()]]);
+    assert_eq!(due(&e), vec![vec!["c1"], vec!["c2"]]);
+    // what a failed round had taken is taken up again by the next one: it stays with the push
+    let mut e = engine();
+    commit_with(&mut e, "c1", "slug");
+    commit_with(&mut e, "c2", "wrap");
+    git_node(&mut e, "p", "push", "push");
+    e.flow.nodes.iter_mut().find(|n| n.id == "p").unwrap().draft = false;
+    link(&mut e, "e1", "c1", "p", On::Done);
+    link(&mut e, "e2", "c2", "p", On::Done);
+    committed(&mut e, "c2", true);
+    committed(&mut e, "c1", false);
+    assert_eq!(e.flows().len(), 1);
+}
+
+#[tokio::test]
 async fn a_push_whose_commit_failed_takes_the_other_commit_up_again_once_it_is_fixed() {
     let mut e = engine();
     commit_with(&mut e, "c1", "slug");
