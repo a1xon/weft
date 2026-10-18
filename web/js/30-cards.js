@@ -557,7 +557,12 @@ function editAsk(id) {
       else fin(true, null);
     }
   });
-  ta.addEventListener('blur', () => setTimeout(() => { if (!menuEl && !done && document.activeElement !== ta) fin(true, null); }, 150));
+  // a prompt written into a new queued-prompt card for an agent still at work waits for that work however the
+  // box is left (drawing its commit, a click elsewhere), as one queued from the bar does: kept a draft, it was
+  // never asked. (Enter asks an idle agent now; leaving the box does not.)
+  const blank = wasDraft && !(n.prompt || '').trim();
+  const queues = () => { const c = S.nodes.get(id); return blank && !!c && c.draft && c.agent === 'step' && !!ta.value.trim() && busyAgent(hostOf(c)); };
+  ta.addEventListener('blur', () => setTimeout(() => { if (!menuEl && !done && document.activeElement !== ta) fin(true, queues() ? 'arm' : null); }, 150));
 }
 function editNote(id) {
   const el = nodeEls.get(id), n = S.nodes.get(id); if (!el || el.editingNote || !n) return;

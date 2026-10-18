@@ -194,6 +194,24 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   }
   await p.screenshot({ path: W + '/dial-6-chain.png' });
 
+  // a prompt queued on an agent at work, its box left without enter (a click elsewhere, as when its commit is
+  // drawn next): it waits for that work and is asked then. Kept a draft, it was never asked (rubbermetrics n127)
+  const busy = await p.evaluate(async () => (await req('node_add', { node: { agent: 'claude', x: 2600, y: 200, prompt: 'LONG=20 Explain textkit/slug.py in one sentence.', addenda: [] }, run: true })).id);
+  ok(await waitSt(busy, ['busy']), 'another agent is at work (' + await st(busy) + ')');
+  await p.evaluate(id => centerOn(id), busy); await sleep(400);
+  await drag(busy, 240, 6, async () => {
+    ok((await p.locator('#dial .dpill.on b').innerText()) === 'queue a prompt', 'to its right: queue a prompt');
+  });
+  await p.waitForSelector('.nw[data-step=true] .ask-edit');
+  const qs = await p.locator('.nw[data-step=true]:has(.ask-edit)').getAttribute('data-id');
+  await p.keyboard.type('Now explain textkit/wrap.py in one sentence.');
+  await p.locator('.nw[data-id="' + busy + '"] .hd').click();
+  ok(await waitFor(() => p.evaluate(id => !S.nodes.get(id).draft && S.nodes.get(id).prompt.startsWith('Now explain'), qs), 5000), 'left without enter, it keeps its prompt and is no draft');
+  ok((await st(qs)) === 'waiting', 'it waits for the agent (' + await st(qs) + ': ' + await p.locator('.nw[data-id="' + qs + '"] .stx').innerText() + ')');
+  ok(!received(busy).includes('Now explain textkit/wrap.py'), 'nothing is asked while the agent works');
+  ok(await waitSt(qs, ['done'], 60000), 'when the agent is done it is asked, and the answer comes back (' + await st(qs) + ')');
+  ok(received(busy).includes('Now explain textkit/wrap.py'), 'in that agent\'s own session');
+
   ok(early === 0, 'the dial never opened while a link was still being drawn');
   ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.slice(0, 3).join(' | ') : ''));
   await b.close();

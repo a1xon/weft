@@ -140,7 +140,7 @@ option (after a PR: the next agent), letting go adds it at once.
 
 | Slice | What | Context |
 | --- | --- | --- |
-| **right** | **queue a prompt.** A *same agent* card appears; its prompt is asked of the very same agent in its own session, and the **answer comes back into that card** (and goes on from there). The agent's own result is left as it was, and what is linked after the agent waits until it has answered. Rewire the card after another agent (or after a gate on one) and it is asked of that agent, and so are the cards behind it. An agent is not sent back what it said itself in that session, only what comes from elsewhere. | everything it knows |
+| **right** | **queue a prompt.** A *same agent* card appears; its prompt is asked of the very same agent in its own session, and the **answer comes back into that card** (and goes on from there). The agent's own result is left as it was, and what is linked after the agent waits until it has answered. Enter on its prompt asks it; while the agent is still at work, leaving the box any other way (drawing its commit next, a click elsewhere) queues it as well, so a prompt written for a busy agent never sits as a draft. Rewire the card after another agent (or after a gate on one) and it is asked of that agent, and so are the cards behind it. An agent is not sent back what it said itself in that session, only what comes from elsewhere. | everything it knows |
 | **lower left** | **hand off.** A draft agent that will take over the work; on enter the old agent writes the handover note | a fresh session plus the note |
 | **upper left** | **git**: commit, push or open a PR (below) | |
 
