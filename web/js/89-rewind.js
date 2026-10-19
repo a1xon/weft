@@ -28,6 +28,7 @@ function renderCps(id, n, r) {
         : `step ${c.n}: ${c.what || 'its prompt'}\n${nFiles(c.files)}: ${c.names.join(', ')}${c.files > c.names.length ? ', …' : ''}${c.undone ? '\n(undone)' : ''}`;
     const cls = 'cpd' + (c.open ? ' open' : '') + (c.undone ? ' undone' : '') + (c.rewind ? ' rw' : '') + (seen && !seen.has(c.n) ? ' cpnew' : '');
     return h('button', { class: cls, 'data-n': String(c.n), title: tip, onclick: ev => { ev.stopPropagation(); openStep(id, c.n); } },
+      c.open ? h('i', { class: 'cpg' }) : null,
       h('span', { class: 'cpn' }, c.rewind ? '↺' : String(c.n)),
       h('span', { class: 'cpw' }, c.what || 'its prompt'),
       c.open ? h('span', { class: 'cpf' }, 'running') : c.files ? h('span', { class: 'cpf' }, nFiles(c.files)) : null);

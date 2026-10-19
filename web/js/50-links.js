@@ -38,7 +38,7 @@ function renderTicker() {
   const c = { busy: 0, starting: 0, attention: 0, waiting: 0, done: 0, failed: 0, blocked: 0 };
   for (const [id, r] of S.rt) { const n = S.nodes.get(id); if (kindOf(n) === 'note') continue; if (r.status in c) c[r.status]++; }
   const work = c.busy + c.starting;
-  $('#tick').replaceChildren(...nn([
+  const chips = nn([
     work ? h('span', { class: 'tk am wk', title: 'show the next card that is working', onclick: nextWorking }, h('b', {}, work), ' working') : null,
     c.waiting ? h('span', { class: 'tk' }, h('b', {}, c.waiting), ' waiting') : null,
     c.attention ? h('span', { class: 'tk vi', title: 'jump to what needs you', onclick: () => {
@@ -48,7 +48,12 @@ function renderTicker() {
     c.failed ? failedChip(c.failed) : null,
     readyChip(),
     c.done ? h('span', { class: 'tk gr' }, h('b', {}, c.done), ' done') : null,
-  ]));
+  ]);
+  // (it is asked after every update of a working card: the top bar is drawn again only when a chip changed)
+  const tick = $('#tick'), key = chips.map(x => x.outerHTML).join('');
+  if (tick._key === key) return;
+  tick._key = key;
+  tick.replaceChildren(...chips);
 }
 /* the "working" chip steps through the working cards, in reading order (top to bottom, left to right) */
 let lastWorking = null;

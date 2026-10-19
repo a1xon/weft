@@ -22,11 +22,15 @@
 .nw.drop{filter:drop-shadow(0 0 1px var(--gr)) drop-shadow(0 0 18px rgba(61,220,151,.35))}
 .node{position:absolute;inset:0;--bd:var(--edge);--fill:var(--s1);display:flex;flex-direction:column;user-select:none}
 .node::before{background:linear-gradient(180deg,var(--s2) 0,var(--s1) 46%,var(--bg) 100%)}
-.nw[data-st=busy] .node::after{content:"";position:absolute;left:0;top:0;right:0;height:2px;z-index:3;
-  background:linear-gradient(90deg,transparent,var(--am),transparent);background-size:35% 100%;background-repeat:no-repeat;animation:sweep 1.5s linear infinite}
+/* what moves while an agent works moves in steps, about 8 a second like a terminal's spinner (here, on links,
+   steps, CI pills, the tree): a smooth endless animation redraws the whole page 60 times a second for as long
+   as anything works, which took a third of a core and flickered once the GPU was short of memory. On a card it
+   moves by transform or opacity only, which the compositor plays without drawing the page again */
+.nw[data-st=busy] .node::after{content:"";position:absolute;left:0;top:0;width:35%;height:2px;z-index:3;
+  background:linear-gradient(90deg,transparent,var(--am),transparent);animation:sweep 1.5s steps(12) infinite}
 .nw[data-st=attention] .node::after{content:"";position:absolute;left:0;top:0;right:0;height:2px;z-index:3;background:var(--vi);animation:blink 1.1s steps(2) infinite}
 .nw[data-kind=note] .node::after,.nw[data-kind=gate] .node::after,.nw[data-kind=shot] .node::after,.nw[data-kind=tests] .node::after,.nw[data-kind=git] .node::after{content:"";position:absolute;left:0;top:0;width:46px;height:2px;z-index:3;background:var(--kc);animation:none}
-@keyframes sweep{from{background-position:-40% 0}to{background-position:140% 0}}
+@keyframes sweep{from{transform:translateX(-74%)}to{transform:translateX(260%)}}
 /* the header is text flow: the name's first row sits beside the dot and the tags (floats, so they come first in the DOM),
    its second row runs under them, and the header stops at two rows. --lh = one title row */
 .hd{flex:none;--lh:calc(16.5px*var(--fs));font:600 calc(15px*var(--fs))/var(--lh) var(--display);
@@ -41,7 +45,7 @@
 .st{flex:none;width:17px;height:17px;color:var(--stc);display:grid;place-items:center}
 .nw[data-kind=gate] .st,.nw[data-kind=shot] .st,.nw[data-kind=tests] .st,.nw[data-kind=git] .st{color:var(--kc)}
 .st svg{width:17px;height:17px;overflow:visible}
-.nw[data-st=busy] .st svg,.nw[data-st=starting] .st svg{animation:spin 1s linear infinite}
+.nw[data-st=busy] .st svg,.nw[data-st=starting] .st svg{animation:spin 1s steps(8) infinite}
 .nw[data-kind=git] .st svg,.nw[data-kind=gate] .st svg,.nw[data-kind=shot] .st svg,.nw[data-kind=tests] .st svg{animation:none}
 @keyframes spin{to{transform:rotate(360deg)}}
 .nm{font:600 calc(15px*var(--fs))/1.1 var(--display);letter-spacing:.015em;color:var(--i0);overflow-wrap:break-word}
@@ -122,5 +126,5 @@
 .cipill i{font-style:normal}
 .cipill.ok{border-color:var(--gr)}.cipill.ok i{color:var(--gr)}
 .cipill.bad{border-color:var(--rd)}.cipill.bad i{color:var(--rd)}
-.cipill.run{border-color:var(--am)}.cipill.run i{color:var(--am);animation:cispin 1.6s linear infinite;display:inline-block}
+.cipill.run{border-color:var(--am)}.cipill.run i{color:var(--am);animation:cispin 1.5s steps(12) infinite;display:inline-block}
 @keyframes cispin{to{transform:rotate(360deg)}}

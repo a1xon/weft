@@ -452,7 +452,12 @@ function renderOthers() {
 }
 function drawOthers(list) {
   treeEl.others.hidden = !list.length;
-  treeEl.others.replaceChildren(...list.map(otherLine));
+  // (asked after every update of a selected working card: drawn again only when a line changed, or an
+  // unfolded line would start its fade-in over and over)
+  const lines = list.map(otherLine), key = lines.map(x => x.outerHTML).join('');
+  if (treeEl.others._key === key) return;
+  treeEl.others._key = key;
+  treeEl.others.replaceChildren(...lines);
 }
 function otherLine(o) {
   const d = o.data, name = d.head || `detached ${(d.at || '').slice(0, 7)}`;

@@ -20,7 +20,7 @@
 .ed .hit{fill:none;stroke:transparent;stroke-width:18;pointer-events:stroke;cursor:pointer}
 .ed:hover .vis{opacity:.95}
 .ed.arr .vis{stroke-dasharray:none;stroke-width:2;opacity:1;filter:drop-shadow(0 0 3px var(--ec))}
-.ed.run .vis{stroke:var(--am);stroke-dasharray:3 6;opacity:1;animation:march .8s linear infinite}
+.ed.run .vis{stroke:var(--am);stroke-dasharray:3 6;opacity:1;animation:march .75s steps(6) infinite}
 .ed.sel .vis{stroke-width:2.6;opacity:1;filter:drop-shadow(0 0 4px var(--ec))}
 .ed .chip{cursor:pointer;pointer-events:all}
 .ed.moving .vis,.ed.moving .chip{opacity:.15}

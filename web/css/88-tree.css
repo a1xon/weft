@@ -34,7 +34,7 @@ body.padopen #gtree{visibility:hidden}
 #gtree .gab.f-live .rdot{background:currentColor;box-shadow:0 0 6px currentColor}
 #gtree .gab.f-old .rdot{opacity:.5}
 #gtree .gab.f-bad .rdot{border-color:var(--rd);background:transparent;opacity:1}
-#gtree .gab.f-busy .rdot{background:currentColor;animation:gbusy .9s ease-in-out infinite alternate}
+#gtree .gab.f-busy .rdot{background:currentColor;animation:gbusy 1s steps(4) infinite alternate}
 @keyframes gbusy{from{opacity:.15;transform:scale(.7)}to{opacity:1;transform:scale(1.15)}}
 #gtree .gab.hit{animation:ghit .9s ease-out}
 @keyframes ghit{0%{background:color-mix(in srgb,currentColor 35%,transparent);box-shadow:0 0 0 0 color-mix(in srgb,currentColor 60%,transparent)}
