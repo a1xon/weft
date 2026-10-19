@@ -552,8 +552,10 @@ function editAsk(id) {
     if (e.key === 'Escape') { closeMenu(); fin(false); }
     else if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
-      if (e.metaKey || e.ctrlKey) fin(true, 'fire');
-      else if (wasDraft || (S.nodes.get(id) || {}).draft) fin(true, 'arm');
+      // a draft is armed by enter and ctrl+enter alike, as its run button does: it waits for what its links
+      // bring. (ctrl+enter, the bar's send key, fired it, and nothing fires a draft: it stayed one, rubbermetrics n143)
+      if (wasDraft || (S.nodes.get(id) || {}).draft) fin(true, 'arm');
+      else if (e.metaKey || e.ctrlKey) fin(true, 'fire');
       else fin(true, null);
     }
   });

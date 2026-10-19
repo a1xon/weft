@@ -207,10 +207,21 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await p.keyboard.type('Now explain textkit/wrap.py in one sentence.');
   await p.locator('.nw[data-id="' + busy + '"] .hd').click();
   ok(await waitFor(() => p.evaluate(id => !S.nodes.get(id).draft && S.nodes.get(id).prompt.startsWith('Now explain'), qs), 5000), 'left without enter, it keeps its prompt and is no draft');
-  ok((await st(qs)) === 'waiting', 'it waits for the agent (' + await st(qs) + ': ' + await p.locator('.nw[data-id="' + qs + '"] .stx').innerText() + ')');
+  // (its status comes in the daemon's next rt message, after the flow that says it is no draft)
+  ok(await waitSt(qs, ['waiting'], 5000), 'it waits for the agent (' + await st(qs) + ': ' + await p.locator('.nw[data-id="' + qs + '"] .stx').innerText() + ')');
   ok(!received(busy).includes('Now explain textkit/wrap.py'), 'nothing is asked while the agent works');
+  // sent with ctrl+enter (the bar's send key), as rubbermetrics n143 was: it fired a draft, nothing fires one, it stayed one
+  await drag(busy, 300, 330, null, [240, 6]);
+  await p.waitForSelector('.nw[data-step=true] .ask-edit');
+  const qc = await p.locator('.nw[data-step=true]:has(.ask-edit)').getAttribute('data-id');
+  await p.keyboard.type('And textkit/__init__.py?'); await p.keyboard.press('Control+Enter');
+  ok(await waitFor(() => p.evaluate(id => !S.nodes.get(id).draft && S.nodes.get(id).prompt.startsWith('And textkit'), qc), 5000), 'ctrl+enter: no draft either');
+  ok(await waitSt(qc, ['waiting'], 5000), 'it waits for the agent too (' + await st(qc) + ')');
+  ok(!received(busy).includes('And textkit/__init__.py'), 'nothing is asked while the agent works');
   ok(await waitSt(qs, ['done'], 60000), 'when the agent is done it is asked, and the answer comes back (' + await st(qs) + ')');
   ok(received(busy).includes('Now explain textkit/wrap.py'), 'in that agent\'s own session');
+  ok(await waitSt(qc, ['done'], 60000), 'the one sent with ctrl+enter is asked after it (' + await st(qc) + ')');
+  ok(received(busy).includes('And textkit/__init__.py'), 'in the same session');
 
   ok(early === 0, 'the dial never opened while a link was still being drawn');
   ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.slice(0, 3).join(' | ') : ''));

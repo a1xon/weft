@@ -714,6 +714,11 @@ impl Engine {
             self.git_ship_now(&id);
             return json!({"ok": true});
         }
+        // a draft is set going as its run button does: armed, it waits for what its links bring
+        // (trigger runs no draft: fired, it stayed one and nothing said so)
+        if self.node(&id).is_some_and(|n| n.draft) {
+            return self.cmd_arm(id);
+        }
         if kind == Kind::Step {
             self.trigger(&id, true);
             return json!({"ok": true});

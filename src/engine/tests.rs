@@ -321,6 +321,29 @@ fn a_draft_collects_inputs_and_runs_when_armed() {
 }
 
 #[test]
+fn a_draft_that_is_fired_is_armed_and_waits_for_its_links() {
+    // rubbermetrics n143: a prompt queued on the crawl while it ran, sent with ctrl+enter (fire). trigger
+    // runs no draft, so it stayed one and was never asked after the crawl
+    let mut e = engine();
+    alive_agent(&mut e, "a", "crawl");
+    add_step(&mut e, "s", "a", "is the deals page regenerated?");
+    e.flow.nodes.iter_mut().find(|n| n.id == "s").unwrap().draft = true;
+    link(&mut e, "e1", "a", "s", On::Done);
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.armed = true;
+        r.runs = 1;
+    }
+    let r = e.cmd(None, Cmd::Fire { id: "s".into() });
+    assert_eq!(r["ok"], true);
+    assert!(!e.node("s").unwrap().draft, "it is no draft any more");
+    assert!(e.rt["a"].queue.is_empty(), "nothing is asked while the crawl runs");
+    e.settle("a", true, "crawled".into());
+    assert_eq!(e.rt["a"].queue.len(), 1, "{:?}", queued(&e, "a"));
+    assert_eq!(e.rt["a"].queue[0].src, Src::Reply("s".into()));
+}
+
+#[test]
 fn notes_are_constants_that_ride_along_but_never_start_anything() {
     let mut e = engine();
     add_kind(&mut e, "n1", "brief", "note", "Use tabs, never spaces.");
