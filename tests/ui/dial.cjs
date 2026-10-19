@@ -80,13 +80,14 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok((await p.locator('.nw[data-step=true] .ag').innerText()).includes('same agent'), 'it says it is the same agent');
   const before = (await p.evaluate(() => S.rt.get('n1').out));
   await p.keyboard.type('Now explain textkit/wrap.py in one sentence.'); await p.keyboard.press('Enter');
-  ok(await waitSt(stepId, ['busy', 'starting', 'done']), 'it asks the agent (' + await st(stepId) + ')');
-  ok(await waitSt(stepId, ['done']), 'and the answer comes back to the card');
-  const ans = await p.locator('.nw[data-id="' + stepId + '"] .ans').innerText();
+  // the agent takes it up at once: the card joins it (merge.rs)
+  ok(await waitFor(() => p.evaluate(id => !S.nodes.has(id), stepId), 30000), 'the agent takes it up and the card joins the agent: it is gone');
+  ok((await nodes()) === first && (await edges()) === 0, 'with its link to the agent');
+  ok(await waitFor(() => p.evaluate(b => { const r = S.rt.get('n1'); return r.out !== b && r.status === 'done'; }, before), 60000), 'its answer is the agent\'s result');
+  const ans = await p.locator('.nw[data-id="n1"] .ans').innerText();
   ok(ans.length > 5, 'with its text: "' + ans.replace(/\s+/g, ' ').slice(0, 70) + '"');
   ok(received('n1').includes('Now explain textkit/wrap.py'), 'the prompt reached agent n1 in its own session (no new agent was started)');
   ok(received(stepId) === '', 'nobody else received it');
-  ok((await p.evaluate(() => S.rt.get('n1').out)) === before && (await st('n1')) === 'done', 'the agent\'s own result is unchanged');
   await p.screenshot({ path: W + '/dial-2-step.png' });
 
   // --- down: a fresh agent takes over
@@ -218,10 +219,14 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(await waitFor(() => p.evaluate(id => !S.nodes.get(id).draft && S.nodes.get(id).prompt.startsWith('And textkit'), qc), 5000), 'ctrl+enter: no draft either');
   ok(await waitSt(qc, ['waiting'], 5000), 'it waits for the agent too (' + await st(qc) + ')');
   ok(!received(busy).includes('And textkit/__init__.py'), 'nothing is asked while the agent works');
-  ok(await waitSt(qs, ['done'], 60000), 'when the agent is done it is asked, and the answer comes back (' + await st(qs) + ')');
-  ok(received(busy).includes('Now explain textkit/wrap.py'), 'in that agent\'s own session');
-  ok(await waitSt(qc, ['done'], 60000), 'the one sent with ctrl+enter is asked after it (' + await st(qc) + ')');
-  ok(received(busy).includes('And textkit/__init__.py'), 'in the same session');
+  const gone = id => waitFor(() => p.evaluate(i => !S.nodes.has(i), id), 60000);
+  ok(await gone(qs), 'when the agent is done it is asked, and the card joins the agent');
+  ok(await p.evaluate(i => S.nodes.has(i), qc) && !received(busy).includes('And textkit/__init__.py') && (await st(qc)) === 'waiting',
+    'the one below it waits meanwhile: they are asked one at a time, from the top (' + await st(qc) + ')');
+  ok(await waitFor(() => received(busy).includes('Now explain textkit/wrap.py'), 30000), 'in that agent\'s own session');
+  ok(await gone(qc), 'the one sent with ctrl+enter is asked after it, and joins the agent too');
+  ok(await waitFor(() => received(busy).includes('And textkit/__init__.py'), 60000), 'in the same session');
+  ok(await waitSt(busy, ['done'], 60000), 'the agent is done with both (' + await st(busy) + ')');
 
   ok(early === 0, 'the dial never opened while a link was still being drawn');
   ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.slice(0, 3).join(' | ') : ''));

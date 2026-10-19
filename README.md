@@ -98,7 +98,8 @@ added before it that has not run yet, a junction that holds only some of a new r
 3/4 in*, a push whose commits are not all in), or a card that was green but still has prompts
 queued on it (*same agent* cards) to answer. Then what follows it (another agent, a commit, a
 deploy) waits until it has answered them all and gets its result then, so a commit after it takes
-that work too; what it answered for a queued prompt goes on from that card. That goes all the way
+that work too; a queued prompt joins its agent when it is asked, so what the agent answers to it is
+the agent's result (one that stays a card hands its answer on from there). That goes all the way
 down the chain, and a card linked after one of them gets its next result, not the one it had. A
 message typed into a card that waits for its links (a deploy before its push is in) does not start
 it: it goes in after the card's own task once they are in. An agent whose process has ended starts
@@ -140,7 +141,7 @@ option (after a PR: the next agent), letting go adds it at once.
 
 | Slice | What | Context |
 | --- | --- | --- |
-| **right** | **queue a prompt.** A *same agent* card appears; its prompt is asked of the very same agent in its own session, and the **answer comes back into that card** (and goes on from there). The agent's own result is left as it was, and what is linked after the agent waits until it has answered. Enter on its prompt asks it; while the agent is still at work, leaving the box any other way (drawing its commit next, a click elsewhere) queues it as well, so a prompt written for a busy agent never sits as a draft. Rewire the card after another agent (or after a gate on one) and it is asked of that agent, and so are the cards behind it. An agent is not sent back what it said itself in that session, only what comes from elsewhere. | everything it knows |
+| **right** | **queue a prompt.** A *same agent* card appears; its prompt is asked of the very same agent in its own session. When the agent takes it up, the card **joins the agent**: it is gone, the prompt is the agent's next turn, its links are the agent's (what was linked into it now comes into the agent, what was linked after it follows the agent), and the answer is the agent's result, so what is linked after the agent (its commit too) runs on it. Until then what is linked after the agent waits for it. Several queued on one agent are asked **one at a time, top to bottom** as the cards sit on the canvas (left to right on one line): each waits until the one above it has been answered, so they join the agent in that order, and what is linked after them takes the agent's answer to the last one. A click on its tag (*↻ same agent*) sets the **reasoning** it is asked at (as does the bar while the card is selected, or alt+↑/↓ in its box): the agent thinks at that level from then on, and one whose process runs at another level is started again on the same conversation first. A queued prompt that waits for work done after its own agent (a review of it, an approval after it, as in the networks' fixes and builds) stays a card, since joined it would loop that work back into the agent: its answer comes back into the card and goes on from there. Enter on its prompt asks it; while the agent is still at work, leaving the box any other way (drawing its commit next, a click elsewhere) queues it as well, so a prompt written for a busy agent never sits as a draft. Rewire the card after another agent (or after a gate on one) and it is asked of that agent, and so are the cards behind it. An agent is not sent back what it said itself in that session, only what comes from elsewhere. | everything it knows |
 | **lower left** | **hand off.** A draft agent that will take over the work; on enter the old agent writes the handover note | a fresh session plus the note |
 | **upper left** | **git**: commit, push or open a PR (below) | |
 
@@ -926,6 +927,7 @@ src/engine/        the single actor that owns all state
     state.rs       what is known per node while it runs (Rt), and what survives a restart
     graph.rs       nodes and links: add, edit, delete, names, ids
     flow.rs        results travelling along links: joins, triggers, queued prompts, prompt text
+    merge.rs       a queued prompt joins its agent when asked: its links and reasoning level become the agent's
     each.rs        "for each": the jobs an answer lists, one copy of the next card per job, joined again
     run.rs         reading a screen, finishing a step, settling, the prompt queue
     reads.rs       a model reads a report for what it leaves to the person; the card waits for it

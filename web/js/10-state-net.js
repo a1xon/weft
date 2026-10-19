@@ -66,6 +66,7 @@ function onMsg(m) {
     case 'idle': S.idle = m.since || null; refreshFiling(); break;
     case 'hold': S.hold = !!m.on; renderHold(); refreshFiling(); break;
     case 'hand': bead(m.edge, m.ok); break;
+    case 'merged': mergedInto.set(m.from, m.into); break;
     case 'ack': { const f = S.acks.get(m.rid); if (f) { S.acks.delete(m.rid); f(m.r); } break; }
   }
 }

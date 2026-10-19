@@ -100,8 +100,13 @@ function mkNode(n) {
   el.live.addEventListener('click', e => e.stopPropagation());
   el.ag.addEventListener('click', e => {
     e.stopPropagation();
-    const r = el.ag.getBoundingClientRect();
-    if (kindOf(S.nodes.get(id)) !== 'agent' || S.nodes.get(id).agent === 'step') return openFly(id, 'options');
+    const r = el.ag.getBoundingClientRect(), nd = S.nodes.get(id);
+    // a queued prompt: the reasoning level its agent takes up with it
+    const levels = nd && nd.agent === 'step' && stepLevels(nd);
+    if (levels) return popup([{ cap: `reasoning when ${hostOf(nd).name} is asked this` },
+      ...levels.map(([v, label, tip]) => ({ k: (nd.effort || '') === v ? '●' : ' ', label, hint: v ? '' : tip, run: () => patchNode(id, { effort: v }, 0) })),
+      { sep: true }, { label: 'options…', run: () => openFly(id, 'options') }], r.left, r.bottom + 4);
+    if (kindOf(nd) !== 'agent' || nd.agent === 'step') return openFly(id, 'options');
     popup([{ cap: 'run this step with' }, ...agentEntries().map(([k, a]) => ({ label: a.label || k, hint: k, run: () => convertTo(id, k) }))], r.left, r.bottom + 4);
   });
   el.fd.addEventListener('click', e => { e.stopPropagation(); folderTagClick(id); });
@@ -344,8 +349,13 @@ function renderNode(id) {
   if (el.nm.textContent !== n.name && !el.renaming) { el.nm.textContent = n.name; el.nm.title = n.name + ' · double-click to rename'; }
   const isStep = n.agent === 'step';
   el.root.dataset.step = String(isStep);
-  el.ag.textContent = isStep ? '↻ same agent' : k === 'git' ? 'git · ' + gitOpLabel(n) : k === 'tests' && n.ci ? 'gate · CI' : k === 'tests' && n.write_tests === false ? 'gate · check' : agentTag(n.agent) + tuneTag(n);
-  if (isStep) el.ag.title = `answered by ${hostOf(n).name} in its own session`;
+  el.ag.textContent = isStep ? '↻ same agent' + (n.effort ? ' · ' + n.effort : '') : k === 'git' ? 'git · ' + gitOpLabel(n) : k === 'tests' && n.ci ? 'gate · CI' : k === 'tests' && n.write_tests === false ? 'gate · check' : agentTag(n.agent) + tuneTag(n);
+  if (isStep) {
+    const host = hostOf(n).name;
+    el.ag.title = `asked of ${host} in its own session` + (n.effort ? `, which thinks at ${n.effort} from then on` : '')
+      + (r && r.joins === false ? ': it waits for work done after it, so the answer comes back to this card'
+        : `: then this card joins ${host}, and its links are ${host}'s`) + ' (click for its reasoning)';
+  }
   else el.ag.title = tuneTag(n) ? `${agentTag(n.agent)}${n.model ? ' · model ' + n.model : ''}${n.effort ? ' · reasoning ' + n.effort : ''}${manages(n.agent) && !yoloOf(n) ? ' · asks before it acts' : ''} (click to change)` : 'change what runs this';
   el.stx.textContent = statusText(n, r);
   renderFolderTag(id, n, el);
@@ -548,6 +558,12 @@ function editAsk(id) {
       const ks = agentEntries().map(x => x[0]); const cur = S.nodes.get(id);
       const i = Math.max(0, ks.indexOf(cur.agent));
       convertTo(id, ks[(i + (e.shiftKey ? ks.length - 1 : 1)) % ks.length]);
+      return;
+    }
+    if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      // its reasoning level, as in the bar (a queued prompt's: what its agent takes up with it)
+      e.preventDefault();
+      cardEffort(id, e.key === 'ArrowUp' ? 1 : -1);
       return;
     }
     if (e.key === 'Escape') { closeMenu(); fin(false); }

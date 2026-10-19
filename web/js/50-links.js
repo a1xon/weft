@@ -74,16 +74,22 @@ setInterval(() => {
 }, 1000);
 
 /* ------------------------------------------------------------ flow reconcile */
+/* a queued prompt's card that joined its agent (merge.rs): what looked at it looks at the agent now */
+const mergedInto = new Map();
 function applyFlow(nodes, edges) {
   const seen = new Set();
+  let read = null;
   for (const n of nodes) { seen.add(n.id); S.nodes.set(n.id, n); placeNode(n); renderNode(n.id); }
   for (const id of [...S.nodes.keys()]) if (!seen.has(id)) {
+    const into = seen.has(mergedInto.get(id)) ? mergedInto.get(id) : null;
+    mergedInto.delete(id);
     S.nodes.delete(id);
     const el = nodeEls.get(id); if (el) el.root.remove();
+    if (into && S.sel.has(id)) S.sel.add(into);
     nodeEls.delete(id); S.rt.delete(id); S.sel.delete(id);
     if (S.fly && S.fly.id === id) closeFly();
     if (S.focus === id) closeFocus();
-    if (RD.id === id) closeReader();
+    if (RD.id === id) { if (into) read = into; else closeReader(); }
   }
   const seenE = new Set();
   for (const e of edges) { seenE.add(e.id); S.edges.set(e.id, e); }
@@ -101,6 +107,7 @@ function applyFlow(nodes, edges) {
   if (pad.open) renderPad();
   if (S.fly && !insideFly()) renderFly();
   rememberDeploys();
+  if (read) openReader(read);
 }
 function whenNode(id) {
   return new Promise(res => {

@@ -50,6 +50,7 @@ mod info;
 mod limits;
 mod loose;
 mod marks;
+mod merge;
 mod reads;
 mod repo;
 mod resume;
@@ -672,7 +673,11 @@ impl Engine {
                     rt.queue.retain(|q| q.src == Src::Flow);
                 }
                 let (armed, finished) = (rt.armed, rt.finished);
-                if armed && !finished {
+                if rt.retiring.is_some() {
+                    // weft ended it (to rest, or to start it again at another reasoning level): no result,
+                    // and the conversation it named on the way out is the one a new process takes up
+                    self.note_session(&id);
+                } else if armed && !finished {
                     self.step_done(&id, status == 0, None, How::Exit);
                 } else if !finished {
                     self.set_status(&id, Status::Exited);

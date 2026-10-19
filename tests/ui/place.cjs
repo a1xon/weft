@@ -70,7 +70,8 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await p.screenshot({ path: W + '/place-2-bar.png' });
 
   // --- a hand over starts right of the card it takes over from, not left of one that ran
-  ok(await waitFor(async () => (await st(n3)) === 'done' && (await st(s)) === 'done', 40000), 'the third agent and its queued prompt are done');
+  // (the queued card joins the agent when the agent takes it up: engine/merge.rs)
+  ok(await waitFor(async () => (await p.evaluate(([i, q]) => !S.nodes.has(q) && /Then say done/.test(S.rt.get(i).asked || '') && S.rt.get(i).status === 'done', [n3, s])), 40000), 'the third agent answered its queued prompt, whose card joined it');
   before = await ids(); was = await started();
   await p.evaluate(i => takeoverFrom(i, 'claude', 'Carry on: explain textkit/slug.py edge cases.'), n2);
   const n4 = await newCard(before), D = await box(n4);

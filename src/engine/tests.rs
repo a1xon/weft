@@ -4505,15 +4505,27 @@ fn a_chain_of_queued_prompts_is_answered_before_what_follows_the_agent() {
     let q = queued(&e, "b");
     assert_eq!(q.len(), 1, "{q:?}");
     assert!(q[0].contains("A1"), "{}", q[0]);
-    // prompts queued side by side on the agent wait in its queue, not for each other
+    // prompts queued side by side on the agent are asked one at a time, the highest on the canvas first
     let mut e = engine();
     alive_agent(&mut e, "a", "hero");
     add_step(&mut e, "s1", "a", "one more");
     add_step(&mut e, "s2", "a", "and another");
+    add(&mut e, "b", "b", "test {{inputs}}");
+    e.rt.get_mut("b").unwrap().alive = true;
+    e.flow.nodes.iter_mut().find(|n| n.id == "s2").unwrap().y = -200.0;
     link(&mut e, "e1", "a", "s1", On::Done);
     link(&mut e, "e2", "a", "s2", On::Done);
+    link(&mut e, "e3", "a", "b", On::Done);
     ran(&mut e, "a", "A1");
-    assert_eq!(e.rt["a"].queue.len(), 2);
+    let srcs = |e: &Engine| e.rt["a"].queue.iter().map(|q| q.src.clone()).collect::<Vec<_>>();
+    assert_eq!(srcs(&e), vec![Src::Reply("s2".into())], "the higher card is asked first, alone");
+    assert!(e.waits_for_links("s1") && e.rt["s1"].queue.is_empty() && e.rt["s1"].inputs.is_empty(), "the other waits for it");
+    answer(&mut e, "a", "S2");
+    assert_eq!(srcs(&e), vec![Src::Reply("s1".into())], "then the next one");
+    assert!(e.rt["b"].queue.is_empty(), "what follows the agent waits for both");
+    answer(&mut e, "a", "S1");
+    assert!(srcs(&e).is_empty());
+    assert_eq!(queued(&e, "b").len(), 1);
 }
 
 #[test]

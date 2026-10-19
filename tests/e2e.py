@@ -378,11 +378,12 @@ try:
     n_before = len(call("ls")["nodes"])
     stp = add(name="more", agent="step", host=sa, prompt="Also explain textkit/wrap.py in one sentence.", addenda=[])
     call("edge_add", **{"from": sa, "to": stp})
-    check(wait(lambda: status(stp)[0] == "done", "step done", 60), "a queued prompt is answered (%s)" % (status(stp),))
+    # (the agent takes it up at once, and its card joins the agent: engine/merge.rs)
+    check(wait(lambda: status(stp)[0] is None, "step joined", 60), "a queued prompt joins its agent when the agent takes it up")
+    check(wait(lambda: status(sa) == ("done", 2), "alpha answered", 60), "the agent answered it as one more turn of its own (%s)" % (status(sa),))
     check("explain textkit/wrap.py" in open(PROJ + "/.weft/run/received-%s.log" % sa).read(), "by the same agent, in its own session")
     check(not os.path.exists(PROJ + "/.weft/run/received-%s.log" % stp), "nobody else was started for it")
-    check(len(call("ls")["nodes"]) == n_before + 1, "the step is the only new node")
-    check(status(sa)[0] == "done" and status(sa)[1] == 2, "the agent took it as one more turn of its own (%s)" % (status(sa),))
+    check(len(call("ls")["nodes"]) == n_before, "and the queued prompt's card is gone")
 
     # 31-40: one commit per agent, the commits meet in one push, a pull request is opened, and an
     # agent after it tests the result live, starting from everything that was carried on

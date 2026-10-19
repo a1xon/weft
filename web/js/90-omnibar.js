@@ -41,6 +41,9 @@ function renderOmni() {
     onModel: v => { patchNode(n.id, { model: v }, 0); redo(); },
     onEffort: v => patchNode(n.id, { effort: v }, 0),
     onYolo: v => { patchNode(n.id, { yolo: v }, 0); redo(); } });
+  // a selected queued prompt shows the reasoning level it gives its agent when it is asked (merge.rs)
+  const forStep = (st, host) => agentControls({ id: 'o', agent: host.agent, agents: null, lead: chip, above: true, model: host.model || '',
+    effort: st.effort || '', levels: stepLevels(st), onEffort: v => { patchNode(st.id, { effort: v }, 0); redo(); } });
   let chip = null, controls = [], ckey = '', forNewAgent = false;
   if (ids.length === 0) {
     forNewAgent = true;
@@ -55,6 +58,9 @@ function renderOmni() {
       forNewAgent = true;
       controls = forNew();
       ckey = JSON.stringify(['new', S.lastAgent, tuned(S.lastAgent, 'model'), tuned(S.lastAgent, 'effort'), yoloDefault(), (S.models[S.lastAgent] || []).length]);
+    } else if (picked !== single && stepLevels(picked)) {
+      controls = forStep(picked, single);
+      ckey = JSON.stringify(['step', picked.id, picked.effort, single.agent, single.model, single.effort]);
     } else {
       controls = forNode(single);
       ckey = JSON.stringify(['node', single.agent, single.model, single.effort, yoloOf(single), (S.models[single.agent] || []).length]);
@@ -111,7 +117,10 @@ function omniEffort(d) {
   const picked = S.sel.size === 1 ? S.nodes.get([...S.sel][0]) : null;
   const one = picked ? hostOf(picked) : null;
   const mine = one && kindOf(one) === 'agent' && one.agent !== 'sh' && S.omniMode !== 'hand';
-  if (mine) {
+  if (mine && picked !== one) {
+    // a queued prompt: the level it gives its agent when it is asked
+    cardEffort(picked.id, d); omni._key = null; renderOmni();
+  } else if (mine) {
     const v = effortStep(one.agent, one.model || '', one.effort || '', d);
     if (v !== null) { patchNode(one.id, { effort: v }, 0); omni._key = null; renderOmni(); }
   } else if (S.sel.size <= 1) padEffort(d);

@@ -119,13 +119,16 @@ function agentControls(c) {
     sg.classList.add('pagents');
     left.push(sg);
   }
-  if (cfg.model_arg) right.push(modelRow(c, cfg));
-  if (cfg.effort_arg && (cfg.efforts || []).length && effortApplies(c.agent, c.model)) {
-    const eg = seg([['', 'auto', 'the CLI decides'], ...cfg.efforts.map(e => [e, e === 'medium' ? 'med' : e, 'reasoning effort ' + e + ' (alt+↑/↓)'])], c.effort || '', v => c.onEffort(v));
+  // (a queued prompt has a reasoning level only: `levels` are its choices, the rest is its agent's)
+  if (cfg.model_arg && c.onModel) right.push(modelRow(c, cfg));
+  const levels = c.levels || (cfg.effort_arg && (cfg.efforts || []).length && effortApplies(c.agent, c.model)
+    ? [['', 'auto', 'the CLI decides'], ...cfg.efforts.map(e => [e, e === 'medium' ? 'med' : e, 'reasoning effort ' + e + ' (alt+↑/↓)'])] : null);
+  if (levels) {
+    const eg = seg(levels, c.effort || '', v => c.onEffort(v));
     eg.classList.add('cells');
     second.push(h('div', { class: 'peff' }, h('span', { class: 'dl' }, 'reasoning'), eg));
   }
-  if (cfg.yolo_arg) {
+  if (cfg.yolo_arg && c.onYolo) {
     const on = !!c.yolo;
     second.push(h('button', { class: 'pyolo', id: c.id + 'yolo', 'aria-pressed': String(on),
       title: on ? `yolo: ${c.agent} acts without asking (${cfg.yolo_arg}). Click to make it ask before it acts.` : `${c.agent} asks before it acts. Click for yolo: no permission prompts (${cfg.yolo_arg}).`,
@@ -200,6 +203,22 @@ function effortStep(a, model, cur, d) {
   const cfg = S.cfg.agents[a] || {}, list = ['', ...(cfg.efforts || [])];
   if (!cfg.effort_arg || !effortApplies(a, model)) return null;
   return list[Math.max(0, Math.min(list.length - 1, list.indexOf(cur || '') + d))];
+}
+/* the reasoning levels a queued prompt can give its agent: from the moment the agent takes it up, the agent
+   thinks at that level (it is started again on its conversation if it runs at another); '' leaves it as it is.
+   Null where its agent has none. */
+function stepLevels(n) {
+  const host = hostOf(n), cfg = S.cfg.agents[host.agent] || {};
+  if (host === n || !cfg.effort_arg || !(cfg.efforts || []).length || !effortApplies(host.agent, host.model)) return null;
+  return [['', 'as is', `${host.name} keeps its reasoning (${host.effort || 'auto'})`],
+    ...cfg.efforts.map(e => [e, e === 'medium' ? 'med' : e, `${host.name} thinks at ${e} from this prompt on (alt+↑/↓)`])];
+}
+/* alt+up / alt+down on a card: its reasoning level, a queued prompt's own one included */
+function cardEffort(id, d) {
+  const n = S.nodes.get(id), who = hostOf(n);
+  if (!n || kindOf(who) !== 'agent' || who.agent === 'sh') return;
+  const v = effortStep(who.agent, who.model || '', n.effort || '', d);
+  if (v !== null && v !== (n.effort || '')) patchNode(id, { effort: v }, 0);
 }
 function padEffort(d) {
   const a = S.lastAgent, v = effortStep(a, tuned(a, 'model'), tuned(a, 'effort'), d);

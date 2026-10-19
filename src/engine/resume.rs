@@ -67,7 +67,7 @@ fn fill(tpl: &str, id: &str) -> Option<String> {
 
 impl Engine {
     /// The agent CLI behind a card that weft runs as an agent (not a command line of its own).
-    fn session_cfg(&self, id: &str) -> Option<AgentCfg> {
+    pub(super) fn session_cfg(&self, id: &str) -> Option<AgentCfg> {
         let n = self.node(id).filter(|n| n.kind() == Kind::Agent && n.finish == Finish::Idle && n.cmd.trim().is_empty())?;
         self.cfg.agents.get(&n.agent).cloned()
     }
@@ -155,18 +155,15 @@ impl Engine {
     /// it named is kept and the window closes. A pane whose program ended by itself names its session too.
     pub(super) fn tick_retire(&mut self) {
         let now = now_ms();
+        let ended: Vec<String> =
+            self.rt.iter().filter(|(_, r)| r.session.is_none() && !r.alive && r.pane.is_some()).map(|(i, _)| i.clone()).collect();
+        for id in ended {
+            self.note_session(&id);
+        }
         let mut close: Vec<String> = Vec::new();
         for (id, rt) in self.rt.iter_mut() {
             let ended = !rt.alive && rt.pane.is_some();
             let late = rt.retiring.is_some_and(|t| now >= t + RETIRE_MS);
-            if rt.session.is_none() && ended {
-                let hint =
-                    self.flow.nodes.iter().find(|n| n.id == *id).and_then(|n| self.cfg.agents.get(&n.agent)).map(|a| a.resume_hint.clone());
-                if let Some(s) = hint.and_then(|h| read_session(&rt.parser.screen().contents(), &h)) {
-                    rt.session = Some(s);
-                    self.state_dirty = true;
-                }
-            }
             if rt.retiring.is_some() && (ended || late) {
                 rt.retiring = None;
                 close.push(id.clone());
@@ -174,6 +171,18 @@ impl Engine {
         }
         for id in close {
             self.kill(&id);
+            // (what was queued on it meanwhile, or what it was ended for, goes to a new process)
+            self.restart_if_queued(&id);
+        }
+    }
+
+    /// The session the card's ended process named on its screen, when weft does not know it yet.
+    pub(super) fn note_session(&mut self, id: &str) {
+        let hint = self.node(id).and_then(|n| self.cfg.agents.get(&n.agent)).map(|a| a.resume_hint.clone());
+        let Some(rt) = self.rt.get_mut(id).filter(|r| r.session.is_none()) else { return };
+        if let Some(s) = hint.and_then(|h| read_session(&rt.parser.screen().contents(), &h)) {
+            rt.session = Some(s);
+            self.state_dirty = true;
         }
     }
 

@@ -42,7 +42,10 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   const s2 = (await steps()).find(s => s.id !== s1.id);
   ok(s2 && s2.from.join() === s1.id && s2.host === 'n1', 'linked after the first queued prompt (' + JSON.stringify(s2) + ')');
   await p.screenshot({ path: W + '/aim-2-queued.png' });
-  ok(await waitFor(async () => (await st(s1.id)) === 'done' && (await st(s2.id)) === 'done', 60000), 'both are asked in turn and answered (' + await st(s1.id) + ' ' + await st(s2.id) + ')');
+  // (each card joins the agent as the agent takes it up: engine/merge.rs)
+  const gone = id => p.evaluate(i => !S.nodes.has(i), id);
+  ok(await waitFor(async () => (await gone(s1.id)) && (await gone(s2.id)) && /Then say done/.test((await p.evaluate(() => S.rt.get('n1').asked)) || '')
+    && (await st('n1')) === 'done', 60000), 'both are asked in turn, each card joining the agent (' + await st('n1') + ')');
 
   // --- untouched for 30 s the bar lets go
   await p.evaluate(() => centerOn('n1')); await sleep(200);

@@ -160,6 +160,10 @@ impl Engine {
         });
         // (set afterwards: the macro above is at its recursion limit)
         v["held"] = json!(rt.held.as_ref().map(|(h, why)| json!({"id": h, "name": self.node(h).map(|n| n.name.clone()), "why": why})));
+        // a queued prompt's card joins its agent when the agent takes it up, or stays (merge.rs)
+        if let Some(n) = node.filter(|n| n.kind() == Kind::Step) {
+            v["joins"] = json!(self.joins(id, &n.host));
+        }
         // what it asks the person, with the answers it suggests: from a report it gave (`report`: it can be let
         // go as it is) or from its ISSUE, as a model read it (reads.rs), else as weft's rules find it
         if rt.issue.is_some() {

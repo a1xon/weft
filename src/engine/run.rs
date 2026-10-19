@@ -440,6 +440,11 @@ impl Engine {
     /// Hand the next queued prompt to the agent.
     fn pump(&mut self, id: &str) {
         let Some(finish) = self.node(id).map(|n| n.finish) else { return };
+        // a queued prompt's card joins its agent now, and its reasoning level is the agent's: a process
+        // at another level is started again first, and takes the prompt up then (merge.rs)
+        if finish != Finish::Exit && self.take_up_queued(id) && self.restart_tuned(id) {
+            return;
+        }
         let Some(item) = self.rt.get_mut(id).and_then(|r| r.queue.pop_front()) else { return };
         if finish == Finish::Exit {
             // a running command: whatever is queued is input for its stdin

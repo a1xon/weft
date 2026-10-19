@@ -10,9 +10,10 @@ impl Engine {
         let Some(name) = self.node(id).map(|n| n.name.clone()) else { return };
         let mut edges: Vec<Edge> = self.flow.edges.iter().filter(|e| e.from == id && e.on.matches(ok)).cloned().collect();
         // the prompts queued on the same agent go first: they are its work, and what is linked after
-        // it waits for them
+        // it waits for them. They are asked one at a time, the one highest on the canvas first: the
+        // others wait for it (`answers_queued`)
         let agent = self.resolve_host(id);
-        edges.sort_by_key(|e| !self.node(&e.to).is_some_and(|n| n.kind() == Kind::Step && n.host == agent));
+        edges.sort_by(|a, b| self.asked_first(&agent, a).partial_cmp(&self.asked_first(&agent, b)).unwrap_or(std::cmp::Ordering::Equal));
         for e in edges {
             if self.pending(&e) {
                 if let Some(r) = self.rt.get_mut(id).filter(|r| !r.unsent.contains(&e.id)) {
@@ -24,6 +25,15 @@ impl Engine {
                 r.unsent.retain(|u| *u != e.id);
             }
             self.deliver_input(&e, id, &name, ok, out);
+        }
+    }
+
+    /// Where a link stands in the order results go out from `agent`'s card: a prompt queued on the agent
+    /// before anything else, top to bottom (left to right on one line) as the cards are on the canvas.
+    fn asked_first(&self, agent: &str, e: &Edge) -> (u8, f64, f64) {
+        match self.node(&e.to) {
+            Some(n) if n.kind() == Kind::Step && n.host == agent => (0, n.y, n.x),
+            _ => (1, 0.0, 0.0),
         }
     }
 
@@ -229,13 +239,10 @@ impl Engine {
     }
 
     /// Does the agent answer, or have queued, a prompt of a queued-prompt card other than `to` and the
-    /// cards after it?
+    /// cards after it? A prompt queued on the same agent waits for it too: they are asked one at a
+    /// time, not all at once, so each joins the agent in turn (merge.rs).
     fn answers_queued(&self, id: &str, to: &str) -> bool {
         let Some(r) = self.rt.get(id) else { return false };
-        // (its own queued prompts wait in its queue, one after the other, not for each other)
-        if self.node(to).is_some_and(|n| n.kind() == Kind::Step && n.host == id) {
-            return false;
-        }
         let other = |s: &str| s != to && self.node(s).is_some_and(|n| n.kind() == Kind::Step) && !self.leads_to(to, s);
         r.reply_to.as_deref().is_some_and(other) || r.queue.iter().any(|q| matches!(&q.src, Src::Reply(s) if other(s)))
     }
@@ -304,14 +311,22 @@ impl Engine {
     /// run on): results held back at a card that had more to do go on, and the junctions that hold
     /// inputs look again.
     pub(super) fn recheck_joins(&mut self) {
-        let due: Vec<Edge> = self
+        let mut due: Vec<Edge> = self
             .flow
             .edges
             .iter()
             .filter(|e| self.rt.get(&e.from).is_some_and(|r| r.unsent.contains(&e.id)) && !self.pending(e))
             .cloned()
             .collect();
+        // (prompts queued on one agent in their order: the first one asked holds the others back again)
+        due.sort_by(|a, b| {
+            let (x, y) = (self.asked_first(&self.resolve_host(&a.from), a), self.asked_first(&self.resolve_host(&b.from), b));
+            x.partial_cmp(&y).unwrap_or(std::cmp::Ordering::Equal)
+        });
         for e in due {
+            if self.pending(&e) {
+                continue;
+            }
             let Some(r) = self.rt.get_mut(&e.from) else { continue };
             r.unsent.retain(|u| *u != e.id);
             let (Some(out), ok) = (r.output.clone(), r.ok.unwrap_or(true)) else { continue };

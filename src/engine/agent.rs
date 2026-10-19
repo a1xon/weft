@@ -170,6 +170,10 @@ async fn do_spawn(plan: SpawnPlan) -> Result<Spawned, String> {
 
 impl Engine {
     pub(super) fn start(&mut self, id: &str) {
+        // started for a queued prompt: its card joins the agent first, so it starts at its reasoning level (merge.rs)
+        if self.node(id).is_some_and(|n| n.kind() == Kind::Agent && n.finish != Finish::Exit) {
+            self.take_up_queued(id);
+        }
         let Some(node) = self.node(id).cloned() else { return };
         if node.kind() != Kind::Agent || self.exit.is_some() {
             return;
@@ -196,6 +200,8 @@ impl Engine {
         let ticket = self.spawn_seq;
         let Some(rt) = self.rt.get_mut(id) else { return };
         rt.spawn = Some(ticket);
+        // (an old process that was being ended goes with its window now)
+        rt.retiring = None;
         // A dead pane lingers (remain-on-exit); clear it so there is one window per node.
         if let Some(w) = rt.win.take() {
             tm.kill_window(&w);
