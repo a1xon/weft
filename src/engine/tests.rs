@@ -51,8 +51,8 @@ pub(super) fn engine() -> Engine {
         url: "http://127.0.0.1:1".into(),
         token: "t".into(),
     };
-    // no unit test asks a real CLI to name a card
-    let mut e = Engine::new(boot, Config { titles: false, ..Config::default() }, tx, None);
+    // no unit test asks a real CLI to name a card or read a report
+    let mut e = Engine::new(boot, Config { titles: false, asks: false, ..Config::default() }, tx, None);
     // unit tests write only into a scratch folder
     e.flow_path = scratch.join("flow.json");
     e
@@ -829,7 +829,7 @@ async fn a_watch_with_a_command_runs_it_itself_while_the_agent_works() {
         url: "http://127.0.0.1:1".into(),
         token: "t".into(),
     };
-    let mut e = Engine::new(boot, Config { titles: false, ..Config::default() }, tx, None);
+    let mut e = Engine::new(boot, Config { titles: false, asks: false, ..Config::default() }, tx, None);
     e.flow_path = scratch.join("flow.json");
     alive_agent(&mut e, "a", "build ui");
     e.cmd(
@@ -943,6 +943,7 @@ fn agents_run_in_yolo_mode_unless_switched_off() {
         limits: vec![],
         effort_models: vec![],
         title_cmd: String::new(),
+        asks_cmd: String::new(),
         session_arg: String::new(),
         resume_arg: String::new(),
         fork_arg: String::new(),
@@ -4214,6 +4215,112 @@ fn a_lone_card_that_goes_quiet_on_a_question_asks_the_person() {
     assert!(!e.rt["a"].finished, "it asked, so it is not done");
     assert_eq!(e.rt["a"].issue.as_deref(), Some("Want me to fix Safari as well?"));
     assert!(e.rt["a"].cur.as_ref().and_then(|c| c.report.as_deref()).is_some_and(|r| r.contains("Fixed the flicker")));
+}
+
+/// A model reads "a"'s reports (it is never run: the tests hand its reading in with `on_asks`).
+fn reads_reports(e: &mut Engine) {
+    e.cfg.asks = true;
+    let agent = e.node("a").unwrap().agent.clone();
+    e.cfg.agents.entry(agent).or_default().asks_cmd = "true".into();
+}
+
+fn reading(e: &Engine) -> u64 {
+    e.rt["a"].cur.as_ref().map_or(0, |c| c.reading)
+}
+
+/// rubbermetrics n142: done, and its recap of the person's answers ("Your decisions: ...") held it
+const RECAP: &str = "Deployed, and the merge is applied.\n\n- Your decisions (crawler commit 922d891):\n  - 88 duplicate tasks dismissed.\n  \
+                     - The maker's figures were kept.\n- No brand was added.";
+
+#[tokio::test]
+async fn a_report_a_model_finds_nothing_to_ask_in_goes_on_once_it_is_read() {
+    let mut e = engine();
+    tasked_agent(&mut e);
+    reads_reports(&mut e);
+    assert_eq!(e.cmd_done("a".into(), true, RECAP.into(), false)["held"], 0);
+    let ticket = reading(&e);
+    assert!(ticket != 0 && !e.rt["a"].finished && e.rt["a"].issue.is_none(), "it is read first");
+    assert!(e.rt["b"].inputs.is_empty() && e.rt["b"].queue.is_empty(), "nothing goes on before that");
+    // the quiet while it is read is no silence to remind it about
+    let t0 = Instant::now();
+    e.eval("a", t0);
+    e.eval("a", t0 + Duration::from_secs(600));
+    assert_eq!(e.rt["a"].status, Status::Busy);
+    assert!(!e.rt["a"].cur.as_ref().unwrap().asked && !e.rt["a"].finished);
+    assert_eq!(e.rt_json("a", &HashMap::new(), &HashMap::new())["reading"], true);
+    // an older reading is dropped; this one finds nothing to ask
+    e.on_asks("a", ticket - 1, Some(vec![asks::read("{\"asks\": [{\"text\": \"Dismiss them?\"}]}", RECAP).unwrap()[0].clone()]));
+    assert!(!e.rt["a"].finished);
+    e.on_asks("a", ticket, Some(vec![]));
+    assert!(e.rt["a"].finished && e.rt["a"].issue.is_none() && e.rt["a"].output.as_deref() == Some(RECAP));
+    assert!(e.rt["b"].queue.iter().any(|q| q.text.contains("88 duplicate tasks dismissed")), "the next card got the report");
+}
+
+#[tokio::test]
+async fn a_report_a_model_finds_questions_in_waits_with_the_answers_it_suggests() {
+    let mut e = engine();
+    tasked_agent(&mut e);
+    reads_reports(&mut e);
+    e.cmd_done("a".into(), true, ASKING.into(), false);
+    let out = "{\"asks\": [{\"text\": \"Push fcea8566?\", \"quote\": \"Push fcea8566?\", \"answers\": [\"yes, push it\", \"no, keep it local\"]}]}";
+    e.on_asks("a", reading(&e), asks::read(out, ASKING));
+    assert!(!e.rt["a"].finished && e.rt["a"].status == Status::Attention);
+    assert_eq!(e.rt["a"].issue.as_deref(), Some("Push fcea8566?"), "what the model read, not what the rules find");
+    let v = e.rt_json("a", &HashMap::new(), &HashMap::new());
+    assert_eq!((v["report"].clone(), v["asks"].as_array().map(Vec::len)), (json!(true), Some(1)));
+    assert_eq!(v["asks"][0]["opts"][0]["answer"], "yes, push it");
+    assert_eq!(v["asks"][0]["from"], 3);
+    assert_eq!(e.cmd_skip("a".into())["ok"], true, "it can be let go as it is");
+    assert!(e.rt["b"].queue.iter().any(|q| q.text.contains("Push fcea8566?")));
+    // a reading that fails leaves it to the rules
+    let mut e = engine();
+    tasked_agent(&mut e);
+    reads_reports(&mut e);
+    e.cmd_done("a".into(), true, ASKING.into(), false);
+    e.on_asks("a", reading(&e), None);
+    assert_eq!(e.rt["a"].issue.as_deref(), Some("Push fcea8566?\nThe old reels: re-render them now or after the re-analysis?"));
+}
+
+#[tokio::test]
+async fn after_a_restart_a_report_is_read_again() {
+    // one held by the rules is read by the model
+    let mut e = engine();
+    tasked_agent(&mut e);
+    e.cmd_done("a".into(), true, RECAP.into(), false);
+    assert!(e.rt["a"].issue.is_some(), "the rules hold it");
+    reads_reports(&mut e);
+    e.reread("a");
+    let ticket = reading(&e);
+    assert!(ticket != 0);
+    e.on_asks("a", ticket, Some(vec![]));
+    assert!(e.rt["a"].finished && e.rt["a"].issue.is_none(), "the model let it go");
+    // one whose reading was on its way, with no model to ask now: the rules decide
+    let mut e = engine();
+    tasked_agent(&mut e);
+    reads_reports(&mut e);
+    e.cmd_done("a".into(), true, ASKING.into(), false);
+    e.cfg.asks = false;
+    e.reread("a");
+    assert!(reading(&e) == 0 && e.rt["a"].issue.is_some());
+}
+
+#[tokio::test]
+async fn an_issue_gets_the_answers_a_model_suggests_and_waits_as_it_did() {
+    let mut e = engine();
+    tasked_agent(&mut e);
+    reads_reports(&mut e);
+    let issue = "The crawl ran.\nShould I deploy the website now and then apply the migration?";
+    e.cmd_done("a".into(), true, issue.into(), true);
+    assert_eq!(e.rt["a"].status, Status::Attention, "it asks the person right away");
+    let v = e.rt_json("a", &HashMap::new(), &HashMap::new());
+    assert_eq!(v["asks"][0]["yn"], true, "the rules' answers until the reading is in");
+    let out = "{\"asks\": [{\"text\": \"Deploy now, then apply the migration?\", \"quote\": \"Should I deploy the website now\", \
+               \"answers\": [\"yes, deploy and apply\", \"no, leave it for the next deploy\"]}]}";
+    e.on_asks("a", reading(&e), asks::read(out, issue));
+    let v = e.rt_json("a", &HashMap::new(), &HashMap::new());
+    assert_eq!((v["report"].clone(), v["asks"][0]["from"].clone()), (json!(false), json!(1)));
+    assert_eq!(v["asks"][0]["opts"][1]["answer"], "no, leave it for the next deploy");
+    assert!(e.rt["a"].issue.is_some() && !e.rt["a"].finished);
 }
 
 fn add_step(e: &mut Engine, id: &str, host: &str, prompt: &str) {

@@ -121,6 +121,22 @@ pub(super) async fn run_shell(dir: &Path, cmd: &str, env: &[(&str, &str)], timeo
     }
 }
 
+/// A one-shot request to a CLI (a card's name, what a report asks): `sh -c <cmd>` outside the
+/// project with the request in `$<var>`. Its stdout, if it ran through; only stdout counts (Codex
+/// reports its progress on stderr).
+pub(super) async fn run_oneshot(cmd: &str, var: &str, req: &str, timeout: Duration) -> Option<String> {
+    let mut c = tokio::process::Command::new("sh");
+    c.arg("-c")
+        .arg(cmd)
+        .current_dir(std::env::temp_dir())
+        .env(var, req)
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let o = tokio::time::timeout(timeout, c.output()).await.ok()?.ok()?;
+    o.status.success().then(|| String::from_utf8_lossy(&o.stdout).into_owned())
+}
+
 /// A test suite: it may take a while.
 pub(super) async fn run_tests(dir: &Path, cmd: &str) -> (bool, String) {
     run_shell(dir, cmd, &[], 900).await

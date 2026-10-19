@@ -8,11 +8,15 @@
 //! neither does one in the middle of the text that does not speak to the person. An offer ("let me
 //! know if you want a PR") is shown, but nothing waits for it. "Decisions:" on its own lists what
 //! the agent decided, not what it asks.
+//!
+//! These rules are the fallback. A report is read by a model first (`read`, engine/reads.rs): the
+//! rules took a recap of the person's own answers under "Your decisions:" for decisions left open
+//! (rubbermetrics n142), and missed questions that end in a recommendation ("...? (yes)").
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// One thing the person is asked.
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Ask {
     /// the question (or the decision) as the person reads it
     pub text: String,
@@ -26,7 +30,7 @@ pub struct Ask {
     pub to: usize,
 }
 
-#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     /// asked with a question mark
@@ -39,7 +43,7 @@ pub enum Kind {
     Need,
 }
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Opt {
     pub label: String,
     pub answer: String,
@@ -155,15 +159,82 @@ fn ask(text: &str, kind: Kind) -> Ask {
     // a decision goes on after what it asks: its first sentence holds the choice
     let first = sentences(&text).into_iter().next().map_or_else(|| text.clone(), |s| s.text);
     let opts = if kind == Kind::Offer { None } else { inline_opts(&first).or_else(|| or_opts(&first, kind == Kind::Question)) }.unwrap_or_default();
+    let yn = opts.is_empty() && yes_or_no(&text, kind);
+    Ask { text: cut(&text, 300), kind, yn, opts, from: 0, to: 0 }
+}
+
+/// Is it answered with yes or no (an offer always is; "which ...?" and "this or that?" are not)?
+fn yes_or_no(text: &str, kind: Kind) -> bool {
     let lower = text.to_lowercase();
     let word = lower.split(|c: char| !c.is_alphanumeric()).find(|w| !w.is_empty()).unwrap_or("");
-    let yn = opts.is_empty()
-        && match kind {
-            Kind::Offer => true,
-            Kind::Question => !WH.contains(&word) && !has(&lower.replace("or not", ""), &["or"]),
-            _ => false,
-        };
-    Ask { text: cut(&text, 300), kind, yn, opts, from: 0, to: 0 }
+    match kind {
+        Kind::Offer => true,
+        Kind::Question => !WH.contains(&word) && !has(&lower.replace("or not", ""), &["or"]),
+        _ => false,
+    }
+}
+
+// ---------------------------------------------------------------- what a model read
+
+/// What a model found `text` leaves to the person, from its answer to `words::asks_request`
+/// (`{"asks": [{"text", "quote", "answers"}]}`), each on the lines of `text` its quote stands on
+/// (past the end when the quote is not found: then it is listed, but marked nowhere). `None` when
+/// the answer is not that JSON.
+pub fn read(out: &str, text: &str) -> Option<Vec<Ask>> {
+    #[derive(Deserialize)]
+    struct Said {
+        asks: Vec<Item>,
+    }
+    #[derive(Deserialize)]
+    struct Item {
+        #[serde(default)]
+        text: String,
+        #[serde(default)]
+        quote: String,
+        #[serde(default)]
+        answers: Vec<String>,
+    }
+    // (a model may still put it in a code block, or say something around it)
+    let said: Said = serde_json::from_str(out.get(out.find('{')?..=out.rfind('}')?)?).ok()?;
+    let lines: Vec<&str> = text.lines().collect();
+    let mut found = Vec::new();
+    for it in said.asks {
+        let q = clean(&it.text);
+        if q.is_empty() {
+            continue;
+        }
+        let kind = if q.ends_with('?') { Kind::Question } else { Kind::Decision };
+        let opts: Vec<Opt> =
+            it.answers.iter().map(|a| clean(a)).filter(|a| !a.is_empty()).take(4).map(|a| Opt { label: cut(&a, 32), answer: cut(&a, 160) }).collect();
+        let yn = opts.is_empty() && yes_or_no(&q, kind);
+        let (from, to) = stands_on(&lines, &it.quote).unwrap_or((lines.len(), lines.len()));
+        found.push(Ask { text: cut(&q, 300), kind, yn, opts, from, to });
+    }
+    // (a long list of questions is still what it asks: only a runaway answer is cut)
+    found.truncate(MAX * 2);
+    Some(found)
+}
+
+/// The lines a quote of the text stands on, emphasis, list markers and spacing aside: the line it
+/// is in, or the lines its start and its end are in.
+fn stands_on(lines: &[&str], quote: &str) -> Option<(usize, usize)> {
+    let norm = |s: &str| clean(&s.replace('`', "")).to_lowercase();
+    let q = norm(quote);
+    let q = list_lead(&q).map_or(q.as_str(), |(_, rest)| rest).trim();
+    if q.chars().count() < 4 {
+        return None;
+    }
+    let ls: Vec<String> = lines.iter().map(|l| norm(l)).collect();
+    if let Some(i) = ls.iter().position(|l| l.contains(q)) {
+        return Some((i, i));
+    }
+    // over several lines: where its first words are, and its last ones after them
+    let words: Vec<&str> = q.split(' ').collect();
+    let head = words[..words.len().min(6)].join(" ");
+    let tail = words[words.len().saturating_sub(6)..].join(" ");
+    let from = ls.iter().position(|l| l.contains(&head))?;
+    let to = (from..ls.len().min(from + 12)).find(|&j| ls[j].contains(&tail)).unwrap_or(from);
+    Some((from, to))
 }
 
 // ---------------------------------------------------------------- the text in parts
@@ -766,5 +837,41 @@ mod tests {
         assert_eq!((a.len(), a[0].kind), (1, Kind::Need));
         let a = in_issue("The API changed. Should I target v2 or v3?");
         assert_eq!(a[0].opts.len(), 2, "{a:?}");
+    }
+
+    /// rubbermetrics n142's last report, after the person answered its question: the recap of their
+    /// answers under "Your decisions" is no decision left to them.
+    const RECAP: &str = "Deployed, and the Tactics LP merge is applied.\n\nWhole run\n- Added 120 new products.\n- Your decisions \
+                         (crawler commit 922d891):\n  - 88 duplicate tasks dismissed.\n  - The 17 inverted rubbers stay hidden: no source \
+                         names a hardness scale.\n- No brand was added.\n\nStill pending in the queue\n- 30 MegaSpin tasks.";
+
+    #[test]
+    fn the_rules_take_a_recap_of_the_persons_answers_for_decisions_and_a_model_does_not() {
+        // why reports are read by a model first
+        assert_eq!(texts(RECAP), ["88 duplicate tasks dismissed.", "The 17 inverted rubbers stay hidden: no source names a hardness scale."]);
+        assert_eq!(read("{\"asks\": []}", RECAP), Some(vec![]));
+    }
+
+    #[test]
+    fn what_a_model_read_stands_on_the_lines_it_quotes_with_its_answers() {
+        let t = "Committed 916f5f4, not pushed.\n\nQuestions:\n1. **Should Hallmark Tactics LP Special be merged into Tactics LP?**\n   \
+                 - merge it\n   - keep it separate\n2. What hardness scale should the 17 hidden rubbers get? Gambler states \"MID 37\".";
+        // (models put it in a code block, or say something around it)
+        let out = "Here it is:\n```json\n{\"asks\": [\
+                   {\"text\": \"Merge Tactics LP Special into Tactics LP?\", \"quote\": \"Should Hallmark Tactics LP Special be merged into Tactics LP?\", \
+                    \"answers\": [\"yes, merge it\", \"no, keep it separate\"]},\
+                   {\"text\": \"Which hardness scale should the 17 hidden rubbers get?\", \"quote\": \"2. What hardness scale should the 17 hidden rubbers get?\", \"answers\": []},\
+                   {\"text\": \"Is the deploy fine?\", \"quote\": \"nowhere in the report\", \"answers\": []},\
+                   {\"text\": \"Apply the migration on your word\", \"quote\": \"\", \"answers\": [\"apply it\", \" \"]}\
+                   ]}\n```";
+        let a = read(out, t).expect("its JSON");
+        assert_eq!(a.len(), 4);
+        assert_eq!((a[0].kind, a[0].yn, a[0].from, a[0].to), (Kind::Question, false, 3, 3), "{:?}", a[0]);
+        assert_eq!(a[0].opts.iter().map(|o| o.answer.as_str()).collect::<Vec<_>>(), ["yes, merge it", "no, keep it separate"]);
+        assert_eq!((a[1].from, a[1].yn), (6, false), "a list marker or emphasis does not hide the line; \"which\" is no yes/no");
+        assert_eq!((a[2].from, a[2].yn), (7, true), "a quote that is nowhere: listed, marked on no line");
+        assert_eq!((a[3].kind, a[3].opts.len()), (Kind::Decision, 1), "no question mark: a decision; empty answers are dropped");
+        assert_eq!(read("I could not read it.", t), None);
+        assert_eq!(read("{\"questions\": []}", t), None);
     }
 }

@@ -494,6 +494,11 @@ pub struct AgentCfg {
     /// lowest reasoning. Empty = the card keeps the first words of its prompt.
     #[serde(default)]
     pub title_cmd: String,
+    /// A one-shot command that reads an agent's report for what it leaves to the person, run with
+    /// `sh -c`: the request is in `$WEFT_ASKS_REQ`, the answer is JSON (see `asks::read`). The CLI's
+    /// middle model at medium reasoning. Empty = weft's own rules read the report (src/asks.rs).
+    #[serde(default)]
+    pub asks_cmd: String,
     /// How a new session gets the id weft picked for it (`{}`), e.g. `--session-id {}`. Empty = the CLI
     /// picks one and names it when it ends (`resume_hint`). See engine/resume.rs.
     #[serde(default)]
@@ -554,6 +559,8 @@ pub struct Config {
     pub rest_s: f64,
     /// Cards are named by their agent's `title_cmd` (until you rename one yourself).
     pub titles: bool,
+    /// What a report leaves to the person is read by its agent's `asks_cmd` (else by weft's rules).
+    pub asks: bool,
     /// An agent at its usage limit whose CLI names no reset time is woken to try again this often (seconds).
     pub limit_retry_s: f64,
     /// GitHub's CLI, which a CI check reads the runs of a commit with (`gh run list`, `gh run view`).
@@ -586,6 +593,7 @@ impl Default for Config {
             archive_flow_s: 900.0,
             rest_s: 1800.0,
             titles: true,
+            asks: true,
             limit_retry_s: 1200.0,
             gh: "gh".into(),
             each_max: 6,
@@ -660,6 +668,8 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             limits: strings(&["you've hit your", "usage limit reached", "reached your weekly usage limit"]),
             // no tools: the request must not turn into work
             title_cmd: r#"claude -p "$WEFT_TITLE_REQ" --model haiku --effort low --no-session-persistence --tools """#.into(),
+            // (haiku took recaps and notes for questions and missed real ones: sonnet tells them apart)
+            asks_cmd: r#"claude -p "$WEFT_ASKS_REQ" --model sonnet --effort medium --no-session-persistence --tools """#.into(),
             // weft picks the id, so it never has to be found (a fork gets one of its own as well)
             session_arg: "--session-id {}".into(),
             resume_arg: "--resume {}".into(),
@@ -690,6 +700,8 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             limits: strings(&["you've hit your usage limit"]),
             title_cmd: r#"codex exec -m gpt-6-luna -c model_reasoning_effort=low -s read-only --ephemeral --skip-git-repo-check "$WEFT_TITLE_REQ""#
                 .into(),
+            asks_cmd: r#"codex exec -m gpt-6-luna -c model_reasoning_effort=medium -s read-only --ephemeral --skip-git-repo-check "$WEFT_ASKS_REQ""#
+                .into(),
             // one Ctrl+C at its prompt ends it with "To continue this session, run: codex resume <id>"
             resume_arg: "resume {}".into(),
             fork_arg: "fork {}".into(),
@@ -717,6 +729,7 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             limits: strings(&["usage limit reached", "exhausted your", "quota exceeded", "you've hit your"]),
             // the reasoning level is in the model's name (an --effort beside it drops the model)
             title_cmd: r#"agy -p "$WEFT_TITLE_REQ" --model gemini-3.8-flash-low"#.into(),
+            asks_cmd: r#"agy -p "$WEFT_ASKS_REQ" --model gemini-3.8-flash-medium"#.into(),
             // the second Ctrl+C ends it with "Resume with -c (or command below): agy --conversation=<id>"
             resume_arg: "--conversation {}".into(),
             resume_hint: "--conversation=".into(),

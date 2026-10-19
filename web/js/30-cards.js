@@ -304,6 +304,7 @@ function statusText(n, r) {
   if (n.deploy) { const t = deployText(n, r); if (t) return t; }
   if (r.limit) return limitText(r.limit);
   if (r.bg && st === 'busy') return `waiting on background work \u00b7 ${clock(r.since)}`;
+  if (r.reading && st === 'busy') return 'reading its report for questions\u2026';
   if (r.hand_wait) return r.hand_phase === 'asking' ? `taking over \u00b7 ${r.hand_wait} is writing the note` : `taking over \u00b7 waiting for ${r.hand_wait} to finish`;
   switch (st) {
     case 'new': return 'not started';

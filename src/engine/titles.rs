@@ -78,22 +78,9 @@ fn title_source(n: &Node) -> Option<String> {
     }
 }
 
-/// `sh -c <cmd>` outside the project with the request in `$WEFT_TITLE_REQ`; only stdout counts
-/// (Codex reports its progress on stderr).
+/// The name `cmd` gives for the request in `$WEFT_TITLE_REQ`.
 async fn run_title(cmd: &str, req: &str) -> Option<String> {
-    let mut c = tokio::process::Command::new("sh");
-    c.arg("-c")
-        .arg(cmd)
-        .current_dir(std::env::temp_dir())
-        .env("WEFT_TITLE_REQ", req)
-        .stdin(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .kill_on_drop(true);
-    let o = tokio::time::timeout(TIMEOUT, c.output()).await.ok()?.ok()?;
-    if !o.status.success() {
-        return None;
-    }
-    clean_title(&String::from_utf8_lossy(&o.stdout))
+    clean_title(&run_oneshot(cmd, "WEFT_TITLE_REQ", req, TIMEOUT).await?)
 }
 
 impl Engine {

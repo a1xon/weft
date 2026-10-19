@@ -700,11 +700,23 @@ report again with a whole summary. A question you quoted does not hold it a seco
 (or sending nothing but skips) lets the report go on as it stands: it is the result. *read it all*
 opens it in the reader with the questions marked where they stand.
 
-Only the agent's own prose counts. Code, tables, quotes, headings and words in quotation marks are
-not questions, and neither is one it answers itself ("Is it fast? Yes, 3 ms"). *Decisions:* on its
-own lists what it decided. An offer ("let me know if you want a PR") is shown but holds nothing.
-weft's own requests (commit, screenshot, handover) are never held. The rules are in `src/asks.rs`;
-the report addendum tells agents to ask with `weft issue` in the first place.
+The report is read by a model: the agent's own CLI, with `asks_cmd` (claude `-p --model sonnet
+--effort medium`, codex `exec -m gpt-6-luna` at medium, agy `gemini-3.8-flash-medium`). It also
+writes the quick answers (*yes, deploy and apply* / *no, leave it for the next deploy*). Meanwhile
+the card is still at work (*reading its report for questions…*, a few seconds); then it is done, or
+it asks you. A recap of what you or the agent decided, notes, to-dos, the agent's own choices and
+offers ask nothing. Why a model: weft's rules took a recap of your own answers under *Your
+decisions:* for decisions left open, and held a finished crawl (rubbermetrics n142). The smallest
+models made the same kind of mistakes on the reports saved on every board. An ISSUE gets its
+quick answers the same way.
+
+The rules (`src/asks.rs`) still read a report when the CLI has no `asks_cmd`, when the reading
+fails, and with `"asks": false`. Only the agent's own prose counts there: code, tables, quotes,
+headings and words in quotation marks are not questions, and neither is one it answers itself
+("Is it fast? Yes, 3 ms"). *Decisions:* on its own lists what it decided. An offer ("let me know if
+you want a PR") is shown but holds nothing. After a restart, a report the rules held is read by the
+model once more. weft's own requests (commit, screenshot, handover) are never held. The report
+addendum tells agents to ask with `weft issue` in the first place.
 
 A step of a chain also gets one line first: *you are one step in a chain run by weft, what you write
 last is handed on, messages starting with `[weft]` are from weft*. A lone agent gets only the status
@@ -846,6 +858,8 @@ project, the request in `$WEFT_TITLE_REQ`, the last printed line taken. Until it
 for an agent without one) the prompt's first words stand in. Git steps are named after the work
 they carry: `commit: <agent>`, `push: <agent> + <agent>`, `PR: <agent> + 2 more`, and follow the
 links and names upstream. A name you give yourself stays. `"titles": false` turns the calls off.
+`asks_cmd` reads reports the same way (`$WEFT_ASKS_REQ`, JSON back; see *Done, but still asking*);
+`"asks": false` turns it off.
 
 **Sessions.** How a card keeps its agent's conversation across processes (see *Idle agents rest*):
 `session_arg` gives a new session the id weft picked (claude `--session-id {}`), `resume_arg` takes
@@ -904,7 +918,7 @@ src/dev.rs         dev only: the page from disk, following edits (see "Working o
 src/tmux.rs        the control-mode client: events in, validated keystrokes out
 src/term.rs        screen helpers: HTML rows, previews, telling an answer from terminal furniture
 src/words.rs       everything weft says to an agent, and how it reads the status line back
-src/asks.rs        what an answer still asks the person: the questions and decisions in it, with the answers they suggest
+src/asks.rs        what an answer still asks the person, with answers to pick: a model's reading of it, and the rules that stand in
 src/client.rs      the small HTTP client the CLI commands use
 src/browser.rs     marks from the browser: the native messaging host, which board a page's server belongs to, `weft extension`
 src/engine/        the single actor that owns all state
@@ -914,6 +928,7 @@ src/engine/        the single actor that owns all state
     flow.rs        results travelling along links: joins, triggers, queued prompts, prompt text
     each.rs        "for each": the jobs an answer lists, one copy of the next card per job, joined again
     run.rs         reading a screen, finishing a step, settling, the prompt queue
+    reads.rs       a model reads a report for what it leaves to the person; the card waits for it
     agent.rs       the process side: spawn in tmux, type, stop
     checks.rs      watches: screenshots, tests, changes, the ETA countdown
     gates.rs       the gates on a link: approve, screenshot, tests

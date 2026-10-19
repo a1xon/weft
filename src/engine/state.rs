@@ -123,6 +123,12 @@ pub(super) struct Step {
     pub(super) answered: Vec<String>,
     /// the report they answered: what is read while the agent works on their answers
     pub(super) earlier: Option<String>,
+    /// what a model read in its report or ISSUE (reads.rs): the questions left to the person, with
+    /// answers to pick. None = weft's rules read it.
+    pub(super) asks: Option<Vec<asks::Ask>>,
+    /// the model's reading of its report or ISSUE that is on its way (its ticket; 0 = none). A step
+    /// whose report is being read is still at work: it is done or asks once the reading is in.
+    pub(super) reading: u64,
     /// what weft typed into the session after the prompt: part of the echo, not of the answer
     pub(super) extra: String,
     /// The conversation as the screen showed it while this step ran, rebuilt row by row: a program
@@ -1021,6 +1027,9 @@ impl Rt {
             }
         } else if self.attn || self.issue.is_some() {
             Status::Attention
+        } else if self.cur.as_ref().is_some_and(|c| c.reading != 0) {
+            // its report is being read for questions (reads.rs): not done before that is in
+            Status::Busy
         } else if !self.armed {
             if self.can_take_input(finish, quiet, ready_d) {
                 Status::Ready

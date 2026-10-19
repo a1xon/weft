@@ -507,6 +507,55 @@ saying what it is about, in sentence case; no quotes, no final period. Do not do
     )
 }
 
+/// What a report an agent gave leaves to the person, as `asks_cmd` is asked it (see engine/reads.rs):
+/// JSON with each question, the words it stands on, and answers to pick. `message` is the person's
+/// last message to the agent (their task, or their answers to its last report); `issue`: the agent
+/// said it cannot go on without them. Tried on the reports saved on every board: notes, to-dos, a
+/// recap of the person's own answers and the agent's own choices ask nothing, and the language has
+/// to be named (left alone, the model guessed the person's from their name).
+pub fn asks_request(report: &str, message: &str, issue: bool) -> String {
+    // the end of a long report, where agents put what they ask
+    let n = report.chars().count();
+    let report: String = report.chars().skip(n.saturating_sub(40_000)).collect();
+    let message: String = message.trim().chars().take(3000).collect();
+    let issue = if issue { " It says it cannot go on without them." } else { "" };
+    format!(
+        r#"An AI coding agent wrote the report below for the person who gave it a task.{issue} Find what the report still leaves for that person to answer or decide.
+
+It leaves something to them when it:
+- asks them a question, or asks them to choose between options;
+- leaves a decision to them ("your call", "worth deciding", "needs your OK", "on your word", "decide whether ...");
+- needs something from them to go on (access, information, their go-ahead).
+
+It does not when it:
+- recaps what the person or the agent already decided or did;
+- explains a choice the agent made itself, even one the person could change ("I chose ...", "if you'd rather ..., that is a small change");
+- offers more work ("let me know if you want ...", "I can also ...");
+- lists notes, findings, risks, follow-ups for later or what is not done yet, without asking anything of the person;
+- tells the person how to do something themselves later (a manual step, a cleanup);
+- describes how a program behaves for its users, or quotes questions from the task, from code or from data.
+
+The person's last message to the agent (what they asked for, or what they already answered):
+<message>
+{message}
+</message>
+
+Most reports leave nothing to the person. Count only what the report itself puts to them: never turn a note, a finding, a to-do or a step that is not done yet into a question of your own.
+
+Reply with JSON only, nothing before or after it:
+{{"asks": [{{"text": "...", "quote": "...", "answers": ["...", "..."]}}]}}
+- text: one short question the person can answer without reading the report.
+- quote: the words of the report it stands on, copied exactly (one line, or a part of one).
+- answers: two to four replies the person could send as they are, each a few words and complete on its own (for example "yes, deploy and apply", "no, leave it for the next deploy"); the one the report recommends first. [] when only the person can know the answer (a key, a name).
+With nothing left to the person: {{"asks": []}}
+Write text and answers in the language the report is written in: an English report gets English questions and answers.
+
+<report>
+{report}
+</report>"#
+    )
+}
+
 // ------------------------------------------------------------------ marks from the browser
 
 /// What the person marked on a web page (`crate::browser`): their words first (one note, or one per

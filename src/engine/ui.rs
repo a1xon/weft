@@ -161,11 +161,14 @@ impl Engine {
         // (set afterwards: the macro above is at its recursion limit)
         v["held"] = json!(rt.held.as_ref().map(|(h, why)| json!({"id": h, "name": self.node(h).map(|n| n.name.clone()), "why": why})));
         // what it asks the person, with the answers it suggests: from a report it gave (`report`: it can be let
-        // go as it is) or from its ISSUE
+        // go as it is) or from its ISSUE, as a model read it (reads.rs), else as weft's rules find it
         if rt.issue.is_some() {
-            let report = rt.cur.as_ref().and_then(|c| c.report.as_deref().map(|r| c.asks_in(r)));
+            let read = rt.cur.as_ref().and_then(|c| c.asks.clone());
+            let report = rt.cur.as_ref().and_then(|c| c.report.as_deref().map(|r| read.clone().unwrap_or_else(|| c.asks_in(r))));
             v["report"] = json!(report.is_some());
-            v["asks"] = json!(report.unwrap_or_else(|| asks::in_issue(rt.issue.as_deref().unwrap_or(""))));
+            v["asks"] = json!(report.or(read).unwrap_or_else(|| asks::in_issue(rt.issue.as_deref().unwrap_or(""))));
+        } else if rt.cur.as_ref().is_some_and(|c| c.reading != 0) {
+            v["reading"] = json!(true);
         }
         v
     }

@@ -50,6 +50,7 @@ mod info;
 mod limits;
 mod loose;
 mod marks;
+mod reads;
 mod repo;
 mod resume;
 mod rewind;
@@ -183,6 +184,13 @@ pub enum Ev {
         id: String,
         text: String,
         title: Option<String>,
+    },
+    /// A model read a card's report or ISSUE for what it leaves to the person (see reads.rs); `ticket`
+    /// is the reading's, None: it could not.
+    Asks {
+        id: String,
+        ticket: u64,
+        asks: Option<Vec<asks::Ask>>,
     },
     /// What every board is doing, as the pages list them (see boards.rs).
     Boards(Vec<Value>),
@@ -488,6 +496,9 @@ impl Engine {
             }
         }
         let ids: Vec<String> = self.rt.keys().cloned().collect();
+        for id in &ids {
+            self.reread(id);
+        }
         self.resume_gates(&ids);
     }
 
@@ -599,6 +610,7 @@ impl Engine {
             }
             Ev::TitleDue { id, text } => self.title_due(&id, text),
             Ev::Title { id, text, title } => self.on_title(&id, &text, title),
+            Ev::Asks { id, ticket, asks } => self.on_asks(&id, ticket, asks),
             Ev::Conn { id, tx } => {
                 self.clients.insert(id, Client { tx, watch: None });
                 self.worked();

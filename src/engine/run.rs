@@ -53,10 +53,13 @@ impl Engine {
         // a dialog on the screen, or an ISSUE the agent raised: nothing moves until the person has answered
         let (armed, finished, attn) = (rt.armed, rt.finished, rt.attn || rt.issue.is_some());
         let (has_q, has_cur) = (!rt.queue.is_empty(), rt.cur.is_some());
+        // its report is with the model that reads it for questions: it is done or asks once that is in
+        let reading = rt.cur.as_ref().is_some_and(|c| c.reading != 0);
         // a prompt that has not been seen taken is not a step that went quiet: nothing is judged yet
         let typing = rt.typing.is_some();
-        // asleep at its usage limit: nothing is judged, and nothing queued is typed (the CLI drops it)
-        let limited = rt.limit.is_some();
+        // asleep at its usage limit: nothing is judged, and nothing queued is typed (the CLI drops it);
+        // likewise while it is being ended (it is started again for what is queued, resume.rs)
+        let limited = rt.limit.is_some() || rt.retiring.is_some();
         rt.set_status(next);
         // a turn marker on a screen that has not moved for a while: is it on the pane too?
         if rt.needs_check(now) {
@@ -65,7 +68,7 @@ impl Engine {
 
         if typing || limited {
             // wait for drive_typing, or for the limit to reset (`tick_limits`)
-        } else if armed && !finished && finish == Finish::Idle && !attn && quiet >= fin_d && (has_cur || !has_q) {
+        } else if armed && !finished && finish == Finish::Idle && !attn && !reading && quiet >= fin_d && (has_cur || !has_q) {
             self.on_silence(id, has_q);
         } else if has_q && !attn && can_type && (finish == Finish::Exit || (!has_cur && (finished || !armed || next == Status::Idle))) {
             self.pump(id);
@@ -167,6 +170,7 @@ impl Engine {
             }
             Act::Issue(q) => {
                 self.raise_issue(id, q);
+                self.read_issue(id);
             }
             Act::Hold => {
                 if let Some(rt) = self.rt.get_mut(id) {
@@ -271,16 +275,36 @@ impl Engine {
             }
             _ => None,
         };
-        let open: Vec<String> = match (said.as_deref(), self.rt.get(id).and_then(|r| r.cur.as_ref())) {
-            (Some(t), Some(c)) => c.asks_in(t).into_iter().filter(|a| a.kind != asks::Kind::Offer).map(|a| a.text).collect(),
+        // a model reads it first, and the card stays at work until it has (reads.rs)
+        if let Some(t) = said.clone() {
+            if self.read_asks(id, &t, false) {
+                if let Some(rt) = self.rt.get_mut(id) {
+                    if let Some(c) = rt.cur.as_mut() {
+                        c.report = Some(t);
+                    }
+                    rt.ui = true;
+                }
+                self.state_dirty = true;
+                return 0;
+            }
+        }
+        let found = match (said.as_deref(), self.rt.get(id).and_then(|r| r.cur.as_ref())) {
+            (Some(t), Some(c)) => c.asks_in(t),
             _ => vec![],
         };
+        self.hold_or_go(id, said.filter(|t| !t.trim().is_empty()).or(text), found, how)
+    }
+
+    /// A report of the person's task, read (`found`: what it leaves to them): it goes on when that
+    /// is nothing, else it stays open and the card asks them. Returns how many things it asks.
+    pub(super) fn hold_or_go(&mut self, id: &str, report: Option<String>, found: Vec<asks::Ask>, how: How) -> usize {
+        let open: Vec<String> = found.into_iter().filter(|a| a.kind != asks::Kind::Offer).map(|a| a.text).collect();
         if open.is_empty() {
-            self.step_done(id, true, said.filter(|t| !t.trim().is_empty()).or(text), how);
+            self.step_done(id, true, report, how);
             return 0;
         }
         if let Some(c) = self.rt.get_mut(id).and_then(|r| r.cur.as_mut()) {
-            c.report = said;
+            c.report = report;
         }
         self.raise_issue(id, open.join("\n"));
         open.len()
@@ -665,7 +689,9 @@ impl Engine {
             r.typing = None;
         }
         if issue {
-            return self.raise_issue(&id, text);
+            let r = self.raise_issue(&id, text);
+            self.read_issue(&id);
+            return r;
         }
         let (running, finished) = {
             let r = &self.rt[&id];
