@@ -4743,3 +4743,29 @@ fn a_screenshot_gate_goes_on_asking_an_agent_that_came_back_after_a_restart() {
     e.rt.get_mut("g").unwrap().gate.opened = 0;
     assert!(e.shot_path("g", 2, "a").ends_with("g-r2-a.png"));
 }
+
+/// What Claude Code showed of its last answer is still at the top of its window when the next
+/// prompt is answered (it is on the alternate screen: the window moves up, nothing scrolls into a
+/// history). The answer is only what came after: the questions of the last one were answered with
+/// that prompt, and must not be read as asked again (nor be part of its result).
+#[test]
+fn the_end_of_the_last_answer_still_on_the_window_is_not_part_of_the_next() {
+    let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<String>>();
+    let last = ["⏺ Earlier work is in.", "  Should I push the branch now?", "  Which option, A or B?", ""];
+    // the prompt as a pasted placeholder, and as its own words
+    for echo in ["❯ [Pasted text #1 +20 lines]", "❯ yes push it, take option A"] {
+        let mut e = engine();
+        alive_agent(&mut e, "a", "agent");
+        show(&mut e, "a", &s(&[&last[..], &["❯ [Pasted text #1 +20 lines]"]].concat()));
+        {
+            let r = e.rt.get_mut("a").unwrap();
+            r.armed = true;
+            r.painted = true;
+            let before = term::lines(&mut r.parser);
+            r.cur = Some(Step { expect_signal: true, task: true, ..Step::new("yes push it, take option A".into(), before) });
+        }
+        show(&mut e, "a", &s(&[&last[1..], &[echo, "", "⏺ Pushed, took option A."]].concat()));
+        e.step_done("a", true, None, How::Quiet);
+        assert_eq!(e.rt["a"].output.as_deref(), Some("Pushed, took option A."), "echo {echo:?}");
+    }
+}

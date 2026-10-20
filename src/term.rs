@@ -372,7 +372,32 @@ pub fn extract_response(before: &[String], after: &[String], prompt: &str, chrom
     while k < before.len() && k < after.len() && before[k] == after[k] {
         k += 1;
     }
-    dedent(&response_rows(&after[k..], prompt, chrome).join("\n"))
+    let mut rows = response_rows(&after[k..], prompt, chrome);
+    // The window moved on (a program on the alternate screen shows only the last rows of what it
+    // has said): the rows at its top are what was on it before, the end of the last answer, with
+    // whatever it asked there. They are not part of this one.
+    if k < before.len() {
+        let old = response_rows(&before[k..], prompt, chrome);
+        rows.drain(..still_shown(&old, &rows));
+        while rows.first().is_some_and(|r| r.is_empty()) {
+            rows.remove(0);
+        }
+    }
+    dedent(&rows.join("\n"))
+}
+
+/// How many rows at the top of `rows` are a run of `old`: one that reaches the end of `old`, or
+/// one with two rows with words in it (a single row alike further up may be chance).
+fn still_shown(old: &[String], rows: &[String]) -> usize {
+    let mut best = 0;
+    for j in 0..old.len() {
+        let p = old[j..].iter().zip(rows).take_while(|(a, b)| a == b).count();
+        let words = rows[..p].iter().filter(|r| !r.is_empty()).count();
+        if p > best && (j + p == old.len() || words >= 2) {
+            best = p;
+        }
+    }
+    best
 }
 
 /// The line a working agent animates: "· Actualizing… (1s · ↓ 25 tokens · thinking with low effort)".

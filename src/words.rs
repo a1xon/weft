@@ -514,9 +514,10 @@ saying what it is about, in sentence case; no quotes, no final period. Do not do
 /// recap of the person's own answers and the agent's own choices ask nothing, and the language has
 /// to be named (left alone, the model guessed the person's from their name).
 pub fn asks_request(report: &str, message: &str, issue: bool) -> String {
-    // the end of a long report, where agents put what they ask
+    // the end of a long answer, where agents put what they ask (every `weft done` report on the
+    // boards fits: the longest had 7.5k)
     let n = report.chars().count();
-    let report: String = report.chars().skip(n.saturating_sub(40_000)).collect();
+    let report: String = report.chars().skip(n.saturating_sub(8_000)).collect();
     let message: String = message.trim().chars().take(3000).collect();
     let issue = if issue { " It says it cannot go on without them." } else { "" };
     format!(

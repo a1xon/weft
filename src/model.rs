@@ -666,10 +666,12 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             // "You've hit your session limit · resets 3pm (Europe/Berlin)" (not the fast-mode one:
             // that only slows it down)
             limits: strings(&["you've hit your", "usage limit reached", "reached your weekly usage limit"]),
-            // no tools: the request must not turn into work
-            title_cmd: r#"claude -p "$WEFT_TITLE_REQ" --model haiku --effort low --no-session-persistence --tools """#.into(),
+            // no tools: the request must not turn into work. No MCP servers and a system prompt of
+            // its own: Claude Code's own and the person's MCP tools were 52k tokens of context to
+            // read one request, without them it is 0.6k
+            title_cmd: r#"claude -p "$WEFT_TITLE_REQ" --model haiku --effort low --no-session-persistence --tools "" --strict-mcp-config --system-prompt "Do what the request asks, nothing more.""#.into(),
             // (haiku took recaps and notes for questions and missed real ones: sonnet tells them apart)
-            asks_cmd: r#"claude -p "$WEFT_ASKS_REQ" --model sonnet --effort medium --no-session-persistence --tools """#.into(),
+            asks_cmd: r#"claude -p "$WEFT_ASKS_REQ" --model sonnet --effort medium --no-session-persistence --tools "" --strict-mcp-config --system-prompt "Do what the request asks, nothing more.""#.into(),
             // weft picks the id, so it never has to be found (a fork gets one of its own as well)
             session_arg: "--session-id {}".into(),
             resume_arg: "--resume {}".into(),

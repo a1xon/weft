@@ -678,7 +678,8 @@ STATUS: FAILED <why>                 cannot be done
 The message is read from the screen. Claude Code keeps its own history on the alternate screen and
 shows only the last rows of it, so while a step runs weft lays each frame of the screen over the
 answer so far (rows the frames share are matched, a line that is still being written is taken in
-place): a long answer arrives whole, head included.
+place): a long answer arrives whole, head included. What the window still shows from before the
+prompt (the end of the last answer, with whatever it asked there) is not part of this one.
 
 It is plain text on the screen, so it needs no tool, no shell, no permission and no particular CLI:
 claude, codex, agy or anything with a prompt, in any permission mode. It costs one instruction in
@@ -702,7 +703,11 @@ report again with a whole summary. A question you quoted does not hold it a seco
 opens it in the reader with the questions marked where they stand.
 
 The report is read by a model: the agent's own CLI, with `asks_cmd` (claude `-p --model sonnet
---effort medium`, codex `exec -m gpt-6-luna` at medium, agy `gemini-3.8-flash-medium`). It also
+--effort medium`, codex `exec -m gpt-6-luna` at medium, agy `gemini-3.8-flash-medium`). It reads
+only the last answer: that report, its last 8,000 characters (every report on the boards fits),
+and your last message to the agent, nothing older. claude runs it without MCP servers and with a
+one-line system prompt: about 0.6k tokens of context besides the report, where its own system
+prompt and your MCP tools were 52k. It also
 writes the quick answers (*yes, deploy and apply* / *no, leave it for the next deploy*). Meanwhile
 the card is still at work (*reading its report for questions…*, a few seconds); then it is done, or
 it asks you. A recap of what you or the agent decided, notes, to-dos, the agent's own choices and
@@ -853,8 +858,9 @@ substrings that mean "a human is needed", `limits` the ones that mean "it stoppe
 again). `gh` names GitHub's CLI for the [CI check](#checks-gates-and-watches) (default `gh`).
 
 **Card names.** A card is named by its own agent's CLI with the smallest model at the lowest
-reasoning: `title_cmd` (claude `-p --model haiku --effort low`, codex `exec -m gpt-6-luna -c
-model_reasoning_effort=low`, agy `-p --model gemini-3.8-flash-low`), run with `sh -c` outside the
+reasoning: `title_cmd` (claude `-p --model haiku --effort low`, without MCP servers or its own
+system prompt, codex `exec -m gpt-6-luna -c model_reasoning_effort=low`, agy `-p --model
+gemini-3.8-flash-low`), run with `sh -c` outside the
 project, the request in `$WEFT_TITLE_REQ`, the last printed line taken. Until it answers (and
 for an agent without one) the prompt's first words stand in. Git steps are named after the work
 they carry: `commit: <agent>`, `push: <agent> + <agent>`, `PR: <agent> + 2 more`, and follow the
