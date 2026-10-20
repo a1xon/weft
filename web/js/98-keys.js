@@ -38,7 +38,7 @@ function shortcuts() {
 addEventListener('keydown', e => {
   const t = e.target, tag = (t.tagName || '').toLowerCase();
   const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || t.id === 'term';
-  if ((e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey)) { e.preventDefault(); omniTa.focus(); omniTa.value = '/'; growOmni(); omniMenu(); return; }
+  if ((e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey)) { e.preventDefault(); omniTa.focus(); setPrompt(omniTa, '/'); return; }   // (its input opens the commands)
   if ((e.key === 'o' || e.key === 'O') && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && t.id !== 'term') { e.preventDefault(); folderKey(); return; }
   if (e.key === 'z' && (e.ctrlKey || e.metaKey) && !typing) { e.preventDefault(); return undo(); }
   if (SB.id && !(typing && e.key !== 'Escape')) {

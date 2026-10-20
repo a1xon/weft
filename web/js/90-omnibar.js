@@ -9,6 +9,7 @@ function renderOmni() {
     omniTa.addEventListener('input', () => { growOmni(); omniMenu(); });
     omniTa.addEventListener('keydown', onOmniKey);
     attachMentions(omniTa, null);
+    keepDraft(omniTa, 'bar');
     // a click on one of the choices around the prompt hands the keyboard back to it
     omni.addEventListener('click', ev => {
       if (pad.ed || menuEl || typingInField() || !ev.target.closest) return;
@@ -108,7 +109,7 @@ function renderOmni() {
   const top = chip || controls.length ? h('div', { class: 'oc' }, ...nn([controls.length ? null : chip, ...controls])) : null;
   // the launch pad's own box in its compact form, and under it the same addenda
   const box = promptBox({ id: 'obox', ta: omniTa, compact: true, label, go: () => submitOmni('auto'), hint: keyHints(hint) });
-  omni.replaceChildren(...nn([top, box, addenda ? addendaRow() : null]));
+  keepIn(omni, nn([top, box, addenda ? addendaRow() : null]));
   growOmni();
   settleKeys(omniTa, had, sel, edFocus, false);
 }
@@ -134,7 +135,7 @@ function growOmni() {
 async function submitOmni(mode) {
   const text = omniTa.value.trim(); if (!text) { shake($('#obox')); return; }
   const ids = [...S.sel];
-  omniTa.value = ''; growOmni(); closePalette();
+  rememberSent(text); setPrompt(omniTa, ''); closePalette();
   const single = ids.length === 1 ? S.nodes.get(ids[0]) : null;
   // an open reader follows the card that answers this; a new agent is shown on the canvas
   const handing = single && kindOf(single) === 'agent' && single.agent !== 'sh' && S.omniMode === 'hand';
@@ -144,6 +145,7 @@ async function submitOmni(mode) {
     const spot = last ? { x: last.x + nw(last) + 150, y: last.y } : (() => { const c = toWorld(innerWidth / 2 - NW / 2, innerHeight / 2 - NH); return { x: c.x, y: c.y }; })();
     const id = await spawnAt(S.lastAgent, spot.x, spot.y, { text, draft: false, run: true, edit: false, lane: true });
     if (id) setTimeout(() => centerOn(id), 80);
+    else if (!omniTa.value) { omniTa.value = text; growOmni(); saveDraft(omniTa); }   // (not started: the text stays)
   } else if (single && kindOf(single) === 'agent' && single.agent !== 'sh' && S.omniMode === 'hand') {
     S.omniMode = 'then';
     await takeoverFrom(single.id, S.lastAgent, text);
@@ -186,7 +188,7 @@ function onOmniKey(e) {
     // enter is a new line. Only a command chosen from the palette takes a plain enter.
     if (paletteOpen()) { e.preventDefault(); return palettePick(); }
     if (e.ctrlKey || e.metaKey || e.altKey) { e.preventDefault(); submitOmni(e.altKey ? 'now' : 'auto'); }
-  } else if (e.key === 'Escape') { if (!closePalette() && !readerBack()) { omniTa.value = ''; growOmni(); omniTa.blur(); } e.stopPropagation(); }
+  } else if (e.key === 'Escape') { if (!closePalette() && !readerBack()) { setPrompt(omniTa, ''); omniTa.blur(); } e.stopPropagation(); }
   else if (e.key === 'Tab' && !S.sel.size && !omniTa.value.startsWith('/')) {
     e.preventDefault();
     const ks = agentEntries().map(x => x[0]); const i = ks.indexOf(S.lastAgent);
@@ -201,7 +203,7 @@ function onOmniKey(e) {
     e.preventDefault(); paletteMove(e.key === 'ArrowDown' ? 1 : -1);
   } else if (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
     e.preventDefault(); omniEffort(e.key === 'ArrowUp' ? 1 : -1);
-  }
+  } else if (plainArrow(e) && recall(omniTa, e.key === 'ArrowUp' ? -1 : 1)) e.preventDefault();
 }
 
 /* command palette: "/" in the omnibar */

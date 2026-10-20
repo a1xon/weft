@@ -96,6 +96,9 @@ function loadState(m) {
     } catch {}
     // what you used last wins, wherever you used it
     if (S.prefs.agent && S.cfg.agents[S.prefs.agent] && S.prefs.agent !== 'sh') S.lastAgent = S.prefs.agent;
+    // what was typed before the last reload comes back (the board is known only now)
+    if (omniTa) loadDraft(omniTa);
+    if (padTa) loadDraft(padTa);
   }
   applyFlow(m.flow.nodes, m.flow.edges);
   S.talkLog = m.talk || []; S.talkOn = Array.isArray(m.talk);

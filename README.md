@@ -54,6 +54,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 | Gesture | What happens |
 | --- | --- |
 | type in the bar at the bottom | a new agent, or a message to the selected one (a busy one gets a queued-prompt card after its work) |
+| `↑` / `↓` in the bar or on the pad | the prompts you sent on this board before, newest first, as in a shell (`↑` on the first line, `↓` on the last; past the newest, what you were typing is back). `Ctrl+Z` brings back a prompt you just sent or cleared with `Esc`. What is typed and not sent is kept in the browser per board, so a reload (a new weft build, a board switch) puts it back |
 | double-click the canvas | a draft agent there, prompt focused. Enter runs it |
 | click a card's ◇ | **what next?** then · twin · hand over · branch (below) |
 | drag a ◇ onto an agent | link them: the result is handed on |

@@ -245,11 +245,71 @@ function promptBox(o) {
     ta.addEventListener('blur', () => { const b = ta.closest('.pbox'); if (b) b.classList.remove('focus'); });
   }
   const tip = promptBig ? 'back to a short prompt' : 'expand the prompt: more room to edit several lines';
-  return h('div', { id: o.id, class: 'pbox chamf' + (o.compact ? ' compact' : '') + (promptBig ? ' big' : '') }, ta,
-    h('div', { class: 'pfoot' }, h('span', { class: 'khs' }, ...o.hint), h('span', { class: 'sp' }),
-      h('button', { class: 'xp', title: tip, 'aria-label': tip, 'aria-pressed': String(promptBig), onclick: togglePromptBig, html: promptBig ? ICON_SHRINK : ICON_GROW }),
-      h('button', { class: 'btn pri', onclick: o.go }, o.label)));
+  const cls = 'pbox chamf' + (o.compact ? ' compact' : '') + (promptBig ? ' big' : '') + (ta === document.activeElement ? ' focus' : '');
+  const foot = h('div', { class: 'pfoot' }, h('span', { class: 'khs' }, ...o.hint), h('span', { class: 'sp' }),
+    h('button', { class: 'xp', title: tip, 'aria-label': tip, 'aria-pressed': String(promptBig), onclick: togglePromptBig, html: promptBig ? ICON_SHRINK : ICON_GROW }),
+    h('button', { class: 'btn pri', onclick: o.go }, o.label));
+  // the box the prompt already sits in is kept: a textarea that is moved loses what ctrl+z would undo
+  const box = ta.parentElement;
+  if (box && box.id === o.id) { box.className = cls; box.lastElementChild.replaceWith(foot); return box; }
+  return h('div', { id: o.id, class: cls }, ta, foot);
 }
+/* el's children become kids, in order, without taking out one that is already there (see promptBox) */
+function keepIn(el, kids) {
+  for (const c of [...el.childNodes]) if (!kids.includes(c)) c.remove();
+  let at = el.firstChild;
+  for (const k of kids) { if (k === at) at = at.nextSibling; else el.insertBefore(k, at); }
+}
+/* what is typed into the bar or the pad is kept in this browser, per board: a reload (a new build,
+   a board switch) puts it back. It is saved as it is typed and when the page goes. */
+const draftKey = ta => S.project && `weft-draft:${ta._draft}:${S.project.dir}`;
+function keepDraft(ta, name) {
+  ta._draft = name;
+  ta.addEventListener('input', () => { saveDraft(ta); if (!ta._setting) ta._hi = null; });   // (typed: no longer going through the sent ones)
+  addEventListener('pagehide', () => saveDraft(ta));
+  loadDraft(ta);
+}
+function saveDraft(ta) {
+  const k = draftKey(ta); if (!k) return;
+  try { if (ta.value.trim()) localStorage.setItem(k, ta.value); else localStorage.removeItem(k); } catch {}
+}
+function loadDraft(ta) {
+  const k = draftKey(ta); if (!k || ta.value) return;
+  try { const v = localStorage.getItem(k); if (v) { ta.value = v; if (ta._grow) ta._grow(); } } catch {}
+}
+/* the whole text of a prompt replaced as an edit of its own, so ctrl+z brings back what was there
+   (a sent prompt, one cleared with Esc, the one before a recalled one). Setting .value would not. */
+function setPrompt(ta, text) {
+  ta._setting = true;
+  try {
+    if (document.activeElement === ta) { ta.select(); if (document.execCommand(text ? 'insertText' : 'delete', false, text)) return; }
+    ta.value = text; ta.dispatchEvent(new Event('input', { bubbles: true }));
+  } finally { ta._setting = false; }
+}
+/* the prompts sent from the bar and the pad, per board, newest last: ↑ on the first line brings back
+   the one before, ↓ on the last line goes forward again and, past the newest, to what was typed */
+const SENT_MAX = 100;
+const sentKey = () => S.project && 'weft-sent:' + S.project.dir;
+function sentList() { try { return JSON.parse(localStorage.getItem(sentKey()) || '[]'); } catch { return []; } }
+function rememberSent(text) {
+  const k = sentKey(); if (!k) return;
+  const l = sentList().filter(t => t !== text); l.push(text);
+  try { localStorage.setItem(k, JSON.stringify(l.slice(-SENT_MAX))); } catch {}
+}
+function recall(ta, d) {
+  const v = ta.value, a = ta.selectionStart;
+  if (a !== ta.selectionEnd || (d < 0 ? v.slice(0, a) : v.slice(a)).includes('\n')) return false;
+  const l = sentList();
+  if (ta._hi == null) { if (d > 0) return false; ta._hi = l.length; ta._stash = v; }
+  const i = ta._hi + d;
+  if (i < 0 || i > l.length) return false;
+  const hi = i, stash = ta._stash;
+  setPrompt(ta, i === l.length ? stash : l[i]);
+  ta._hi = hi; ta._stash = stash;
+  const at = d < 0 ? 0 : ta.value.length; ta.setSelectionRange(at, at);
+  return true;
+}
+const plainArrow = e => (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && !menuEl;
 function shake(box) { if (box) { box.classList.remove('nope'); void box.offsetWidth; box.classList.add('nope'); } }
 /* the pad and the bar show the same choices: a change made in one is drawn in both */
 function redrawPrompts() { renderPad(); omni._key = null; renderOmni(); }
@@ -289,9 +349,11 @@ function renderPad() {
       else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); padEsc(); }
       else if (e.key === 'Tab') { e.preventDefault(); padStep(e.shiftKey ? -1 : 1); }
       else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); padEffort(e.key === 'ArrowUp' ? 1 : -1); }
+      else if (plainArrow(e) && recall(padTa, e.key === 'ArrowUp' ? -1 : 1)) e.preventDefault();
       else if (e.key === '/' && !padTa.value) { e.preventDefault(); promptsMenu(padTa, padTa); }
     });
     padTa._grow = grow;
+    keepDraft(padTa, 'pad');
   }
   const had = document.activeElement === padTa;
   const sel = had ? [padTa.selectionStart, padTa.selectionEnd] : null;
@@ -339,7 +401,9 @@ function renderPad() {
   const chipsRow = addendaRow();
 
   const top = padEl.scrollTop;
-  padEl.replaceChildren(h('div', { class: 'pw' }, padBoards(), where, h('div', { class: 'pctl' }, ...ctl), box, chipsRow));
+  const pw = padEl.firstElementChild && padEl.firstElementChild.classList.contains('pw') ? padEl.firstElementChild : h('div', { class: 'pw' });
+  keepIn(pw, nn([padBoards(), where, h('div', { class: 'pctl' }, ...ctl), box, chipsRow]));
+  if (pw.parentNode !== padEl) padEl.replaceChildren(pw);
   padEl.scrollTop = top;
   if (padTa._grow) padTa._grow();
   settleKeys(padTa, had, sel, edFocus, true);
@@ -411,7 +475,7 @@ async function padStart() {
   const a = S.lastAgent, cfg = S.cfg.agents[a] || {};
   const c = toWorld(innerWidth / 2, innerHeight / 2);
   const extra = { model: cfg.model_arg ? tuned(a, 'model') : '', effort: cfg.effort_arg ? tuned(a, 'effort') : '', addenda: addendaIds(), yolo: cfg.yolo_arg ? yoloDefault() : undefined };
-  padTa.value = '';
+  rememberSent(text); setPrompt(padTa, '');
   closePad();
   savePrefs();
   const id = await spawnAt(a, c.x - NW / 2, c.y - NH / 2, { text, draft: false, run: true, edit: false, extra, lane: true });
