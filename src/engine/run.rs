@@ -86,8 +86,9 @@ impl Engine {
     /// * no line: a step of a chain is asked once for it, and after that silence is the end; a lone
     ///   card (nothing waits for its answer) is done right away, as it always was.
     ///
-    /// An agent that was told to report with a command is reminded once. Anything else (a person
-    /// chatting with an agent, a request that weft verifies itself) is over when the screen says so.
+    /// An agent that was told to report with a command and goes quiet without doing so is over after
+    /// the grace period, never reminded (the person found the reminders senseless). Anything else (a
+    /// person chatting with an agent, a request that weft verifies itself) is over when the screen says so.
     fn on_silence(&mut self, id: &str, has_q: bool) {
         enum Act {
             Settle,
@@ -102,16 +103,10 @@ impl Engine {
             return self.limit_sleep(id, said);
         }
         let chrome = self.cfg.chrome.clone();
-        let (nudge, max_checks) =
-            (words::nudge(&self.boot.exe), (self.cfg.background_s / self.cfg.recheck_s.max(1.0)).ceil().max(1.0) as u32);
+        let max_checks = (self.cfg.background_s / self.cfg.recheck_s.max(1.0)).ceil().max(1.0) as u32;
         let act = {
             let Some(Rt { cur, parser, waiting, .. }) = self.rt.get_mut(id) else { return };
             match cur.as_mut() {
-                Some(c) if c.expect_signal && !c.asked && !has_q => {
-                    c.asked = true;
-                    c.extra.push_str(&nudge);
-                    Act::Say(nudge)
-                }
                 Some(c) if c.rule && !has_q => {
                     // only what came after the prompt: an old status line of an earlier turn is not this one's
                     let said = new_since(parser, &c.before, &c.typed(), &chrome);

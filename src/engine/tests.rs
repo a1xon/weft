@@ -1656,21 +1656,18 @@ fn says(e: &mut Engine, text: &str) {
 }
 
 #[test]
-fn silence_after_a_command_request_is_asked_about_once_before_it_counts() {
+fn silence_after_a_command_request_ends_the_step_after_the_grace_without_a_reminder() {
     let mut e = engine();
     deferring_agent(&mut e, with_command());
     let t0 = Instant::now();
     e.eval("a", t0);
     // inside the grace period nothing happens
     e.eval("a", t0 + Duration::from_secs(5));
-    assert!(!e.rt["a"].finished && !e.rt["a"].cur.as_ref().unwrap().asked);
-    // a promise to get back is not a report: the agent is reminded, the step stays open
+    assert!(!e.rt["a"].finished);
+    // after it the step is over: nothing is typed into the agent, so a flow never hangs on one that does not report
     e.eval("a", t0 + Duration::from_secs(20));
-    assert!(!e.rt["a"].finished, "the deferral must not finish the step");
-    assert!(e.rt["a"].cur.as_ref().unwrap().asked);
-    // silent again after the reminder: now it is the end, so a flow never hangs on an agent that does not report
-    e.eval("a", t0 + Duration::from_secs(40));
     assert!(e.rt["a"].finished);
+    assert!(!e.rt["a"].cur.as_ref().is_some_and(|c| c.asked), "no reminder was typed");
 }
 
 #[test]

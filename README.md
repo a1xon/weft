@@ -757,7 +757,7 @@ Agents that can run a shell say the same words with commands, which carry exact 
 `weft done "..."`, `weft issue "..."`, `weft fail "..."`. The **Report with weft commands** addendum
 is on by default, so new agents get these commands and not the status line; switch it off for an
 agent to get the status line back. An agent told to use the commands that goes quiet without doing
-so is reminded once.
+so is finished by that silence (after a grace of `signal_grace_s`, 12 s); weft types nothing into it.
 
 A prompt is typed only into a process that is **up**: it has drawn something and then gone quiet
 for a moment. A shell still loading its rc files, or a TUI still painting its first screen, loses
