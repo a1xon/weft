@@ -303,6 +303,8 @@ pub struct Engine {
     active: Active,
     /// the browsers were told the canvas is idle since then (None: someone is at it)
     idle_shown: Option<u64>,
+    /// who writes a prompt into which cards, since when (ms since the epoch): see `cmd_writing`
+    writing: HashMap<u64, (Vec<String>, u64)>,
     /// the talks changed: the agents in them are told once this moment has passed (see talk.rs)
     talk_due: Option<Instant>,
     /// the other boards, and what this one told them last (see boards.rs)
@@ -364,6 +366,7 @@ impl Engine {
             archive_look: 0,
             active: Active::new(now_ms()),
             idle_shown: None,
+            writing: HashMap::new(),
             talk_due: None,
             boards,
         };

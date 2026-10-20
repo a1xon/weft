@@ -137,6 +137,22 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(await p.evaluate(([a, z]) => [...S.edges.values()].some(e => e.from === a && e.to === z), [up, down]), 'with the link between them');
   ok(await p.evaluate(id => (S.rt.get(id).archive_at || 0) > Date.now() + 3000, up), 'and a new countdown');
   await p.screenshot({ path: W + '/archive-3-back.png' });
+  // --- a follow-up being written on a card of the flow: the flow stays, its countdown stands
+  await p.evaluate(id => centerOn(id), down); await sleep(600);
+  const o = await card(down).locator('.port.out').boundingBox();
+  await p.mouse.click(o.x + o.width / 2, o.y + o.height / 2);
+  await p.waitForSelector('#nextbar:not([hidden]) textarea');
+  await p.keyboard.type('and now the tests');
+  ok(await waitFor(async () => (await card(up).locator('.fil.paused').count()) === 1 && (await card(down).locator('.fil.paused').count()) === 1, 3000), 'writing a follow-up pauses the countdown of the whole flow');
+  const leftNow = async () => p.evaluate(id => { const r = S.rt.get(id); return r.archive_stand ? r.archive_at - r.archive_stand : null; }, up);
+  const left0 = await leftNow();
+  ok(left0 > 0, 'and the card is told what is left: ' + left0);
+  await sleep(12000);
+  ok((await card(up).count()) === 1 && (await card(down).count()) === 1 && (await p.locator('#nextbar:not([hidden])').count()) === 1, 'the flow stays past its countdown while the follow-up is written');
+  ok(await leftNow() === left0, 'with as much left as when the writing began');
+  await p.screenshot({ path: W + '/archive-3-writing.png' });
+  await p.keyboard.press('Escape');
+  ok(await waitFor(async () => (await card(up).locator('.fil.paused').count()) === 0, 3000), 'the box left: the countdown runs on');
   // --- the lock in the top bar holds archiving: every countdown pauses until it is let go
   ok(await p.locator('#bHold').isVisible() && !(await p.locator('#bHold.held').count()), 'the archiving lock is in the top bar, open');
   await p.click('#bHold');

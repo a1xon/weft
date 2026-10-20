@@ -426,6 +426,12 @@ pub enum Cmd {
     },
     /// Someone is at the canvas (a browser says so while they use it): the archive clock runs.
     Here {},
+    /// Someone writes a prompt into these cards (a follow-up, a queued prompt; none: they stopped): their
+    /// flows do not go to the archive meanwhile, and their countdowns stand.
+    Writing {
+        #[serde(default)]
+        ids: Vec<String>,
+    },
     /// Hold archiving (the lock in the top bar): every countdown stands until it is let go.
     ArchiveHold {
         on: bool,
@@ -547,6 +553,7 @@ impl Engine {
             Cmd::ArchiveGet { group } => self.cmd_archive_get(group),
             Cmd::ArchiveDel { group } => self.cmd_archive_del(group),
             Cmd::Here {} => json!({"ok": true}),
+            Cmd::Writing { ids } => self.cmd_writing(client, ids),
             Cmd::ArchiveHold { on } => self.cmd_archive_hold(on),
             Cmd::Mark { text, to, agent, cwd, draft } => self.cmd_mark(text, to, agent, cwd, draft),
         }

@@ -136,6 +136,8 @@ impl Engine {
             "gate": rt.gate.held.as_deref().map(|g| head_chars(g, 700)), "git": git,
             "bg": rt.bg,
             "archive_at": filing.get(id),
+            // its countdown stands since then: someone writes a prompt into its flow
+            "archive_stand": filing.get(id).and_then(|_| self.filing_stands(id)),
             // a twin can start from it; its process rests and the next one takes its conversation up again
             "twin": self.can_twin(id), "rests": self.resumable(id),
             "issue": rt.issue.as_deref().map(|i| head_chars(i, 4000)),

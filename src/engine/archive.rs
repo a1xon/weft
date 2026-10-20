@@ -417,10 +417,75 @@ impl Engine {
                 }
             }
             if let Some(l) = last.filter(|l| *l > 0 && ran) {
-                plan.push((flow, (stand + (wait * 1000.0) as u64).saturating_sub(self.active.ran(l, stand))));
+                // the clock stands for it while someone writes a prompt into it, and did while they did
+                let stand = self.written_since(&flow).map_or(stand, |w| w.min(stand));
+                let ran = self.active.ran(l, stand).saturating_sub(self.ran_writing(&flow, l, stand));
+                plan.push((flow, (stand + (wait * 1000.0) as u64).saturating_sub(ran)));
             }
         }
         plan
+    }
+
+    /// Since when someone writes a prompt into a card of this flow (None: nobody does).
+    pub(super) fn written_since(&self, flow: &[String]) -> Option<u64> {
+        self.writing.values().filter(|(ids, _)| ids.iter().any(|id| flow.contains(id))).map(|(_, t)| *t).min()
+    }
+
+    /// How long the archive clock ran between `from` and `to` while someone wrote into a card of this flow.
+    fn ran_writing(&self, flow: &[String], from: u64, to: u64) -> u64 {
+        let mut spans: Vec<(u64, u64)> = flow.iter().filter_map(|id| self.rt.get(id)).flat_map(|r| r.writes.iter().copied()).collect();
+        spans.sort_unstable();
+        let mut merged: Vec<(u64, u64)> = Vec::new();
+        for (a, b) in spans {
+            match merged.last_mut() {
+                Some(last) if a <= last.1 => last.1 = last.1.max(b),
+                _ => merged.push((a, b)),
+            }
+        }
+        merged.iter().map(|&(a, b)| self.active.ran(a.max(from), b.min(to))).sum()
+    }
+
+    /// Someone writes a prompt into these cards (`ids`; none: no longer): a follow-up from its ◇, a
+    /// queued prompt. Their flows stay on the canvas meanwhile, and their countdowns stand: what was
+    /// left when they began is left when they stop.
+    pub(super) fn cmd_writing(&mut self, client: Option<u64>, ids: Vec<String>) -> Value {
+        let Some(cid) = client else { return json!({"ok": false, "error": "only a browser writes"}) };
+        if self.writing.get(&cid).is_some_and(|(was, _)| *was == ids) {
+            return json!({"ok": true});
+        }
+        let now = now_ms();
+        self.end_writing(cid, now);
+        if !ids.is_empty() {
+            self.writing.insert(cid, (ids, now));
+        }
+        // (the countdowns are derived across the flow: every card is told again)
+        for rt in self.rt.values_mut() {
+            rt.ui = true;
+        }
+        json!({"ok": true})
+    }
+
+    /// A browser stopped writing (or is gone): the time it wrote stays off its cards' clocks.
+    fn end_writing(&mut self, cid: u64, now: u64) {
+        let Some((ids, since)) = self.writing.remove(&cid) else { return };
+        for id in ids {
+            if let Some(rt) = self.rt.get_mut(&id) {
+                // (what was written before its last step no longer counts)
+                let from = rt.since;
+                rt.writes.retain(|w| w.1 >= from);
+                rt.writes.push((since, now));
+                rt.ui = true;
+            }
+        }
+    }
+
+    /// Since when its countdown stands because someone writes into its flow (None: it runs as the clock does).
+    pub(super) fn filing_stands(&self, id: &str) -> Option<u64> {
+        if self.writing.is_empty() {
+            return None;
+        }
+        let flow = self.flows().into_iter().find(|f| f.iter().any(|x| x == id))?;
+        self.written_since(&flow)
     }
 
     /// When each card goes to the archive by itself (a card that does not is not in it).
@@ -467,16 +532,27 @@ impl Engine {
         }
     }
 
-    /// File what is due. Not while someone has one of its terminals open: that goes once it is closed.
+    /// File what is due. Not while someone has one of its terminals open, or writes into one of its cards:
+    /// that goes once they are done.
     pub(super) fn tick_archive(&mut self) {
         self.tick_retire();
         let now = now_ms();
+        let gone: Vec<u64> = self.writing.keys().filter(|c| !self.clients.contains_key(c)).copied().collect();
+        for cid in gone {
+            self.end_writing(cid, now);
+        }
         if now < self.archive_look {
             return;
         }
         self.archive_look = now + LOOK_EVERY_MS;
         let stand = self.active.stand(now);
-        let watched: Vec<String> = self.clients.values().filter_map(|c| c.watch.as_ref().map(|w| w.node.clone())).collect();
+        // (nor while someone writes a prompt into one: see `cmd_writing`)
+        let watched: Vec<String> = self
+            .clients
+            .values()
+            .filter_map(|c| c.watch.as_ref().map(|w| w.node.clone()))
+            .chain(self.writing.values().flat_map(|(ids, _)| ids.iter().cloned()))
+            .collect();
         let blocked = self.blocked_map();
         let due: Vec<Vec<String>> = self
             .filing_plan(&blocked)

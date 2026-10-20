@@ -2383,6 +2383,54 @@ fn held_archiving_stops_every_countdown_until_it_is_let_go() {
 }
 
 #[test]
+fn a_flow_someone_writes_a_prompt_into_stays_and_its_countdown_stands() {
+    let mut e = engine();
+    add(&mut e, "n1", "fix login", "fix the login");
+    add_kind(&mut e, "n2", "follow-up", "step", "");
+    {
+        let n = e.flow.nodes.iter_mut().find(|n| n.id == "n2").unwrap();
+        n.draft = true;
+        n.host = "n1".into();
+    }
+    finished(&mut e, "n1", true, 14);
+    // (the queued prompt was placed then: a flow's clock runs from its last card)
+    e.rt.get_mut("n2").unwrap().since = e.rt["n1"].since;
+    let now = now_ms();
+    e.active.spans = vec![(now - 20 * 60_000, now + IDLE_MS)];
+    let (tx, _rx) = mpsc::channel(64);
+    e.clients.insert(7, Client { tx, watch: None });
+    // fourteen of its fifteen minutes gone: one left when they start to write the queued prompt
+    let left = e.filing_map(&e.blocked_map())["n1"].saturating_sub(now);
+    assert!(left.abs_diff(60_000) < 1000, "{left}");
+    e.cmd_writing(Some(7), vec!["n2".into()]);
+    let w = e.writing[&7].1;
+    assert_eq!(e.filing_stands("n1"), Some(w), "the card is told its countdown stands");
+    // five minutes of writing later (all of it five minutes back): still there, still one minute left
+    let back = 5 * 60_000;
+    e.writing.get_mut(&7).unwrap().1 -= back;
+    e.active.spans[0].0 -= back;
+    for id in ["n1", "n2"] {
+        e.rt.get_mut(id).unwrap().since -= back;
+    }
+    e.archive_look = 0;
+    e.tick_archive();
+    assert!(e.node("n1").is_some() && e.node("n2").is_some(), "not while someone writes into its flow");
+    let at = e.filing_map(&e.blocked_map())["n1"];
+    assert!(at < now_ms() && (at - (w - back)).abs_diff(60_000) < 1000, "the minute is still left where it stood");
+    // they leave the box (the prompt went nowhere): the minute left runs from now
+    e.cmd_writing(Some(7), vec![]);
+    assert!(e.writing.is_empty() && e.rt["n1"].writes.is_empty() && e.rt["n2"].writes.len() == 1);
+    assert_eq!(e.filing_stands("n1"), None);
+    let at = e.filing_map(&e.blocked_map())["n1"];
+    assert!(at.abs_diff(now_ms() + 60_000) < 1000, "{}", at as i64 - now_ms() as i64);
+    // a browser that goes away while writing stops writing too
+    e.cmd_writing(Some(7), vec!["n1".into()]);
+    e.clients.clear();
+    e.tick_archive();
+    assert!(e.writing.is_empty() && e.rt["n1"].writes.len() == 1);
+}
+
+#[test]
 fn what_is_still_at_work_stays_on_the_canvas_when_dropped_on_the_archive() {
     let mut e = engine();
     add(&mut e, "n1", "busy one", "go");

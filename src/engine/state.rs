@@ -407,6 +407,8 @@ pub(super) struct Rt {
     pub(super) run_ms: u64,
     /// when it came back from the archive (ms since the epoch): its archive clock starts again then
     pub(super) revived: u64,
+    /// when someone wrote a prompt into it (ms since the epoch): its archive clock stood then
+    pub(super) writes: Vec<(u64, u64)>,
 
     // ---- what the browsers were last told
     pub(super) ui: bool,
@@ -770,6 +772,7 @@ impl Rt {
             reply_to: None,
             run_ms: 0,
             revived: 0,
+            writes: Vec::new(),
             ui: true,
             scr: true,
             last_msg: String::new(),

@@ -240,9 +240,10 @@ holdEl.addEventListener('click', async () => {
 });
 
 /* ---- on the card: when it files itself, and keep */
-/* the clock runs while someone works on the canvas: stopped (S.idle: since when), what is left stays */
-function filingLeft(at) {
-  const s = (at - (S.idle || Date.now())) / 1000;
+/* the clock runs while someone works on the canvas: stopped (S.idle: since when, or `stand`: since someone
+   writes a prompt into the card's flow), what is left stays */
+function filingLeft(at, stand) {
+  const s = (at - Math.min(stand || Infinity, S.idle || Infinity, Date.now())) / 1000;
   if (s < 60) return 'soon';
   const m = Math.ceil(s / 60);
   return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`;
@@ -276,9 +277,10 @@ function renderFiling(id, n, r) {
     return;
   }
   el.fil.classList.toggle('on', kept);
-  const left = kept ? '' : filingLeft(at);
-  const paused = !kept && (!!S.idle || !!S.hold);
-  const key = kept ? 'k' : 'a' + left + (paused ? 'p' : '');
+  const writing = !kept && !!(r && r.archive_stand);
+  const left = kept ? '' : filingLeft(at, r && r.archive_stand);
+  const paused = !kept && (!!S.idle || !!S.hold || writing);
+  const key = kept ? 'k' : 'a' + left + (paused ? 'p' : '') + (writing ? 'w' : '');
   if (el.fil._key === key) return;
   el.fil._key = key;
   el.fil.innerHTML = (kept ? ICON.keep : ICON.archive) + `<span>${kept ? 'kept' : left}</span>`;
@@ -286,7 +288,9 @@ function renderFiling(id, n, r) {
   const flow = !kept && [...S.rt.values()].filter(x => x.archive_at === at).length > 1;
   el.fil.title = kept ? 'kept on the canvas: it does not go to the archive by itself, nor does its flow. click to let it go'
     : `finished: goes to the archive ${left === 'soon' ? 'any moment' : 'in ' + left}${flow ? ', with the rest of its flow' : ''}`
-      + (S.hold && !kept ? ' once archiving is let go (it is held: the countdown pauses)' : paused ? ' of work here (the clock waits while nobody is at the canvas)' : '') + '. click to keep it on the canvas';
+      + (S.hold && !kept ? ' once archiving is let go (it is held: the countdown pauses)'
+        : writing ? ' of work here once nobody writes a prompt into it (the countdown pauses meanwhile)'
+          : paused ? ' of work here (the clock waits while nobody is at the canvas)' : '') + '. click to keep it on the canvas';
 }
 function refreshFiling() {
   if (!archOn()) return;
@@ -306,6 +310,26 @@ function here() {
 }
 for (const ev of ['pointerdown', 'pointermove', 'wheel', 'keydown']) addEventListener(ev, here, { capture: true, passive: true });
 addEventListener('visibilitychange', () => { hereAt = 0; here(); });
+/* someone writes a prompt into a card (a follow-up from its ◇, the prompt on the card, a queued prompt, the bar
+   aimed at it with text in it): its flow does not go to the archive meanwhile, and its countdown stands (archive.rs) */
+let writingTold = { key: '', ws: null };
+function writingInto() {
+  const ids = new Set();
+  if (NX.id && !nextbar.hidden) ids.add(NX.id);
+  for (const [id, el] of nodeEls) if (el.editing) ids.add(id);
+  if (omniTa && omniTa.value.trim()) for (const id of S.sel) ids.add(id);
+  return [...ids].filter(id => S.nodes.has(id)).sort();
+}
+function tellWriting() {
+  if (!archOn() || !ws || ws.readyState !== 1) return;
+  const ids = writingInto(), key = ids.join(' ');
+  // (a new connection is a new browser to the daemon: it is told again)
+  if (key === writingTold.key && writingTold.ws === ws) return;
+  writingTold = { key, ws };
+  send('writing', { ids });
+}
+for (const ev of ['focusin', 'focusout', 'input', 'pointerup']) addEventListener(ev, () => setTimeout(tellWriting, 0), true);
+setInterval(tellWriting, 2000);
 /* menu entries: file it now, keep it */
 function archItems(id) {
   const n = S.nodes.get(id);
