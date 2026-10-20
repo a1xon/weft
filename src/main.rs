@@ -206,6 +206,7 @@ fn extension() -> Result<i32, String> {
     println!("  3. \"Load unpacked\" and choose  {shown}\n");
     println!("Then on any page: Alt+Shift+W (or the weft button), click what is wrong (drag for an area),");
     println!("say what you want, ctrl+enter. The card lands on the board whose folder the page's server runs in.");
+    println!("Select text first to mark it; drop a .md file on the browser to view and mark selections.");
     Ok(0)
 }
 

@@ -1,19 +1,16 @@
 // weft's own PDF viewer. The browser's viewer lets no extension in, so a PDF the weft button is
 // pressed on opens here (`viewer.html?file=<its address>`), drawn by PDF.js with its text laid over
 // the pages. The text is grouped into lines and paragraphs (invisible boxes on the page), which the
-// picker (mark.js, the same as on web pages) marks; what a mark is in a PDF (the page, the text, where
-// on the page in points) and its screenshot this page tells the picker through `__weftDoc`.
+// picker (mark.js, the same as on web pages) marks; selected text is a mark of its own. What a mark
+// is in a PDF (the page, the text, where on the page in points) and its screenshot this page tells
+// the picker through `__weftDoc`.
 import * as pdfjs from './pdfjs/pdf.min.mjs';
+import { $, esc, src, file, name, say, bytes, cannotRead, mark, ready as canMark, buttons, selecting } from './view.mjs';
 
 pdfjs.GlobalWorkerOptions.workerSrc = 'pdfjs/pdf.worker.min.mjs';
 
 const BG = '#20252d';
-const $ = s => document.querySelector(s);
-const pagesEl = $('#pages'), msg = $('#msg'), zoomBtn = $('#zoom'), atEl = $('#at');
-const src = new URLSearchParams(location.search).get('file') || '';
-// the file on this machine, for a file:// address
-const file = (() => { try { const u = new URL(src); return u.protocol === 'file:' ? decodeURIComponent(u.pathname) : ''; } catch { return ''; } })();
-const name = decodeURIComponent((src.split(/[?#]/)[0].split('/').pop()) || 'PDF');
+const pagesEl = $('#pages'), zoomBtn = $('#zoom'), atEl = $('#at');
 
 let doc = null, title = name, base = 1, zoom = 1, busy = false;
 const pages = [];            // { n, div, canvas, text, w, h (pt), drawn: scale | 0, laid: scale | 0, paras, runs }
@@ -22,16 +19,7 @@ const what = new WeakMap();  // a line or paragraph box -> { kind, pg, para, lin
 const seen = new Set();      // pages in or near the view
 const scale = () => base * zoom;
 
-function say(html, err) { msg.hidden = !html; msg.className = err ? 'err' : ''; msg.innerHTML = html || ''; }
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-
 // ------------------------------------------------------------------ the file
-async function bytes() {
-  const r = await fetch(src);
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-  return new Uint8Array(await r.arrayBuffer());
-}
-
 async function load() {
   if (!src) { say('no PDF given', true); return; }
   $('#name').textContent = name;
@@ -52,6 +40,7 @@ async function load() {
     sizes.push({ p, w: vp.width, h: vp.height });
   }
   say('');
+  $('#tip').innerHTML = 'select text to mark it · <b>mark</b> picks a line or an area';
   for (const [i, s] of sizes.entries()) {
     const div = document.createElement('div');
     div.className = 'pg';
@@ -77,24 +66,6 @@ async function load() {
   for (const pg of pages) io.observe(pg.div);
   addEventListener('scroll', where, { passive: true });
   addEventListener('resize', () => { const at = anchor(); fit(); restore(at); });
-}
-
-async function cannotRead(e) {
-  const why = esc(e && e.message || e);
-  if (file) {
-    say(`weft cannot read files on this computer. In <code>brave://extensions</code> (<code>chrome://extensions</code>), open the details for weft marks, turn on “Allow access to file URLs” and reload this page.<br><small>${why}</small>`, true);
-    return;
-  }
-  let origin = '';
-  try { const u = new URL(src); origin = `${u.protocol}//${u.hostname}/*`; } catch {}
-  if (origin && !(await chrome.permissions.contains({ origins: [origin] }).catch(() => false))) {
-    say(`to open this PDF, weft needs to read it from ${esc(new URL(src).host)}.<br><small>${why}</small><br><button id="allow">allow ${esc(new URL(src).host)}</button>`, true);
-    $('#allow').addEventListener('click', async () => {
-      if (await chrome.permissions.request({ origins: [origin] }).catch(() => false)) location.reload();
-    });
-    return;
-  }
-  say(`${esc(name)} could not be read: ${why}`, true);
 }
 
 // ------------------------------------------------------------------ drawing the pages
@@ -266,26 +237,10 @@ addEventListener('keydown', e => {
 });
 
 // ------------------------------------------------------------------ marking
-function mark() {
-  if (!pages.length) return;
-  if (globalThis.__weftMark) { globalThis.__weftMark.again(); return; }
-  const s = document.createElement('script');
-  s.src = 'mark.js';
-  document.head.appendChild(s);
-}
-$('#mark').addEventListener('click', mark);
-// the weft button (or Alt+Shift+W) on this tab: background.js says so
-chrome.tabs.getCurrent().then(me => {
-  chrome.runtime.onMessage.addListener(m => { if (m && m.t === 'mark' && me && m.tab === me.id) mark(); });
-});
+buttons($('#mark'));
+selecting(() => pagesEl);
 // opened by the weft button: the picker starts as soon as the first pages can be marked
-let markWhenReady = location.hash === '#mark';
-if (markWhenReady) history.replaceState(null, '', location.pathname + location.search);
-function ready() {
-  if (!markWhenReady || ![...seen].some(pg => pg.laid)) return;
-  markWhenReady = false;
-  mark();
-}
+function ready() { if ([...seen].some(pg => pg.laid)) canMark(); }
 
 const label = (k, n) => ({ line: `page ${n} · line`, para: `page ${n} · paragraph`, page: `page ${n}` })[k];
 // the lines of what was marked, each with only the runs in the area when an area was drawn
@@ -311,7 +266,27 @@ function linesIn(r) {
 
 globalThis.__weftDoc = {
   key: src.replace(/[^/]*$/, ''),
-  hint: 'click a line · drag for an area · <b>↑ ↓</b> line / paragraph / page · <b>esc</b> stop',
+  hint: 'click a line · drag over text to highlight, elsewhere for an area · <b>↑ ↓</b> line / paragraph / page · <b>esc</b> stop',
+  // a drag that starts on text selects it (that text is the mark), anywhere else it draws an area
+  select: true,
+  root: () => pagesEl,
+  selectable: t => !!(t && t.closest && t.closest('.textLayer')),
+  css: '.textLayer span{cursor:text!important}',
+  // the box goes beside the pages when there is room
+  gutter: () => Math.max(0, ...pages.filter(p => seen.has(p)).map(p => p.div.getBoundingClientRect().right)),
+  // the paragraph selected text starts in
+  around(range) {
+    const f = range.getClientRects()[0];
+    if (!f) return null;
+    const x = f.left + Math.min(f.width / 2, 4), y = f.top + f.height / 2;
+    for (const pg of pages) for (const p of pg.paras) {
+      const b = p.el.getBoundingClientRect();
+      if (x >= b.left - 2 && x <= b.right + 2 && y >= b.top - 2 && y <= b.bottom + 2) return p.el;
+    }
+    return null;
+  },
+  // where the pages start: marked text has its number left of them
+  edge: () => Math.min(innerWidth, ...pages.filter(p => seen.has(p)).map(p => p.div.getBoundingClientRect().left)),
   page: () => ({ url: src, title, w: innerWidth, h: innerHeight, dpr: devicePixelRatio, pdf: { file, pages: pages.length } }),
   // what under the pointer can be marked: the line (the nearest one of the paragraph it is in), else the page
   pick(t, x, y) {
@@ -339,7 +314,7 @@ globalThis.__weftDoc = {
     const w = what.get(el), pg = w ? w.pg : byDiv.get(el);
     return pg ? label(w ? w.kind : 'page', pg.n) : '';
   },
-  describe(el, r, area) {
+  describe(el, r, area, kind = 'area') {
     const w = what.get(el);
     let lines;
     if (area) lines = linesIn(r);
@@ -354,7 +329,7 @@ globalThis.__weftDoc = {
     if (text.length > 3000) text = text.slice(0, 3000) + '…';
     const last = lines.length ? Math.max(pg.n, ...lines.map(l => l.pg.n)) : pg.n;
     return {
-      label: area ? (last > pg.n ? `pages ${pg.n}–${last} · area` : `page ${pg.n} · area`) : label(w ? w.kind : 'page', pg.n),
+      label: area ? (last > pg.n ? `pages ${pg.n}–${last} · ${kind}` : `page ${pg.n} · ${kind}`) : label(w ? w.kind : 'page', pg.n),
       selector: '', text, html: '', styles: '', attrs: {}, area, comp: null, hints: {},
       rect: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) },
       pdf: {
@@ -362,6 +337,10 @@ globalThis.__weftDoc = {
         x: Math.round((r.left - b.left) / s), y: Math.round((r.top - b.top) / s), w: Math.round(r.width / s), h: Math.round(r.height / s),
       },
     };
+  },
+  // selected text: where it is on the pages, and the text as it was selected
+  describeText(range, r, quote) {
+    return { ...this.describe(document.body, r, true, 'text'), text: quote.length > 3000 ? quote.slice(0, 3000) + '…' : quote };
   },
   // the view as the pages are drawn (the browser gives no screenshot of an extension's own page)
   async capture() {

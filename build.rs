@@ -16,10 +16,11 @@ fn main() {
     println!("cargo:rerun-if-changed=src");
     println!("cargo:rerun-if-changed=web");
     // PDF.js for the extension's PDF viewer is most of the extension's size: it goes into the
-    // binary gzipped and `weft extension` unpacks it (`browser::PACKED`)
+    // binary gzipped and `weft extension` unpacks it (`browser::PACKED`), and so does markdown-it
+    // for its Markdown viewer
     let out = std::env::var("OUT_DIR").expect("OUT_DIR");
-    for name in ["pdf.min.mjs", "pdf.worker.min.mjs"] {
-        let src = Path::new("extension/pdfjs").join(name);
+    for (dir, name) in [("pdfjs", "pdf.min.mjs"), ("pdfjs", "pdf.worker.min.mjs"), ("mdit", "markdown-it.min.mjs")] {
+        let src = Path::new("extension").join(dir).join(name);
         println!("cargo:rerun-if-changed={}", src.display());
         let bytes = std::fs::read(&src).unwrap_or_else(|e| panic!("{}: {e}", src.display()));
         let mut z = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());

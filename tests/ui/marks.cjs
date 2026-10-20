@@ -2,8 +2,11 @@
 // daemon through native messaging. A dev page served from the board's folder is marked: the card
 // lands on that board, started, with the note, the element, its component, the page's console
 // errors and failed requests, and the screenshots saved; the next mark on the page goes to the
-// same agent. A PDF in the board's folder opens in weft's own viewer, where a paragraph is marked:
-// the card says the file, the page and the text. Needs a full Chromium (chrome-headless-shell has no extensions): CHROME, else the one
+// same agent, and so does text selected on it. A PDF in the board's folder opens in weft's own
+// viewer, where a paragraph is marked: the card says the file, the page and the text. A Markdown
+// file opened from the board's folder (as a dropped one is) opens in weft's Markdown viewer by
+// itself, where selected text and a block are marked: the card says the file, the lines and the
+// text. Needs a full Chromium (chrome-headless-shell has no extensions): CHROME, else the one
 // Playwright keeps beside the headless shell.
 const { chromium } = require(process.env.PLAYWRIGHT);
 const { spawn, spawnSync } = require('child_process');
@@ -201,6 +204,26 @@ const received = id => { try { return fs.readFileSync(`${W}/proj/.weft/run/recei
     ok(/### an area in p#fine\n/.test(got2) && /Text: "Prices without tax\."/.test(got2), 'the area is about the paragraph in it');
     ok(!/weft-mark/.test(got2), 'weft\'s own layer is not in the page\'s html');
     if (second && !second.typed) ok(second.host === (card && card.id), 'a queued prompt of that agent');
+
+    // --- text selected on the page, then the weft button: that text is the mark
+    await sleep(6500);
+    await p.evaluate(() => {
+      const t = document.querySelector('#fine').firstChild, r = document.createRange();
+      r.setStart(t, 7); r.setEnd(t, 18);
+      getSelection().removeAllRanges(); getSelection().addRange(r);
+    });
+    await pick(); await sleep(1500);
+    const sel = await p.evaluate(() => ({ kept: getSelection().toString(), hl: CSS.highlights.has('weft-mark') }));
+    ok(sel.kept === '' && sel.hl, 'the selection became a highlighted mark at once (no picking)');
+    await p.screenshot({ path: W + '/marks-3b-text.png' });
+    await p.keyboard.type('Say "excluding VAT".');
+    await p.keyboard.press('Control+Enter');
+    let got3 = '';
+    for (let i = 0; i < 50 && !/excluding VAT/.test(got3); i++) {
+      await sleep(200);
+      got3 = (card ? received(card.id) : '') + ((flow().nodes.find(n => /excluding VAT/.test(n.prompt || '')) || {}).prompt || '');
+    }
+    ok(/### text selected in p#fine\nSelected text: "without tax"\n/.test(got3), 'the selected text, and the element it is in: ' + (got3.match(/### text selected[^\n]*\n[^\n]*/) || [''])[0]);
     ok(perrs.length === 0, 'no page errors: ' + perrs.join(' | '));
 
     // --- a PDF in the board's folder (printed from a page, as a PDF often is): the weft button opens it
@@ -277,6 +300,78 @@ const received = id => { try { return fs.readFileSync(`${W}/proj/.weft/run/recei
     await pick(); await sleep(500);
     ok(await d.evaluate(() => !!document.querySelector('weft-mark')), 'the weft button on the viewer marks again');
     ok(derrs.length === 0, 'no errors in the viewer: ' + derrs.join(' | '));
+
+    // --- a Markdown file from the board's folder (dropped on the browser, say): weft's Markdown
+    // viewer takes it over by itself, the text drawn as it reads, each block knowing its lines
+    await sleep(6500);
+    fs.mkdirSync(W + '/proj/notes', { recursive: true });
+    fs.writeFileSync(W + '/proj/notes/setup.md', `---
+title: Setup
+---
+# Setting up the shop
+
+This guide walks you through a **local setup** of the shop. It takes about
+ten minutes and needs [Node](https://nodejs.org) and \`pnpm\`.
+
+## Requirements
+
+- Node 18 or newer
+- pnpm 9
+- A Postgres database
+
+Payment is due within 14 days.
+`);
+    const md = await ctx.newPage();
+    const merrs = []; md.on('pageerror', e => merrs.push(e.message));
+    await md.goto('file://' + W + '/proj/notes/setup.md').catch(() => {});
+    await md.waitForURL(/\/md\.html\?file=/, { timeout: 10000 }).catch(() => {});
+    ok(md.url() === `chrome-extension://${ID}/md.html?file=` + encodeURIComponent('file://' + W + '/proj/notes/setup.md'), 'a Markdown file opens in weft\'s Markdown viewer by itself: ' + md.url().slice(0, 80));
+    await md.waitForSelector('#read h1', { timeout: 10000 }).catch(() => {});
+    const drawn = await md.evaluate(() => ({
+      title: document.title, h1: (document.querySelector('#read h1') || {}).textContent,
+      lines: [...document.querySelectorAll('#read :is(h1, h2, p, ul, li, pre)')].map(e => e.localName + ' ' + e.dataset.l).join(', '),
+    }));
+    ok(drawn.title === 'Setting up the shop · weft' && drawn.h1 === 'Setting up the shop', 'drawn as it reads, the tab says its title: ' + drawn.title);
+    ok(drawn.lines === 'pre 1-3, h1 4-4, p 6-7, h2 9-9, ul 11-13, li 11-11, li 12-12, li 13-13, p 15-15', 'every block knows its lines of the file (front matter apart): ' + drawn.lines);
+    // text selected with the mouse is a mark at once, on the lines that hold it
+    const words = await md.evaluate(() => {
+      const p = document.querySelectorAll('#read p')[0], t = p.childNodes[2];   // " of the shop. It takes about\nten minutes …"
+      const r = document.createRange(); r.setStart(t, 13); r.setEnd(t, 37);
+      const rs = r.getClientRects(), a = rs[0], b = rs[rs.length - 1];
+      return { a: { x: a.left + 1, y: a.top + a.height / 2 }, b: { x: b.right - 1, y: b.top + b.height / 2 }, want: r.toString() };
+    });
+    await md.mouse.move(words.a.x, words.a.y); await md.mouse.down();
+    await md.mouse.move(words.b.x - 40, words.b.y, { steps: 5 }); await md.mouse.move(words.b.x, words.b.y, { steps: 5 }); await md.mouse.up();
+    await sleep(1200);
+    const box1 = await md.evaluate(() => !!document.querySelector('weft-mark') && CSS.highlights.has('weft-mark'));
+    ok(box1, 'the selection is highlighted and the box is open for its note (' + JSON.stringify(words.want) + ')');
+    const beside = await md.evaluate(() => { const t = document.querySelector('#read').getBoundingClientRect(); return t.right; });
+    ok(beside <= 1280 - 420 + 24, 'the text leaves room on the right for the box (text ends at ' + Math.round(beside) + ' px)');
+    await md.keyboard.type('Say fifteen minutes.');
+    // the viewer's mark button: a click marks a block, ↑ makes it the list
+    await md.click('#mark'); await sleep(300);
+    const item = await md.evaluate(() => { const r = document.querySelectorAll('#read li')[1].getBoundingClientRect(); return { x: r.left + 20, y: r.top + r.height / 2 }; });
+    await md.mouse.move(item.x, item.y); await sleep(100); await md.mouse.move(item.x + 6, item.y); await sleep(150);
+    await md.keyboard.press('ArrowUp'); await sleep(150);
+    await md.mouse.click(item.x + 6, item.y); await sleep(800);
+    await md.keyboard.type('Add Redis 7.');
+    await md.screenshot({ path: W + '/marks-7-md-box.png' });
+    await md.keyboard.press('Control+Enter');
+    let mc = null;
+    for (let i = 0; i < 50 && !mc; i++) { await sleep(200); mc = flow().nodes.find(n => /fifteen minutes/.test(n.prompt || '')); }
+    ok(!!mc, 'the marks in the Markdown file are a card on the board that has its folder: ' + (mc ? mc.id : 'none'));
+    if (mc) {
+      const t = mc.prompt;
+      ok(t.startsWith('1. Say fifteen minutes.\n2. Add Redis 7.\n'), 'the notes first');
+      ok(t.includes(`## What I marked in the Markdown file`) && t.includes(`File: ${W}/proj/notes/setup.md "Setting up the shop" (15 lines)`), 'the file, its title and its lines');
+      ok(/### 1 · lines 6–7 · text\nSelected text \(as the file reads when it is shown\):\n```text\n[^`\n]*takes about ten min[^`\n]*\n```/.test(t),
+        'the selected text, on the lines that hold it: ' + JSON.stringify((t.match(/### 1 ·[^#]*/) || [''])[0].slice(0, 160)));
+      ok(t.includes('Lines 6–7 of the file:\n```markdown\nThis guide walks you through a **local setup** of the shop. It takes about\nten minutes and needs [Node](https://nodejs.org) and `pnpm`.\n```'), 'those lines as they are written');
+      ok(t.includes('### 2 · lines 11–13 · list\nLines 11–13 of the file:\n```markdown\n- Node 18 or newer\n- pnpm 9\n- A Postgres database\n```'), 'the list the item is in (↑), with its lines');
+      ok(t.includes('find each mark by its text') && !t.includes('Screenshots'), 'two marks: found by their text; no screenshots');
+      ok(mc.cwd === '' && !mc.draft, 'started, in the board folder');
+    }
+    ok(merrs.length === 0, 'no errors in the Markdown viewer: ' + merrs.join(' | '));
   } finally {
     await ctx.close();
     srv.kill();

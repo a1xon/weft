@@ -11,7 +11,10 @@
 //!
 //! A PDF cannot be marked in the browser's own viewer (no extension may run there), so the
 //! extension opens it in a viewer of its own (`viewer.html`, PDF.js) where lines, paragraphs and
-//! areas of the pages are marked; the card then says the file, the page and the text.
+//! areas of the pages are marked; the card then says the file, the page and the text. Markdown
+//! (a `.md` file dropped on the browser goes there by itself) opens in its Markdown viewer
+//! (`md.html`, markdown-it), where selected text and blocks are marked; the card says the file, the
+//! lines and the text.
 
 use crate::{
     boards, client,
@@ -39,17 +42,27 @@ const FILES: &[(&str, &[u8])] = &[
     ("probe.js", include_bytes!("../extension/probe.js")),
     ("viewer.html", include_bytes!("../extension/viewer.html")),
     ("viewer.js", include_bytes!("../extension/viewer.js")),
+    ("viewer.css", include_bytes!("../extension/viewer.css")),
+    ("view.mjs", include_bytes!("../extension/view.mjs")),
+    ("md.html", include_bytes!("../extension/md.html")),
+    ("md.js", include_bytes!("../extension/md.js")),
+    ("md-open.js", include_bytes!("../extension/md-open.js")),
     ("pdfjs/LICENSE", include_bytes!("../extension/pdfjs/LICENSE")),
+    ("mdit/LICENSE", include_bytes!("../extension/mdit/LICENSE")),
+    // weft's own fonts, for the box and the viewers
+    ("fonts/jbmono.woff2", include_bytes!("../web/jbmono.woff2")),
+    ("fonts/chakra-600.woff2", include_bytes!("../web/chakra-600.woff2")),
     ("icons/16.png", include_bytes!("../extension/icons/16.png")),
     ("icons/32.png", include_bytes!("../extension/icons/32.png")),
     ("icons/48.png", include_bytes!("../extension/icons/48.png")),
     ("icons/128.png", include_bytes!("../extension/icons/128.png")),
 ];
 
-/// PDF.js, gzipped by build.rs: written out unpacked.
+/// PDF.js and markdown-it, gzipped by build.rs: written out unpacked.
 const PACKED: &[(&str, &[u8])] = &[
     ("pdfjs/pdf.min.mjs", include_bytes!(concat!(env!("OUT_DIR"), "/pdf.min.mjs.gz"))),
     ("pdfjs/pdf.worker.min.mjs", include_bytes!(concat!(env!("OUT_DIR"), "/pdf.worker.min.mjs.gz"))),
+    ("mdit/markdown-it.min.mjs", include_bytes!(concat!(env!("OUT_DIR"), "/markdown-it.min.mjs.gz"))),
 ];
 
 /// Where browsers of the Chromium family look for native messaging hosts, under the config folder.
@@ -78,6 +91,27 @@ pub struct Page {
     pub dpr: f64,
     /// a PDF in the extension's viewer (`url` is the PDF's)
     pub pdf: Option<PdfDoc>,
+    /// a Markdown file in the extension's Markdown viewer (`url` is the file's)
+    pub md: Option<MdDoc>,
+}
+
+#[derive(Deserialize, Default, Debug)]
+#[serde(default)]
+pub struct MdDoc {
+    /// the file on this machine, for a `file://` address
+    pub file: String,
+    pub lines: u32,
+}
+
+/// Which lines of a Markdown file a mark is (from 1), what they are and the lines themselves.
+#[derive(Deserialize, Default, Debug)]
+#[serde(default)]
+pub struct MdAt {
+    pub from: u32,
+    pub to: u32,
+    /// text (selected), heading, paragraph, list, item, quote, code, table, row, divider, section, file, line, area
+    pub kind: String,
+    pub source: String,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -152,6 +186,10 @@ pub struct Mark {
     pub hints: BTreeMap<String, String>,
     /// in a PDF: the page and the place on it (`label` and `text` say what is there)
     pub pdf: Option<PdfAt>,
+    /// in a Markdown file: the lines
+    pub md: Option<MdAt>,
+    /// the text that was selected, when that is the mark
+    pub quote: String,
     /// screenshots as data URLs: the mark with room around it, the whole viewport
     pub crop: Option<String>,
     pub view: Option<String>,

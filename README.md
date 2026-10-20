@@ -527,7 +527,8 @@ a board with a page open reads the others' every few seconds.
 ### Marks from the browser
 
 Show the agent what you mean instead of describing it. A browser extension (Brave, Chrome,
-Chromium, Edge, Vivaldi) marks things on any web page and makes a card of it:
+Chromium, Edge, Vivaldi) marks things on any web page, in a PDF or in a Markdown file and makes a
+card of it:
 
 ```
 weft extension                 # once: then "Load unpacked" the folder it names in brave://extensions
@@ -536,8 +537,12 @@ weft extension                 # once: then "Load unpacked" the folder it names 
 * **`Alt+Shift+W`** (or the weft button): hover shows what is under the cursor (`button.cta 180×48
   <Hero> src/Hero.tsx:12`), a click marks it, a drag marks an area, `↑`/`↓` make the mark
   bigger/smaller. The page never sees that click.
-* A box under the mark takes your note. *+ mark another* (or `Alt+Shift+W` again) adds numbered
-  marks, each with its own note. `Ctrl+Enter` sends; *card only* places the card without starting it.
+* **Selected text**: select text first, then `Alt+Shift+W`: that text is the mark, highlighted on
+  the page, and the agent gets it word for word with the element it is in.
+* A box under the mark takes your note: each mark shows its text or a close-up, a click on its name
+  scrolls to it, *to* and *on* say who gets it and on which board, ▾ folds the box away. *+ mark
+  another* (or `Alt+Shift+W` again) adds numbered marks, each with its own note. `Ctrl+Enter`
+  sends; *card only* places the card without starting it.
 * **Which board**: the one whose folder the page's server runs in (the process listening on the
   page's port, its repository), a weft canvas its own board; for a file opened from this machine (a
   `file://` page or PDF) the board that has its folder or repository; else the one you picked for
@@ -558,7 +563,17 @@ weft extension                 # once: then "Load unpacked" the folder it names 
   file, the page, where on it (in points), the text and the screenshots, and is told to change the
   PDF's source (HTML, Markdown, LaTeX, …) and make it again when it has one. Local files need
   *Allow access to file URLs* on the extension (on by default for an unpacked one); a PDF from a
-  website asks once to read from that site.
+  website asks once to read from that site. A drag over text there highlights it as a mark of its
+  own, `Alt`+drag still draws an area.
+* **Markdown**: a `.md` file opened from this machine (dropped on the browser, say) opens in weft's
+  Markdown viewer by itself, drawn as it reads, the file's line numbers beside each block on hover;
+  the weft button on Markdown from a website opens it there too. Select text to highlight it: it is
+  a mark at once, with its own note, and you go on reading and selecting (on a wide window the box
+  stays in the margin on the right). *mark* (`Alt+Shift+W`) picks a block: a click marks a
+  paragraph, heading, list item, table row or code block, `↑` its list, its section, the whole file.
+  *source* shows the file as written, line by line, and marks lines there. The agent gets the file,
+  per mark the selected text and the lines of the file it is on, as they are written, and is told
+  to change the file.
 
 The extension never learns a daemon's address or token: the browser starts `weft` itself as the
 extension's native messaging host (only this extension may), and `weft` talks to the board.
@@ -970,8 +985,10 @@ src/engine/        the single actor that owns all state
 web/               index.html (the shell), css/*.css and js/*.js (joined in file order); dev.js (dev only)
 extension/         the browser extension: background.js (button, screenshots, native messaging), mark.js (the
                    picker and the note box), probe.js (in the page's own world: components, console),
-                   viewer.html/js (the PDF viewer: lines, paragraphs, what a mark is), pdfjs/ (PDF.js 6.3.289,
-                   gzipped into the binary by build.rs)
+                   viewer.html/js (the PDF viewer: lines, paragraphs, what a mark is), md.html/js (the
+                   Markdown viewer: blocks and their lines, selected text), md-open.js (a local .md goes
+                   there), view.mjs + viewer.css (what both viewers share), pdfjs/ (PDF.js 6.3.289) and
+                   mdit/ (markdown-it 15.0.2), both gzipped into the binary by build.rs
 tests/             e2e.py (real tmux, simulated agent), ui/ (browser), engine/tests.rs (unit)
 ```
 

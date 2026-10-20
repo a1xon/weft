@@ -1,0 +1,51 @@
+/* What weft's viewers (viewer.html for PDFs, md.html for Markdown) share: weft's look, the bar on
+   top, the message in the middle. The fonts are weft's own (`weft extension` writes them out). */
+@font-face { font-family: weft-mono; src: url(fonts/jbmono.woff2) format("woff2"); font-weight: 100 800; font-display: swap; }
+@font-face { font-family: weft-display; src: url(fonts/chakra-600.woff2) format("woff2"); font-weight: 600; font-display: swap; }
+:root {
+  color-scheme: dark;
+  --mono: weft-mono, "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --display: weft-display, "Chakra Petch", ui-sans-serif, system-ui, sans-serif;
+  --void: #04060a; --bg: #070a10; --s1: #0a0e15; --s2: #0e141d; --s3: #151d29;
+  --l1: #1b2634; --l2: #2a3a50; --l3: #3d5370;
+  --i0: #eaf2ff; --i1: #c6d2e4; --i2: #8496b0; --i3: #566782;
+  --cy: #5cc8ff; --am: #ffb454; --rd: #ff5c7a;
+}
+* { box-sizing: border-box; }
+html { background: var(--page, var(--bg)); }
+body { margin: 0; min-height: 100vh; background: var(--page, var(--bg)); color: var(--i1); font: 12px/1.5 var(--mono); }
+* { scrollbar-width: thin; scrollbar-color: var(--l2) transparent; }
+:focus-visible { outline: 1px solid var(--cy); outline-offset: 2px; }
+
+#bar { position: fixed; top: 0; left: 0; right: 0; height: 40px; z-index: 10; display: flex; align-items: center; gap: 10px;
+  padding: 0 12px; background: #070a10f0; border-bottom: 1px solid var(--l1); }
+#bar .logo { font: 600 14px/1 var(--display); color: var(--cy); letter-spacing: .06em; flex: none; }
+#name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--i0); }
+#at { color: var(--i3); flex: none; white-space: nowrap; }
+#tip { color: var(--i3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tip b { color: var(--i2); font-weight: 500; }
+#bar .sp { flex: 1; }
+button { font: inherit; color: var(--i1); background: var(--s2); border: 1px solid var(--l2); border-radius: 3px;
+  padding: 4px 10px; cursor: pointer; flex: none; }
+button:hover { border-color: var(--cy); color: var(--i0); }
+.seg { display: flex; flex: none; }
+.seg button { border-radius: 0; }
+.seg button + button { border-left: 0; }
+.seg button:first-child { border-radius: 3px 0 0 3px; }
+.seg button:last-child { border-radius: 0 3px 3px 0; }
+.seg button.on { background: #12324a; border-color: #2f95c9; color: var(--i0); }
+.seg button.on + button { border-left: 0; }
+#mark { background: var(--cy); color: #04121c; border-color: var(--cy); font-weight: 700; }
+#mark:hover { background: #8fdbff; color: #04121c; }
+kbd { font: inherit; font-size: 10px; opacity: .65; margin-left: 4px; }
+@media (max-width: 720px) { #tip, #at, kbd { display: none; } }
+
+#msg { position: fixed; top: 38%; left: 50%; transform: translate(-50%, -50%); width: min(560px, calc(100vw - 32px)); z-index: 5;
+  padding: 16px 18px; background: var(--s1); border: 1px solid var(--l2); border-radius: 4px; color: var(--i2); text-align: center; }
+#msg.err { color: var(--am); }
+#msg code { color: var(--i0); background: var(--void); padding: 0 4px; border-radius: 3px; }
+#msg button { margin-top: 12px; }
+
+/* what is marked, drawn by the browser itself (mark.js keeps the ranges) */
+::highlight(weft-mark) { background-color: rgba(92, 200, 255, .30); }
+::highlight(weft-mark-on) { background-color: rgba(92, 200, 255, .62); }

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Markdown · weft</title>
+<link rel="stylesheet" href="viewer.css">
+<style>
+  #doc { padding: 40px 16px 0; }
+  #read, #src { max-width: 820px; margin: 0 auto; padding: 36px 40px 40vh; }
+  /* a margin on the right, as a document with comments has: the note box goes there, beside the text it is about */
+  @media (min-width: 1180px) { #doc { padding-right: 440px; } }
+  [hidden] { display: none !important; }
+
+  /* the file as it reads */
+  #read { font: 15.5px/1.7 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--i1); overflow-wrap: break-word; }
+  #read > :first-child, #read .sec > :first-child { margin-top: 0; }
+  #read :is(h1, h2, h3, h4, h5, h6) { font-family: var(--display); font-weight: 600; color: var(--i0); line-height: 1.25; margin: 1.6em 0 .6em; letter-spacing: .01em; }
+  #read h1 { font-size: 2em; padding-bottom: .3em; border-bottom: 1px solid var(--l1); }
+  #read h2 { font-size: 1.5em; padding-bottom: .25em; border-bottom: 1px solid var(--l1); }
+  #read h3 { font-size: 1.22em; } #read h4 { font-size: 1.05em; } #read :is(h5, h6) { font-size: .95em; color: var(--i2); }
+  #read :is(p, ul, ol, blockquote, pre, table) { margin: 0 0 1em; }
+  #read :is(ul, ol) { padding-left: 1.7em; }
+  #read li + li { margin-top: .2em; }
+  #read li > :is(ul, ol) { margin: .2em 0 0; }
+  #read a { color: var(--cy); text-decoration: none; }
+  #read a:hover { text-decoration: underline; }
+  #read strong { color: var(--i0); }
+  #read code { font: .86em/1.5 var(--mono); background: var(--s3); border-radius: 3px; padding: .12em .38em; color: #d7e5f7; }
+  #read pre { background: var(--void); border: 1px solid var(--l1); border-radius: 4px; padding: 12px 14px; overflow: auto; }
+  #read pre code { background: none; padding: 0; font-size: 13px; line-height: 1.55; color: var(--i1); }
+  #read blockquote { margin-left: 0; padding: .1em 0 .1em 1em; border-left: 3px solid var(--l2); color: var(--i2); }
+  #read table { border-collapse: collapse; display: block; max-width: 100%; overflow: auto; }
+  #read :is(th, td) { border: 1px solid var(--l1); padding: 5px 12px; }
+  #read th { background: var(--s2); color: var(--i0); text-align: left; }
+  #read hr { border: 0; border-top: 1px solid var(--l2); margin: 2em 0; }
+  #read img { max-width: 100%; }
+  #read input[type="checkbox"] { margin-right: .4em; }
+  /* the file's line numbers beside each block while the pointer is on it */
+  #read [data-g] { position: relative; }
+  #read [data-g]:hover::before { content: attr(data-g); position: absolute; right: calc(100% + 14px); top: .35em; font: 11px/1 var(--mono);
+    color: var(--i3); white-space: nowrap; pointer-events: none; user-select: none; }
+
+  /* the file as it is, line by line */
+  #src { font: 13px/1.6 var(--mono); color: var(--i1); white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; padding-left: 0; }
+  .sl { position: relative; padding-left: 58px; min-height: 1.6em; }
+  .sl::before { content: attr(data-n); position: absolute; left: 0; width: 42px; text-align: right; color: var(--i3); user-select: none; }
+  .sl:hover::before { color: var(--i2); }
+  .sl.h { color: var(--i0); font-weight: 600; }
+
+  ::selection { background: rgba(92, 200, 255, .22); }
+</style>
+</head>
+<body>
+<header id="bar">
+  <span class="logo">◇ weft</span>
+  <span id="name"></span>
+  <span id="at"></span>
+  <span class="sp"></span>
+  <span id="tip"></span>
+  <span class="seg"><button id="v-read" class="on" title="the file as it reads">read</button><button id="v-src" title="the file as written, with line numbers">source</button></span>
+  <button id="mark" title="mark a block, list or section for weft">mark <kbd>Alt+Shift+W</kbd></button>
+</header>
+<main id="doc"><article id="read"></article><div id="src" hidden></div></main>
+<div id="msg" hidden></div>
+<script type="module" src="md.js"></script>
+</body>
+</html>
