@@ -1,18 +1,32 @@
 // weft marks: the toolbar button (or Alt+Shift+W) starts the picker on the page; this worker takes
 // the screenshots and carries what was marked to weft. weft is reached through the browser's
 // native messaging (the `weft` binary itself, installed by `weft extension`), so no address and no
-// token of a weft daemon is ever known to a web page or to this extension.
+// token of a weft daemon is ever known to a web page or to this extension. A PDF opens in weft's
+// own viewer (viewer.html): the browser's PDF viewer lets nothing in.
 
 const HOST = 'weft.browser';
+const VIEWER = chrome.runtime.getURL('viewer.html');
+
+const isPdf = url => { try { return /\.pdf$/i.test(new URL(url).pathname); } catch { return false; } };
+// (back goes to the browser's viewer again; `#mark` starts the picker once the pages are there)
+const openPdf = tab => chrome.tabs.update(tab.id, { url: `${VIEWER}?file=${encodeURIComponent(tab.url)}#mark` });
 
 async function start(tab) {
   if (!tab || tab.id == null) return;
+  // weft's viewer marks by itself
+  if ((tab.url || '').startsWith(VIEWER)) {
+    chrome.runtime.sendMessage({ t: 'mark', tab: tab.id }).catch(() => {});
+    return;
+  }
   try {
+    const [probe] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => document.contentType });
+    if (probe && probe.result === 'application/pdf') { openPdf(tab); return; }
     // the page's own world (components, console) first, then the picker beside it
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['probe.js'], world: 'MAIN' });
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['mark.js'] });
   } catch (e) {
-    // the browser's own pages, the web store, the PDF viewer: nothing may run there
+    if (isPdf(tab.url)) { openPdf(tab); return; }
+    // the browser's own pages, the web store: nothing may run there
     chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: '#ff5c7a' });
     chrome.action.setBadgeText({ tabId: tab.id, text: '×' });
     chrome.action.setTitle({ tabId: tab.id, title: 'weft cannot mark this page: ' + (e && e.message || e) });

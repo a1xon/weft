@@ -3,7 +3,8 @@
 // Each mark keeps a screenshot (the element outlined, and the whole view), what the element is
 // (selector, text, html, box, styles) and, from probe.js, its component and where it is written.
 // Send hands it all to weft (background.js -> native messaging -> `weft`): a new agent card on the
-// chosen board, or a message to one of its agents.
+// chosen board, or a message to one of its agents. In weft's PDF viewer (viewer.js) the viewer says
+// what can be marked (lines, paragraphs, pages), what a mark is and what it looks like (`doc`).
 (() => {
   if (globalThis.__weftMark) { globalThis.__weftMark.again(); return; }
 
@@ -21,6 +22,8 @@
   };
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   const short = p => String(p || '').split('/').slice(-2).join('/');
+  // a page that is no web page: weft's PDF viewer
+  const doc = globalThis.__weftDoc || null;
 
   // ------------------------------------------------------------------ the layer over the page
   const host = document.createElement('weft-mark');
@@ -82,7 +85,7 @@
   <div class="ui">
     <div class="hov"></div><div class="tag"></div><div class="drag"></div>
     <div class="marks"></div>
-    <div class="hint">click to mark · drag for an area · <b>↑ ↓</b> bigger / smaller · <b>esc</b> stop</div>
+    <div class="hint">${doc ? doc.hint : 'click to mark · drag for an area · <b>↑ ↓</b> bigger / smaller · <b>esc</b> stop'}</div>
     <div class="box">
       <div class="hd"><span class="logo">◇ weft</span><select class="board" title="the board the card goes to"></select><button class="x" title="close (esc)">✕</button></div>
       <div class="list"></div>
@@ -100,7 +103,7 @@
   const marks = [];          // { el, area (page px) | null, info, shots, note }
   let picking = false, hover = null, smaller = [], down = null, dragging = false, eatUntil = 0;
   let boards = null, sending = false, placed = false, discardAt = 0, raf = 0;
-  const origin = location.origin;
+  const origin = doc ? doc.key : location.origin;
 
   // ------------------------------------------------------------------ what an element is
   const probe = el => {
@@ -260,8 +263,8 @@
     hover = el;
     if (!el) { redraw(); return; }
     const r = el.getBoundingClientRect();
-    const c = compLabel(probe(el).comp);
-    tag.innerHTML = `${esc(label(el))} <i>${Math.round(r.width)}×${Math.round(r.height)}</i>${c ? ' ' + esc(c) : ''}`;
+    const c = doc ? '' : compLabel(probe(el).comp);
+    tag.innerHTML = `${esc(doc ? doc.label(el) : label(el))} <i>${Math.round(r.width)}×${Math.round(r.height)}</i>${c ? ' ' + esc(c) : ''}`;
     redraw();
   }
 
@@ -305,6 +308,7 @@
     return { view: v.toDataURL('image/png'), crop };
   }
   async function capture() {
+    if (doc) return doc.capture();
     host.style.visibility = 'hidden';
     await frames(2);
     let r = await ask({ t: 'capture' });
@@ -316,7 +320,11 @@
 
   // ------------------------------------------------------------------ picking
   const ours = t => t === host;
-  const at = (x, y) => { const t = document.elementFromPoint(x, y); return t && !ours(t) ? t : null; };
+  const at = (x, y) => {
+    const t = document.elementFromPoint(x, y);
+    if (!t || ours(t)) return null;
+    return doc ? doc.pick(t, x, y) : t;
+  };
   function startPicking() {
     picking = true; smaller = []; hover = null;
     hint.style.display = 'block';
@@ -394,7 +402,7 @@
     stopPicking();
     const r = area || el.getBoundingClientRect();
     const n = marks.length + 1;
-    const m = { el, area: area ? { x: r.left + scrollX, y: r.top + scrollY, w: r.width, h: r.height } : null, info: describe(el, area, r), shots: null, note: '' };
+    const m = { el, area: area ? { x: r.left + scrollX, y: r.top + scrollY, w: r.width, h: r.height } : null, info: doc ? doc.describe(el, r, !!area) : describe(el, area, r), shots: null, note: '' };
     marks.push(m);
     redraw();
     const shot = await capture();
@@ -427,7 +435,7 @@
       const d = document.createElement('div');
       d.className = 'mk';
       const c = compLabel(m.info.comp);
-      d.innerHTML = `<div class="lab"><span class="n">${i + 1}</span><code>${esc(m.info.area ? 'area in ' + m.info.label : m.info.label)}</code>`
+      d.innerHTML = `<div class="lab"><span class="n">${i + 1}</span><code>${esc(m.info.area && !doc ? 'area in ' + m.info.label : m.info.label)}</code>`
         + `<span class="c">${esc(c)}</span><button class="rm" title="remove this mark">✕</button></div>`
         + `<textarea placeholder="${i ? 'and here?' : 'what is wrong here, what should it be?'}"></textarea>`;
       const ta = d.querySelector('textarea');
@@ -448,7 +456,7 @@
 
   async function loadBoards() {
     status('', 'asking weft…');
-    const r = await weft({ op: 'boards', url: location.href });
+    const r = await weft({ op: 'boards', url: doc ? doc.page().url : location.href });
     if (!r || !r.ok) {
       boards = { boards: [], agents: [] };
       goBtn.disabled = draftBtn.disabled = true;
@@ -468,17 +476,17 @@
     if (!r.boards.some(b => b.dir === pick) && !(g && g.new && pick === g.dir)) pick = r.boards.length ? r.boards[0].dir : '';
     boardSel.innerHTML = '';
     for (const b of r.boards) {
-      const o = new Option(`${b.name}${b.up ? (b.working ? ` · ${b.working} working` : '') : ' · asleep'}${g && g.dir === b.dir ? ' · this server' : ''}`, b.dir);
+      const o = new Option(`${b.name}${b.up ? (b.working ? ` · ${b.working} working` : '') : ' · asleep'}${g && g.dir === b.dir ? (g.file ? ' · this file' : ' · this server') : ''}`, b.dir);
       boardSel.add(o);
     }
-    if (g && g.new) boardSel.add(new Option(`+ new board: ${short(g.dir)} · this server`, g.dir));
+    if (g && g.new) boardSel.add(new Option(`+ new board: ${short(g.dir)}${g.file ? ' · this file' : ' · this server'}`, g.dir));
     if (!boardSel.options.length) {
       status('err', 'weft has no boards yet: run <code>weft</code> in your project folder first');
       goBtn.disabled = draftBtn.disabled = true;
       return;
     }
     boardSel.value = pick;
-    boardSel.title = g && g.why ? 'this page: ' + g.why : 'the board the card goes to';
+    boardSel.title = g && g.why ? (g.file ? g.why : 'this page: ' + g.why) : 'the board the card goes to';
     boardSel.dataset.agent = lastAgent || '';
     fillTo(mem.to);
     status('', '');
@@ -528,7 +536,7 @@
       // a new agent works where the server runs, when that is this board's
       cwd: g && g.dir === dir ? g.cwd || '' : '',
       to: to.startsWith('id:') ? to.slice(3) : '', agent: to.startsWith('new:') ? to.slice(4) : '', draft: !!draft,
-      page: { url: location.href, title: document.title, w: innerWidth, h: innerHeight, dpr: devicePixelRatio },
+      page: doc ? doc.page() : { url: location.href, title: document.title, w: innerWidth, h: innerHeight, dpr: devicePixelRatio },
       marks: marks.map(m => ({ note: m.note.trim(), ...m.info, crop: m.shots && m.shots.crop, view: m.shots && m.shots.view })),
       log: pageLog(),
     };
@@ -567,7 +575,10 @@
   function onKey(e) {
     if (picking) {
       if (e.key === 'Escape') { swallow(e); stopPicking(); if (!marks.length) close(); }
-      else if (e.key === 'ArrowUp' && hover && hover.parentElement && hover !== document.body) { swallow(e); const h = hover; setHover(h.parentElement); smaller.push(h); }
+      else if (e.key === 'ArrowUp' && hover) {
+        const h = hover, up = doc ? doc.up(h) : h !== document.body && h.parentElement;
+        if (up) { swallow(e); setHover(up); smaller.push(h); }
+      }
       else if (e.key === 'ArrowDown' && smaller.length) { swallow(e); setHover(smaller.pop()); }
       else if (e.key === 'Enter' && hover) { swallow(e); take(hover, null); }
       return;

@@ -2,7 +2,8 @@
 // daemon through native messaging. A dev page served from the board's folder is marked: the card
 // lands on that board, started, with the note, the element, its component, the page's console
 // errors and failed requests, and the screenshots saved; the next mark on the page goes to the
-// same agent. Needs a full Chromium (chrome-headless-shell has no extensions): CHROME, else the one
+// same agent. A PDF in the board's folder opens in weft's own viewer, where a paragraph is marked:
+// the card says the file, the page and the text. Needs a full Chromium (chrome-headless-shell has no extensions): CHROME, else the one
 // Playwright keeps beside the headless shell.
 const { chromium } = require(process.env.PLAYWRIGHT);
 const { spawn, spawnSync } = require('child_process');
@@ -201,6 +202,81 @@ const received = id => { try { return fs.readFileSync(`${W}/proj/.weft/run/recei
     ok(!/weft-mark/.test(got2), 'weft\'s own layer is not in the page\'s html');
     if (second && !second.typed) ok(second.host === (card && card.id), 'a queued prompt of that agent');
     ok(perrs.length === 0, 'no page errors: ' + perrs.join(' | '));
+
+    // --- a PDF in the board's folder (printed from a page, as a PDF often is): the weft button opens it
+    // in weft's viewer (the browser's lets no extension in) and the picker starts there
+    await sleep(6500);
+    fs.mkdirSync(W + '/proj/docs', { recursive: true });
+    const mk = await ctx.newPage();
+    await mk.setContent(`<title>Offer</title><style>body{font:14px Georgia;margin:0} h1{font-size:28px} p{width:520px;line-height:1.5}
+      .cols{columns:2;column-gap:2.5em;width:600px} .cols p{width:auto}</style>
+      <h1>Offer for the new shop</h1>
+      <p>Payment is due within 14 days of the invoice date. Late payments carry interest at the statutory rate, and reminders cost five euros each.</p>
+      <p>Delivery takes three weeks from the order. Parts that are out of stock are sent as soon as they come in, without extra cost.</p>
+      <div class="cols"><p>Left column text that runs on for a while so that it wraps onto several lines in its column.</p>
+      <p>Right column text that also runs on for a while so that it wraps onto several lines.</p></div>
+      <div style="height:1100px"></div><p>The warranty is two years on all parts.</p>`);
+    await mk.pdf({ path: W + '/proj/docs/offer.pdf', format: 'A4' });
+    await mk.close();
+    const d = await ctx.newPage();
+    const derrs = []; d.on('pageerror', e => derrs.push(e.message));
+    await d.goto('file://' + W + '/proj/docs/offer.pdf');
+    await sleep(800);
+    await pick();
+    await d.waitForURL(/^chrome-extension:\/\/[a-z]+\/viewer\.html\?file=/, { timeout: 10000 }).catch(() => {});
+    ok(d.url().startsWith(`chrome-extension://${ID}/viewer.html?file=` + encodeURIComponent('file://' + W + '/proj/docs/offer.pdf')), 'the weft button on a PDF opens it in weft\'s viewer: ' + d.url().slice(0, 90));
+    await d.waitForSelector('.pg .para', { timeout: 10000 }).catch(() => {});
+    await sleep(500);
+    const shown = await d.evaluate(() => ({
+      pages: document.querySelectorAll('.pg').length, title: document.title, drawn: document.querySelector('.pg canvas').width,
+      paras: [...document.querySelectorAll('.pg[data-n="1"] .para')].map(e => globalThis.__weftDoc.describe(e, e.getBoundingClientRect(), false).text),
+      picking: !!document.querySelector('weft-mark'),
+    }));
+    ok(shown.pages === 2 && shown.drawn > 500 && shown.title === 'Offer · weft', `the pages are drawn (${shown.pages}, ${shown.drawn} px wide), the tab says the PDF's title: ${shown.title}`);
+    ok(shown.picking, 'the picker is on as soon as the pages are there');
+    ok(shown.paras[1] === 'Payment is due within 14 days of the invoice date. Late payments carry interest at the\nstatutory rate, and reminders cost five euros each.',
+      'the text is laid out in lines and paragraphs: ' + JSON.stringify(shown.paras[1]));
+    ok(shown.paras.some(t => t.startsWith('Left column text')) && shown.paras.some(t => t.startsWith('Right column text')) && !shown.paras.some(t => /Left[^]*Right|Right[^]*Left/.test(t)),
+      'two columns are two paragraphs: ' + JSON.stringify(shown.paras.slice(3)));
+    // an area over the end of one paragraph and the start of the next: only the text inside it
+    const area = await d.evaluate(() => {
+      const ps = document.querySelectorAll('.pg[data-n="1"] .para'), a = ps[1].getBoundingClientRect(), b = ps[2].getBoundingClientRect();
+      return globalThis.__weftDoc.describe(document.body, new DOMRect(a.left - 2, a.top + a.height / 2, a.width + 4, b.top + b.height / 3 - a.top - a.height / 2), true);
+    });
+    ok(area.label === 'page 1 · area' && /^statutory rate.*\nDelivery takes three weeks/.test(area.text) && !/Payment/.test(area.text), 'an area holds the text inside it: ' + JSON.stringify(area.text));
+    // a click marks a line, ↑ its paragraph
+    const ln = await d.evaluate(() => { const r = document.querySelectorAll('.pg[data-n="1"] .para')[2].querySelector('.ln').getBoundingClientRect(); return { x: r.left + 40, y: r.top + r.height / 2 }; });
+    await d.mouse.move(ln.x, ln.y); await sleep(100); await d.mouse.move(ln.x + 10, ln.y); await sleep(200);
+    await d.screenshot({ path: W + '/marks-4-pdf-line.png' });
+    await d.keyboard.press('ArrowUp'); await sleep(200);
+    await d.screenshot({ path: W + '/marks-5-pdf-paragraph.png' });
+    await d.mouse.click(ln.x + 10, ln.y);
+    await sleep(1500);
+    await d.keyboard.type('Say four weeks here.');
+    await d.screenshot({ path: W + '/marks-6-pdf-box.png' });
+    await d.keyboard.press('Control+Enter');
+    let pc = null;
+    for (let i = 0; i < 50 && !pc; i++) { await sleep(200); pc = flow().nodes.find(n => /four weeks/.test(n.prompt || '')); }
+    ok(!!pc, 'the mark in the PDF is a card on the board that has the file\'s folder: ' + (pc ? pc.id : 'none'));
+    if (pc) {
+      const t = pc.prompt;
+      ok(t.startsWith('Say four weeks here.\n\n## What I marked in the PDF'), 'the note first, then the PDF');
+      ok(t.includes(`PDF: ${W}/proj/docs/offer.pdf "Offer" (2 pages)`), 'the file on this machine, its title and pages');
+      ok(/### page 1 · paragraph\nWhere: page 1, \d+×\d+ pt at \d+,\d+ from the top left of the page \(the page is 596×843 pt\)/.test(t), 'the paragraph and where on the page it is');
+      ok(t.includes('```text\nDelivery takes three weeks from the order. Parts that are out of stock are sent as soon as they\ncome in, without extra cost.\n```'), 'its text');
+      ok(t.includes('change the source and make the PDF again'), 'a PDF made from a source is changed in the source');
+      const shots = [...t.matchAll(/(\/\S+\.png) \(/g)].map(m => m[1]);
+      ok(shots.length === 2 && shots.every(f => fs.existsSync(f)), 'its screenshots saved, drawn by the viewer: ' + shots.map(f => path.basename(f)).join(', '));
+      const png = shots[0] && fs.readFileSync(shots[0]);
+      ok(png && png.readUInt32BE(16) > 400 && png.readUInt32BE(16) < 1000, 'the close-up is about the paragraph (' + (png && png.readUInt32BE(16)) + ' px wide)');
+      ok(pc.cwd === '' && !pc.draft, 'started, in the board folder');
+    }
+    // the weft button again, on the viewer itself: the picker comes back there
+    await sleep(6500);
+    ok(!(await d.evaluate(() => !!document.querySelector('weft-mark'))), 'the box closed after the send');
+    await pick(); await sleep(500);
+    ok(await d.evaluate(() => !!document.querySelector('weft-mark')), 'the weft button on the viewer marks again');
+    ok(derrs.length === 0, 'no errors in the viewer: ' + derrs.join(' | '));
   } finally {
     await ctx.close();
     srv.kill();

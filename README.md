@@ -538,8 +538,9 @@ weft extension                 # once: then "Load unpacked" the folder it names 
 * A box under the mark takes your note. *+ mark another* (or `Alt+Shift+W` again) adds numbered
   marks, each with its own note. `Ctrl+Enter` sends; *card only* places the card without starting it.
 * **Which board**: the one whose folder the page's server runs in (the process listening on the
-  page's port, its repository), a weft canvas its own board, else the one you picked for that page
-  last time; a folder without a board is offered as a new one. **To whom**: a new agent, set up the
+  page's port, its repository), a weft canvas its own board; for a file opened from this machine (a
+  `file://` page or PDF) the board that has its folder or repository; else the one you picked for
+  that page last time. A folder without a board is offered as a new one (for a file, only a repository). **To whom**: a new agent, set up the
   way the launch pad would (last agent, model, reasoning, addenda), in the server's folder; or an
   agent on the board (the next mark on a page goes to the agent the last one made): typed now when
   it is free, a queued-prompt card after its work while it is busy.
@@ -549,6 +550,14 @@ weft extension                 # once: then "Load unpacked" the folder it names 
   its HTML, a close-up and a whole-view screenshot with the mark outlined (saved in
   `.weft/shots/`), then the page's console errors and failed requests. On `localhost`,
   `127.0.0.1` and `*.localhost` the errors are collected from the page's start.
+* **PDFs**: the browser's own PDF viewer lets no extension in, so the weft button on a PDF opens it
+  in weft's viewer (PDF.js, in the extension) and the picker starts there. A click marks a line,
+  `↑` its paragraph, then its page; a drag marks an area and takes the text inside it. Zoom with
+  `ctrl +`/`ctrl -`/`ctrl 0` or `ctrl`+wheel; back goes to the browser's viewer. The agent gets the
+  file, the page, where on it (in points), the text and the screenshots, and is told to change the
+  PDF's source (HTML, Markdown, LaTeX, …) and make it again when it has one. Local files need
+  *Allow access to file URLs* on the extension (on by default for an unpacked one); a PDF from a
+  website asks once to read from that site.
 
 The extension never learns a daemon's address or token: the browser starts `weft` itself as the
 extension's native messaging host (only this extension may), and `weft` talks to the board.
@@ -927,7 +936,7 @@ src/term.rs        screen helpers: HTML rows, previews, telling an answer from t
 src/words.rs       everything weft says to an agent, and how it reads the status line back
 src/asks.rs        what an answer still asks the person, with answers to pick: a model's reading of it, and the rules that stand in
 src/client.rs      the small HTTP client the CLI commands use
-src/browser.rs     marks from the browser: the native messaging host, which board a page's server belongs to, `weft extension`
+src/browser.rs     marks from the browser: the native messaging host, which board a page's server or a local file belongs to, `weft extension`
 src/engine/        the single actor that owns all state
     mod.rs         the Engine, its events, the loop and its heartbeat
     state.rs       what is known per node while it runs (Rt), and what survives a restart
@@ -959,7 +968,9 @@ src/engine/        the single actor that owns all state
     marks.rs       a mark from the browser becomes a card: a new agent set up like the launch pad's, or a queued prompt
 web/               index.html (the shell), css/*.css and js/*.js (joined in file order); dev.js (dev only)
 extension/         the browser extension: background.js (button, screenshots, native messaging), mark.js (the
-                   picker and the note box), probe.js (in the page's own world: components, console)
+                   picker and the note box), probe.js (in the page's own world: components, console),
+                   viewer.html/js (the PDF viewer: lines, paragraphs, what a mark is), pdfjs/ (PDF.js 6.3.289,
+                   gzipped into the binary by build.rs)
 tests/             e2e.py (real tmux, simulated agent), ui/ (browser), engine/tests.rs (unit)
 ```
 

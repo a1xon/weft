@@ -8,6 +8,10 @@
 //! page ever knows a daemon's address or token, and only this extension (its id is fixed by the key
 //! in its manifest) may start the host. `weft extension` puts the extension's files in place and
 //! tells the browsers about the host.
+//!
+//! A PDF cannot be marked in the browser's own viewer (no extension may run there), so the
+//! extension opens it in a viewer of its own (`viewer.html`, PDF.js) where lines, paragraphs and
+//! areas of the pages are marked; the card then says the file, the page and the text.
 
 use crate::{
     boards, client,
@@ -33,10 +37,19 @@ const FILES: &[(&str, &[u8])] = &[
     ("background.js", include_bytes!("../extension/background.js")),
     ("mark.js", include_bytes!("../extension/mark.js")),
     ("probe.js", include_bytes!("../extension/probe.js")),
+    ("viewer.html", include_bytes!("../extension/viewer.html")),
+    ("viewer.js", include_bytes!("../extension/viewer.js")),
+    ("pdfjs/LICENSE", include_bytes!("../extension/pdfjs/LICENSE")),
     ("icons/16.png", include_bytes!("../extension/icons/16.png")),
     ("icons/32.png", include_bytes!("../extension/icons/32.png")),
     ("icons/48.png", include_bytes!("../extension/icons/48.png")),
     ("icons/128.png", include_bytes!("../extension/icons/128.png")),
+];
+
+/// PDF.js, gzipped by build.rs: written out unpacked.
+const PACKED: &[(&str, &[u8])] = &[
+    ("pdfjs/pdf.min.mjs", include_bytes!(concat!(env!("OUT_DIR"), "/pdf.min.mjs.gz"))),
+    ("pdfjs/pdf.worker.min.mjs", include_bytes!(concat!(env!("OUT_DIR"), "/pdf.worker.min.mjs.gz"))),
 ];
 
 /// Where browsers of the Chromium family look for native messaging hosts, under the config folder.
@@ -63,6 +76,32 @@ pub struct Page {
     pub w: u32,
     pub h: u32,
     pub dpr: f64,
+    /// a PDF in the extension's viewer (`url` is the PDF's)
+    pub pdf: Option<PdfDoc>,
+}
+
+#[derive(Deserialize, Default, Debug)]
+#[serde(default)]
+pub struct PdfDoc {
+    /// the file on this machine, for a `file://` PDF
+    pub file: String,
+    pub pages: u32,
+}
+
+/// Where on the pages of a PDF a mark is, in points (1/72 inch) from the top left of its page.
+#[derive(Deserialize, Default, Debug)]
+#[serde(default)]
+pub struct PdfAt {
+    pub page: u32,
+    /// the page it ends on, when it goes over more than one
+    pub last: u32,
+    pub x: i64,
+    pub y: i64,
+    pub w: i64,
+    pub h: i64,
+    /// the page's size
+    pub pw: i64,
+    pub ph: i64,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -111,6 +150,8 @@ pub struct Mark {
     pub comp: Option<Comp>,
     /// data-testid, data-astro-source-file, inspector plugins' attributes
     pub hints: BTreeMap<String, String>,
+    /// in a PDF: the page and the place on it (`label` and `text` say what is there)
+    pub pdf: Option<PdfAt>,
     /// screenshots as data URLs: the mark with room around it, the whole viewport
     pub crop: Option<String>,
     pub view: Option<String>,
@@ -318,8 +359,12 @@ fn base64(s: &str) -> Option<Vec<u8>> {
 
 /// The board of the page's server: the folder of the process that listens on the page's port (a
 /// dev server on this machine), its repository, the board that has it. A weft canvas is its own
-/// board. A folder no board has yet is offered as a new one.
+/// board. A folder no board has yet is offered as a new one. A file opened from this machine (a
+/// page or a PDF): see `guess_file`.
 fn guess(url: &str, all: &[boards::Board]) -> Value {
+    if let Some(path) = file_path(url) {
+        return guess_file(&path, all);
+    }
     let Some(port) = local_port(url) else { return Value::Null };
     let Some(pid) = listener(port) else { return Value::Null };
     // a board's own canvas
@@ -341,6 +386,50 @@ fn guess(url: &str, all: &[boards::Board]) -> Value {
             json!({"dir": folder, "cwd": "", "new": true, "why": format!("the server on :{port} runs in {shown}, which has no board yet")})
         }
     }
+}
+
+/// The board of a file on this machine: the board that has its folder (or the repository it is
+/// in). Only a repository is offered as a new board: a PDF in the downloads folder is nobody's.
+fn guess_file(path: &Path, all: &[boards::Board]) -> Value {
+    let Some(dir) = path.parent().filter(|d| *d != home() && d.parent().is_some()) else { return Value::Null };
+    let repo = repo_root(dir).filter(|r| *r != home());
+    let folder = repo.clone().unwrap_or_else(|| dir.to_path_buf());
+    let shown = tilde(&folder);
+    match boards::owner_in(all, &folder, &home()) {
+        // (a new agent works in the repository when the board is a folder above it)
+        Some(b) => json!({"dir": b, "cwd": repo.filter(|r| *r != b).map(|r| r.to_string_lossy().into_owned()).unwrap_or_default(),
+                          "new": false, "file": true, "why": format!("the file is in {shown}")}),
+        None if repo.is_some() => json!({"dir": folder, "cwd": "", "new": true, "file": true,
+                                         "why": format!("the file is in {shown}, which has no board yet")}),
+        None => Value::Null,
+    }
+}
+
+/// The file a `file://` address names (`file:///home/x/a%20b.pdf`).
+fn file_path(url: &str) -> Option<PathBuf> {
+    let rest = url.strip_prefix("file://")?;
+    let rest = rest.strip_prefix("localhost").unwrap_or(rest);
+    let path = rest.split(['?', '#']).next()?;
+    if !path.starts_with('/') {
+        return None;
+    }
+    let b = path.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        let hex = |c: u8| (c as char).to_digit(16);
+        match (b[i], b.get(i + 1).and_then(|c| hex(*c)), b.get(i + 2).and_then(|c| hex(*c))) {
+            (b'%', Some(h), Some(l)) => {
+                out.push((h * 16 + l) as u8);
+                i += 3;
+            }
+            (c, ..) => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    Some(PathBuf::from(String::from_utf8(out).ok()?))
 }
 
 /// The port of a page served from this machine.
@@ -437,12 +526,19 @@ fn host_manifest(exe: &Path) -> String {
 /// set up here. Answers the folder and the browsers.
 pub fn install() -> Result<(PathBuf, Vec<&'static str>), String> {
     let dir = extension_dir();
-    for (name, bytes) in FILES {
+    let unpacked: Vec<(&str, Vec<u8>)> = PACKED
+        .iter()
+        .map(|(name, gz)| {
+            let mut bytes = Vec::new();
+            flate2::read::GzDecoder::new(*gz).read_to_end(&mut bytes).map(|_| (*name, bytes)).map_err(|e| format!("{name}: {e}"))
+        })
+        .collect::<Result<_, _>>()?;
+    for (name, bytes) in FILES.iter().copied().chain(unpacked.iter().map(|(n, b)| (*n, b.as_slice()))) {
         let p = dir.join(name);
         if let Some(parent) = p.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         }
-        if std::fs::read(&p).ok().as_deref() != Some(*bytes) {
+        if std::fs::read(&p).ok().as_deref() != Some(bytes) {
             std::fs::write(&p, bytes).map_err(|e| format!("{}: {e}", p.display()))?;
         }
     }
@@ -478,6 +574,36 @@ mod tests {
         assert_eq!(local_port("https://example.com:8443/"), None);
         assert_eq!(local_port("http://localhost.example.com:3000/"), None);
         assert_eq!(local_port("file:///home/x/index.html"), None);
+    }
+
+    #[test]
+    fn a_file_address_names_its_file() {
+        assert_eq!(file_path("file:///home/x/Report%20Q3.pdf"), Some(PathBuf::from("/home/x/Report Q3.pdf")));
+        assert_eq!(file_path("file:///home/x/a.pdf#page=3"), Some(PathBuf::from("/home/x/a.pdf")));
+        assert_eq!(file_path("file://localhost/tmp/b%C3%BCro.html"), Some(PathBuf::from("/tmp/büro.html")));
+        assert_eq!(file_path("file:///home/x/100%.pdf"), Some(PathBuf::from("/home/x/100%.pdf")));
+        assert_eq!(file_path("http://localhost:3000/a.pdf"), None);
+    }
+
+    #[test]
+    fn a_file_belongs_to_the_board_of_its_folder() {
+        let tmp = std::env::temp_dir().join(format!("weft-file-guess-{}", std::process::id()));
+        let repo = tmp.join("shop");
+        std::fs::create_dir_all(repo.join("docs")).unwrap();
+        std::fs::create_dir_all(tmp.join("loose")).unwrap();
+        assert!(std::process::Command::new("git").args(["init", "-q"]).arg(&repo).status().unwrap().success());
+        let pdf = repo.join("docs/report.pdf");
+        let board = |d: &Path| boards::Board { dir: d.to_path_buf(), up: false, live: boards::Live::default() };
+        let g = guess(&format!("file://{}", pdf.display()), &[board(&repo)]);
+        assert_eq!((g["dir"].as_str(), g["cwd"].as_str(), g["new"].as_bool()), (repo.to_str(), Some(""), Some(false)));
+        // a board above the repository: a new agent works in the repository
+        let g = guess(&format!("file://{}", pdf.display()), &[board(&tmp)]);
+        assert_eq!((g["dir"].as_str(), g["cwd"].as_str()), (tmp.to_str(), repo.to_str()));
+        // nobody's repository: offered as a new board; a folder that is no repository: no guess
+        let g = guess(&format!("file://{}", pdf.display()), &[]);
+        assert_eq!((g["dir"].as_str(), g["new"].as_bool(), g["file"].as_bool()), (repo.to_str(), Some(true), Some(true)));
+        assert_eq!(guess(&format!("file://{}", tmp.join("loose/x.pdf").display()), &[]), Value::Null);
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]

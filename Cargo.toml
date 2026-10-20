@@ -13,6 +13,10 @@ serde_json = "1"
 vt100 = "0.16"
 flate2 = "1"
 
+[build-dependencies]
+# PDF.js goes into the binary gzipped (see build.rs)
+flate2 = "1"
+
 [profile.release]
 opt-level = 3
 lto = "fat"
