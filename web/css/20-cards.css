@@ -105,7 +105,10 @@
 .port{position:absolute;top:21px;width:11px;height:11px;margin:-5.5px 0 0 0;background:var(--void);border:1.5px solid var(--stc);
   transform:rotate(45deg);z-index:4;cursor:crosshair;transition:box-shadow .12s,background .12s}
 .port::after{content:"";position:absolute;inset:-12px;transform:rotate(-45deg)}
-.port.in{left:-6px}.port.out{right:-6px}
+.port.in{left:-6px}
+/* where links start is half as large again; its grab area reaches no further into the card than before (the gear sits there) */
+.port.out{right:-8.25px;width:16.5px;height:16.5px;margin-top:-8.25px}
+.port.out::after{inset:-18px;clip-path:inset(0 0 0 8px)}
 .port:hover,.connecting .port{background:var(--stc);box-shadow:0 0 10px var(--stc)}
 .nw[data-kind=note] .port.in{display:none}
 .lod .ask,.lod .body,.lod .ft .ib,.lod .ag,.lod .qchip,.lod .fb{display:none}
