@@ -27,6 +27,5 @@
 .fdtag[hidden]{display:none}
 .fdtag.several{max-width:30ch;border-left-color:var(--l3)}
 .fdtag.several::before{color:var(--i3)}
-.lod .fdtag{font-size:calc(13px*var(--fs))}
 .fdrow{display:flex;gap:6px;align-items:center}
 .fdrow .fld{flex:1;min-width:0}

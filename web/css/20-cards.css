@@ -111,19 +111,11 @@
 .port.out::after{inset:-18px;clip-path:inset(0 0 0 8px)}
 .port:hover,.connecting .port{background:var(--stc);box-shadow:0 0 10px var(--stc)}
 .nw[data-kind=note] .port.in{display:none}
-.lod .ask,.lod .body,.lod .ft .ib,.lod .ag,.lod .qchip,.lod .fb{display:none}
-.lod .nw{height:84px}
 /* the corner a card is resized by: drag it, double-click for the default size */
 .grip{position:absolute;right:0;bottom:0;width:14px;height:14px;cursor:nwse-resize;z-index:6;opacity:0;transition:opacity .12s}
 .grip::before{content:"";position:absolute;right:3px;bottom:3px;width:7px;height:7px;border-right:2px solid var(--l3);border-bottom:2px solid var(--l3)}
 .nw:hover .grip,.nw.sizing .grip{opacity:1}
 .grip:hover::before,.nw.sizing .grip::before{border-color:var(--cy)}
-.lod .grip{display:none}
-/* zoomed out: one row, ellipsis (a block that clips is a box beside the floats) */
-.lod .hd{--lh:calc(18.7px*var(--fs));font-size:calc(17px*var(--fs))}
-.lod .nm{font-size:calc(17px*var(--fs));display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lod .ft{height:40px}
-.lod .stx{font-size:calc(13px*var(--fs))}
 .cipills{display:flex;flex-wrap:wrap;gap:5px;margin:4px 0}
 .cipill{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border:1px solid var(--l2);font:500 calc(11px*var(--fs)) var(--mono);color:var(--i1);text-decoration:none;white-space:nowrap}
 .cipill i{font-style:normal}

@@ -76,7 +76,6 @@ body.padopen #arch{visibility:hidden}
 .fil:hover{color:var(--cy);border-color:var(--l2)}
 .fil.paused span{opacity:.55}
 .fil.on{color:var(--cy);border-color:var(--cy2);background:rgba(92,200,255,.07)}
-.lod .fil{display:none}
 .fil.held{color:var(--am)}
 .fil.held:hover{border-color:rgba(255,180,84,.45)}
 /* the top bar: disarmed steps whose work is in (loose.rs) */

@@ -8,7 +8,6 @@ function applyView() {
   clearTimeout(restT);
   restT = setTimeout(() => world.classList.remove('moving'), 180);
   $('#pat').setAttribute('patternTransform', `translate(${v.x} ${v.y}) scale(${v.k})`);
-  $('#app').classList.toggle('lod', v.k < 0.5);
   $('#zPct').textContent = Math.round(v.k * 100) + '%';
   placeEdgeBar(); placeFly(); placeNetBox();
   clearTimeout(saveT);

@@ -49,4 +49,3 @@
 .tsay b{color:var(--tk);font-weight:600}
 @keyframes tsay{0%{opacity:0;margin-top:6px}5%{opacity:1;margin-top:0}85%{opacity:1}100%{opacity:0}}
 @media (prefers-reduced-motion:reduce){.tsay{animation:none}}
-.lod .tk-topic,.lod .tk-x{display:none}
