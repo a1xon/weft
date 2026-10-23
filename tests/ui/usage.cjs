@@ -9,10 +9,12 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
 const asked = who => (fs.existsSync(W + '/usage-asked') ? fs.readFileSync(W + '/usage-asked', 'utf8') : '').split('\n').filter(l => l === who).length;
 const iso = ms => new Date(ms).toISOString().replace(/\.\d+Z$/, 'Z');
 (async () => {
-  // what the CLIs say (claude in its words, agy as its JSON)
+  // what the CLIs say (claude in its words, agy as its JSON), the times ahead of now whenever it runs
+  const berlin = (ms, o) => new Date(ms).toLocaleString('en-US', { timeZone: 'Europe/Berlin', hour: 'numeric', ...o }).replace(/ ([AP]M)/, (_, x) => x.toLowerCase());
+  const at = berlin(Date.now() + 2 * 3600e3, { minute: '2-digit' }), day = berlin(Date.now() + 2 * 86400e3, { month: 'short', day: 'numeric' });
   fs.writeFileSync(W + '/usage-claude.txt', 'You are currently using your subscription to power your Claude Code usage\n\n' +
-    'Current session: 34% used · resets 7:40pm (Europe/Berlin)\nCurrent week (all models): 12% used · resets Oct 24, 9am (Europe/Berlin)\n' +
-    'Current week (Sonnet only): 81% used · resets Oct 24, 9am (Europe/Berlin)\n\nWhat\'s contributing to your limits usage?\n  67%  Turn off skills\n');
+    'Current session: 34% used · resets ' + at + ' (Europe/Berlin)\nCurrent week (all models): 12% used · resets ' + day + ' (Europe/Berlin)\n' +
+    'Current week (Sonnet only): 81% used · resets ' + day + ' (Europe/Berlin)\n\nWhat\'s contributing to your limits usage?\n  67%  Turn off skills\n');
   const soon = Date.now() + 2 * 3600e3, later = Date.now() + 5 * 86400e3;
   fs.writeFileSync(W + '/usage-agy.txt', JSON.stringify({ status: 'SUCCESS', command: { name: 'usage', data: { groups: [
     { name: 'Gemini Models', buckets: [{ window: 'weekly', remaining_fraction: 0.6, reset_time: iso(later) }, { window: '5h', remaining_fraction: 0.05, reset_time: iso(soon) }] },
@@ -23,14 +25,17 @@ const iso = ms => new Date(ms).toISOString().replace(/\.\d+Z$/, 'Z');
   const p = await ctx.newPage();
   const errs = []; p.on('pageerror', e => errs.push(e.message)); p.on('console', m => m.type() === 'error' && errs.push(m.text()));
   const waitFor = async (fn, t = 15000) => { const t0 = Date.now(); while (Date.now() - t0 < t) { if (await fn()) return true; await sleep(150); } return false; };
-  const bars = sel => p.locator(sel + ' .umeter .ub').allInnerTexts().then(l => l.map(x => x.replace(/\s+/g, ' ').trim()));
+  // (without the countdown beside each bar: ut)
+  const bars = sel => p.locator(sel + ' .umeter .ub').evaluateAll(l => l.map(e => [...e.childNodes].filter(c => !c.classList?.contains('ut')).map(c => c.textContent).join(' ').replace(/\s+/g, ' ').trim()));
   const url = fs.readFileSync(W + '/url.txt', 'utf8').trim();
 
   await p.goto(url); await p.waitForSelector('#pad:not([hidden]) textarea');
   // --- the launch pad shows it for the agent it starts (claude, its default model: the limits of all models)
   ok(await waitFor(async () => (await bars('#pad')).length === 2), 'the pad shows the plan usage of claude: ' + JSON.stringify(await bars('#pad')));
   const pad = await bars('#pad');
-  ok(/^5h\s*34%$/.test(pad[0]) && /^week\s*12%$/.test(pad[1]), 'the session and the week, in percent');
+  ok(/^5h\s*34%$/.test(pad[0]) && /^week\s*12%$/.test(pad[1]), 'the session and the week, in percent: ' + JSON.stringify(pad));
+  const left = await p.locator('#pad .umeter .ut').allInnerTexts();
+  ok(left.length && left.every(t => /^\d+[dhm]$/.test(t)), 'beside each, how long until it starts over: ' + JSON.stringify(left));
   const tip = await p.locator('#pad .umeter').getAttribute('title');
   ok(/starts over in (\d+[dhm] ?)+/.test(tip) && /every 15 min/.test(tip), 'its tooltip says when each starts over and how often it is asked');
   await p.screenshot({ path: W + '/usage-1-pad.png' });
@@ -50,6 +55,11 @@ const iso = ms => new Date(ms).toISOString().replace(/\.\d+Z$/, 'Z');
   const p2 = await ctx.newPage(); await p2.goto(url); await sleep(1500); await p2.close();
   await p.locator('#omni .umeter').click(); await sleep(1000);
   ok(asked('claude') === 1, 'and claude was not asked again: reload, second page, click (' + asked('claude') + ')');
+  // --- a click a little later asks again, and shows the new numbers
+  fs.writeFileSync(W + '/usage-claude.txt', fs.readFileSync(W + '/usage-claude.txt', 'utf8').replace('34% used', '51% used'));
+  await sleep(10500); await p.locator('#omni .umeter').click();
+  ok(await waitFor(async () => /^5h\s*51%$/.test((await bars('#omni'))[0])), 'a click later refreshes it: ' + JSON.stringify(await bars('#omni')));
+  ok(asked('claude') === 2 && !(await p.locator('#omni .umeter.asking').count()), 'claude was asked once more, and the meter is not dimmed any more (' + asked('claude') + ')');
 
   // --- agy: its limits are per group of models; its default model is in the first group
   await p.locator('#omni .pagents button', { hasText: /^agy$/ }).click();

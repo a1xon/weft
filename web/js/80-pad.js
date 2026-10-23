@@ -102,21 +102,27 @@ async function ensureModels(a, force) {
 }
 /* how much of the chosen agent's plan is used: its CLI is asked at most every 15 minutes (the
    daemon keeps the answer for every board), and only while a page shows that agent */
-const USAGE_FRESH = 15 * 60e3, usageAsked = {};
+const USAGE_FRESH = 15 * 60e3, usageAsked = {}, usageAsking = {};
 let usageShown = '', usageTurn = Infinity;
 async function ensureUsage(a, again) {
   const cfg = S.cfg.agents[a], u = S.usage[a];
   if (!cfg || !cfg.usage_cmd || document.hidden) return;
   if (!again && u && Date.now() - u.at < USAGE_FRESH) return;
-  if (Date.now() - (usageAsked[a] || 0) < 60e3) return;
+  if (!again && Date.now() - (usageAsked[a] || 0) < 60e3) return;
+  if (usageAsking[a]) return;
   usageAsked[a] = Date.now();
+  // a click shows that it is being asked until the answer comes (the `usage` message)
+  if (again) { usageAsking[a] = true; redrawPrompts(); }
   const r = await req('usage', { agent: a, again: !!again });
-  if (r && r.usage && (!u || r.usage.at > u.at)) { S.usage[a] = r.usage; S.usageV++; redrawPrompts(); }
+  if (r && r.usage && (!u || r.usage.at > u.at)) { S.usage[a] = r.usage; S.usageV++; }
+  if (!r || !r.pending) usageAsking[a] = false;
+  redrawPrompts();
 }
 // (a page left open asks again once the answer is old, and redraws when a limit starts over)
 setInterval(() => {
   if (usageShown) ensureUsage(usageShown);
   if (Date.now() >= usageTurn) { usageTurn = Infinity; S.usageV++; redrawPrompts(); }
+  for (const e of document.querySelectorAll('.umeter .ut')) e.textContent = untilShort(+e.dataset.at);
 }, 60e3);
 addEventListener('visibilitychange', () => { if (!document.hidden && usageShown) ensureUsage(usageShown); });
 /* the limits that count for a model: those of all models, and those of its own group (a model
@@ -131,6 +137,9 @@ function usageBars(bars, model) {
 }
 const untilWords = ms => { const s = Math.max(0, (ms - Date.now()) / 1000), d = Math.floor(s / 86400), h = Math.floor(s / 3600) % 24, mi = Math.floor(s / 60) % 60;
   return d ? `${d}d ${h}h` : h ? `${h}h ${mi}m` : `${mi}m`; };
+// the countdown beside a bar: its largest unit only, rounded down (4h, 2d, 35m)
+const untilShort = ms => { const s = Math.max(0, (ms - Date.now()) / 1000);
+  return s >= 86400 ? `${Math.floor(s / 86400)}d` : s >= 3600 ? `${Math.floor(s / 3600)}h` : `${Math.ceil(s / 60)}m`; };
 const clockAt = ms => new Date(ms).toLocaleString([], Date.now() + 20 * 3600e3 > ms ? { hour: '2-digit', minute: '2-digit' } : { weekday: 'short', hour: '2-digit', minute: '2-digit' });
 function usageMeter(a, model) {
   const cfg = S.cfg.agents[a] || {};
@@ -148,11 +157,12 @@ function usageMeter(a, model) {
   for (const b of bars) if (b.resets > now) usageTurn = Math.min(usageTurn, b.resets);
   const tip = bars.map(b => `${b.scope ? b.scope + ' · ' : ''}${b.name}: ${Math.round(b.used)}% used` +
     (b.resets ? ` · starts over in ${untilWords(b.resets)} (${clockAt(b.resets)})` : '')).join('\n');
-  return h('button', { class: 'umeter', 'aria-label': `${label} plan usage`, title: `${label} plan usage\n${tip}\n\nas of ${agoWords(u.at / 1000)}${tail}`, onclick: again },
+  return h('button', { class: 'umeter' + (usageAsking[a] ? ' asking' : ''), 'aria-busy': usageAsking[a] ? 'true' : null, 'aria-label': `${label} plan usage`, title: `${label} plan usage\n${tip}\n\nas of ${agoWords(u.at / 1000)}${tail}`, onclick: again },
     ...bars.map(b => {
       const p = Math.min(100, Math.max(0, b.used));
-      return h('span', { class: 'ub' + (p >= 90 ? ' hot' : p >= 75 ? ' warm' : '') },
-        h('span', { class: 'dl' }, b.label || b.name), h('i', { style: `--u:${p.toFixed(1)}%` }), h('b', {}, Math.round(p) + '%'));
+      return h('span', { class: 'ub' + (p >= 90 ? ' hot' : p >= 75 ? ' warm' : '') + (b.name === '5h' ? '' : ' long') },
+        h('span', { class: 'dl' }, b.label || b.name), h('i', { style: `--u:${p.toFixed(1)}%` }), h('b', {}, Math.round(p) + '%'),
+        b.resets > now ? h('span', { class: 'ut', 'data-at': b.resets }, untilShort(b.resets)) : null);
     }));
 }
 /* one menu for the model, in the pad and in the options flyout */

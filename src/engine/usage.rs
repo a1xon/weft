@@ -9,7 +9,7 @@ use std::collections::HashSet;
 /// An answer younger than this is shown as it is: the CLI is not asked again.
 const FRESH_MS: u64 = 15 * 60_000;
 /// Asking again by hand (a click on the meter) waits at least this long after the last answer.
-const AGAIN_MS: u64 = 60_000;
+const AGAIN_MS: u64 = 10_000;
 /// A CLI that has not told it by then is given up.
 const TIMEOUT: Duration = Duration::from_secs(60);
 

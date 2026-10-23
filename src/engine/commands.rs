@@ -238,7 +238,7 @@ pub enum Cmd {
         force: bool,
     },
     /// How much of an agent's plan is used (asked of its CLI at most every 15 minutes; `again`: a
-    /// click on the meter, at most every minute).
+    /// click on the meter, at most every 10 seconds).
     Usage {
         agent: String,
         #[serde(default)]

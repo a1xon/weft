@@ -55,7 +55,7 @@ function onMsg(m) {
       redrawPrompts();
       break;
     }
-    case 'usage': S.usage[m.agent] = m.usage; S.usageV++; redrawPrompts(); break;
+    case 'usage': S.usage[m.agent] = m.usage; usageAsking[m.agent] = false; S.usageV++; redrawPrompts(); break;
     case 'toast': if (!(netBuilding && m.k === 'info' && / is now asked of /.test(m.m))) toast(m.k, m.m); break;
     // a card made from the browser (weft marks): in view when the person comes back, unless they are here working
     case 'reveal': whenNode(m.id).then(() => { if (!document.hasFocus()) reveal(m.id); }); break;

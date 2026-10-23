@@ -44,10 +44,14 @@ body.padopen #dock,body.padopen #zoom,body.padopen #tray,body.padopen #empty{vis
 .umeter .ub i{width:40px;height:4px;background:linear-gradient(90deg,var(--uc) var(--u),var(--l1) var(--u));
   -webkit-mask:repeating-linear-gradient(90deg,#000 0 3px,transparent 3px 4px);mask:repeating-linear-gradient(90deg,#000 0 3px,transparent 3px 4px)}
 .umeter .ub b{font-weight:500;color:var(--i2);min-width:3.5ch}
+.umeter .ub.long i{width:30px}
+.umeter .ub .ut{margin-left:-2px;font-size:.8em;color:var(--i4)}
 .umeter .ub.warm{--uc:var(--am)}.umeter .ub.warm b{color:var(--am)}
 .umeter .ub.hot{--uc:var(--rd)}.umeter .ub.hot b{color:var(--rd)}
 .umeter:hover .ub b,.umeter:hover .dl{color:var(--i1)}
 .umeter.none .ux{color:var(--i4)}
+.umeter.asking .ub{opacity:.45}
+.umeter.asking{cursor:progress}
 .seg.cells button.other{color:var(--i3);border-style:dashed}
 .seg.cells button.other:hover{color:var(--i0)}
 /* the prompt box: one component, big on the pad, .compact in the bar at the bottom */
