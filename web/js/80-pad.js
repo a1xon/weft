@@ -343,8 +343,9 @@ function setPrompt(ta, text) {
     ta.value = text; ta.dispatchEvent(new Event('input', { bubbles: true }));
   } finally { ta._setting = false; }
 }
-/* the prompts sent from the bar and the pad, per board, newest last: ↑ on the first line brings back
-   the one before, ↓ on the last line goes forward again and, past the newest, to what was typed */
+/* the prompts sent from the bar and the pad, per board, newest last: ↑ in an empty box brings back
+   the one before, ↓ goes forward again and, past the newest, to the empty box. Once something is
+   typed (or a recalled one is edited) the arrows move the cursor as usual. */
 const SENT_MAX = 100;
 const sentKey = () => S.project && 'weft-sent:' + S.project.dir;
 function sentList() { try { return JSON.parse(localStorage.getItem(sentKey()) || '[]'); } catch { return []; } }
@@ -354,8 +355,8 @@ function rememberSent(text) {
   try { localStorage.setItem(k, JSON.stringify(l.slice(-SENT_MAX))); } catch {}
 }
 function recall(ta, d) {
-  const v = ta.value, a = ta.selectionStart;
-  if (a !== ta.selectionEnd || (d < 0 ? v.slice(0, a) : v.slice(a)).includes('\n')) return false;
+  const v = ta.value;
+  if (ta._hi == null && v) return false;
   const l = sentList();
   if (ta._hi == null) { if (d > 0) return false; ta._hi = l.length; ta._stash = v; }
   const i = ta._hi + d;
@@ -532,7 +533,7 @@ async function padStart() {
   const a = S.lastAgent, cfg = S.cfg.agents[a] || {};
   const c = toWorld(innerWidth / 2, innerHeight / 2);
   const extra = { model: cfg.model_arg ? tuned(a, 'model') : '', effort: cfg.effort_arg ? tuned(a, 'effort') : '', addenda: addendaIds(), yolo: cfg.yolo_arg ? yoloDefault() : undefined };
-  rememberSent(text); setPrompt(padTa, '');
+  rememberSent(text); setPrompt(padTa, ''); padTa._hi = null;
   closePad();
   savePrefs();
   const id = await spawnAt(a, c.x - NW / 2, c.y - NH / 2, { text, draft: false, run: true, edit: false, extra, lane: true });

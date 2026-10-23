@@ -135,7 +135,7 @@ function growOmni() {
 async function submitOmni(mode) {
   const text = omniTa.value.trim(); if (!text) { shake($('#obox')); return; }
   const ids = [...S.sel];
-  rememberSent(text); setPrompt(omniTa, ''); closePalette();
+  rememberSent(text); setPrompt(omniTa, ''); omniTa._hi = null; closePalette();
   const single = ids.length === 1 ? S.nodes.get(ids[0]) : null;
   // an open reader follows the card that answers this; a new agent is shown on the canvas
   const handing = single && kindOf(single) === 'agent' && single.agent !== 'sh' && S.omniMode === 'hand';
