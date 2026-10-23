@@ -45,8 +45,9 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   const eb0 = await p.locator('#pad .peff').boundingBox().catch(() => null);
   ok(mb0.x > ab0.x + ab0.width && mb0.y + mb0.height <= yb0.y + 2, 'the model is on the first line to the right of the agents, yolo below it');
   ok(!eb0 || (Math.abs(eb0.y - yb0.y) < 12 && yb0.x > eb0.x + eb0.width), 'the reasoning level and yolo share the second line');
-  const mid = (mb0.y + yb0.y + yb0.height) / 2;
-  ok(Math.abs(ab0.y + ab0.height / 2 - mid) < 10, 'the agents are centred against the two lines (' + Math.round(ab0.y + ab0.height / 2) + ' vs ' + Math.round(mid) + ')');
+  // (the agents with the usage meter under them, as one block)
+  const mid = (mb0.y + yb0.y + yb0.height) / 2, lb0 = await p.locator('#pad .pleft').boundingBox();
+  ok(Math.abs(lb0.y + lb0.height / 2 - mid) < 10, 'the agents are centred against the two lines (' + Math.round(lb0.y + lb0.height / 2) + ' vs ' + Math.round(mid) + ')');
   const running = () => p.evaluate(() => document.getAnimations().filter(a => { const t = a.effect && a.effect.target; return t && t.closest && (t.closest('#pad') || t.closest('.menu')); }).length);
   await sleep(450);
   ok((await running()) === 0, 'nothing is animating once the pad has opened');

@@ -13,15 +13,19 @@ export XDG_CONFIG_HOME="$SB/cfg" XDG_STATE_HOME="$SB/state" WEFT_SOCKET=weft-ui 
 export GIT_AUTHOR_NAME=weft GIT_AUTHOR_EMAIL=ui@weft.test GIT_COMMITTER_NAME=weft GIT_COMMITTER_EMAIL=ui@weft.test
 mkdir -p "$SB/cfg/weft" "$SB/state"
 export WEFT_UI_BIN="$BIN"
-# the agents are simulated; their model lists come from a harmless printf instead of the real CLIs
+# the agents are simulated; their model lists come from a harmless printf instead of the real CLIs,
+# and their plan usage from files a test writes (each ask is logged: usage.cjs counts them)
 write_cfg() {
 cat > "$SB/cfg/weft/config.json" <<JSON
 { "agents": {
-  "claude": {"cmd": "python3 $ROOT/examples/sim-agent.py --name claude --think 3"},
+  "claude": {"cmd": "python3 $ROOT/examples/sim-agent.py --name claude --think 3",
+             "usage_cmd": "echo claude >> $SB/usage-asked; cat $SB/usage-claude.txt"},
   "codex":  {"cmd": "python3 $ROOT/examples/sim-agent.py --name codex --think 4",
-             "models_cmd": "printf 'sim-fast\\tSim Fast\\nsim-deep\\tSim Deep\\n'"},
+             "models_cmd": "printf 'sim-fast\\tSim Fast\\nsim-deep\\tSim Deep\\n'",
+             "usage_cmd": "echo codex >> $SB/usage-asked; cat $SB/usage-codex.txt"},
   "agy":    {"cmd": "python3 $ROOT/examples/sim-agent.py --name agy --think 2.5",
-             "models_cmd": "printf 'sim-fast\\tSim Fast\\nsim-deep\\tSim Deep\\n'"} },
+             "models_cmd": "printf 'sim-fast\\tSim Fast\\nsim-deep\\tSim Deep\\n'",
+             "usage_cmd": "echo agy >> $SB/usage-asked; cat $SB/usage-agy.txt"} },
   "titles": false, "asks": false, "gh": "python3 $ROOT/examples/fake-gh.py" }
 JSON
 }
@@ -29,7 +33,7 @@ fresh() {
   # stop the previous daemon first, or two of them end up sharing one tmux session
   [ -d "$SB/proj" ] && "$BIN" stop "$SB/proj" >/dev/null 2>&1 || true
   sleep 0.5
-  rm -rf "$SB/proj" "$SB/remote.git" "$SB/state/weft" "$SB/web"; tmux -L weft-ui kill-server 2>/dev/null || true
+  rm -rf "$SB/proj" "$SB/remote.git" "$SB/state/weft" "$SB/web" "$SB"/usage-*; tmux -L weft-ui kill-server 2>/dev/null || true
   cp -r "$SB/web.frozen" "$SB/web"
   write_cfg
   cp -r "$ROOT/examples/textkit" "$SB/proj"
@@ -38,7 +42,7 @@ fresh() {
   "$BIN" open "$SB/proj" --no-open | tail -1 | tr -d ' ' > "$SB/url.txt"
 }
 # dev: `dev` plays the page following edits to its files (src/dev.rs)
-for t in ${TESTS:-story features pad draft folders boards tree repos next watch eta limit ci rewind bar aim place dial merge rewire each archive chain tidy nets talk marks quit peek plea fix working joins memory loose dev}; do
+for t in ${TESTS:-story features pad draft folders boards tree repos next watch eta limit usage ci rewind bar aim place dial merge rewire each archive chain tidy nets talk marks quit peek plea fix working joins memory loose dev}; do
   echo "== $t"; fresh
   SANDBOX="$SB" node "$HERE/$t.cjs"
 done

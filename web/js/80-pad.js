@@ -100,6 +100,61 @@ async function ensureModels(a, force) {
   modelsAsked.delete(a);
   if (r && r.models && r.models.length) { S.models[a] = r.models; redrawPrompts(); }
 }
+/* how much of the chosen agent's plan is used: its CLI is asked at most every 15 minutes (the
+   daemon keeps the answer for every board), and only while a page shows that agent */
+const USAGE_FRESH = 15 * 60e3, usageAsked = {};
+let usageShown = '', usageTurn = Infinity;
+async function ensureUsage(a, again) {
+  const cfg = S.cfg.agents[a], u = S.usage[a];
+  if (!cfg || !cfg.usage_cmd || document.hidden) return;
+  if (!again && u && Date.now() - u.at < USAGE_FRESH) return;
+  if (Date.now() - (usageAsked[a] || 0) < 60e3) return;
+  usageAsked[a] = Date.now();
+  const r = await req('usage', { agent: a, again: !!again });
+  if (r && r.usage && (!u || r.usage.at > u.at)) { S.usage[a] = r.usage; S.usageV++; redrawPrompts(); }
+}
+// (a page left open asks again once the answer is old, and redraws when a limit starts over)
+setInterval(() => {
+  if (usageShown) ensureUsage(usageShown);
+  if (Date.now() >= usageTurn) { usageTurn = Infinity; S.usageV++; redrawPrompts(); }
+}, 60e3);
+addEventListener('visibilitychange', () => { if (!document.hidden && usageShown) ensureUsage(usageShown); });
+/* the limits that count for a model: those of all models, and those of its own group (a model
+   named after none: agy's first group, which holds its default model) */
+function usageBars(bars, model) {
+  const m = (model || '').toLowerCase(), all = bars.filter(b => !b.scope), scoped = bars.filter(b => b.scope);
+  const own = scoped.filter(b => b.scope.split(' ').some(w => m.includes(w)));
+  // the shortest window first, whatever order the CLI says them in
+  const rank = b => ({ '5h': 0, week: 1, month: 2 })[b.name] ?? 3, short = l => l.sort((x, y) => rank(x) - rank(y));
+  if (own.length) return [...short(all), ...short(own).map(b => ({ ...b, label: all.length ? b.scope.split(' ')[0] : b.name }))];
+  return short(all.length ? all : scoped.filter(b => b.scope === (scoped[0] || {}).scope));
+}
+const untilWords = ms => { const s = Math.max(0, (ms - Date.now()) / 1000), d = Math.floor(s / 86400), h = Math.floor(s / 3600) % 24, mi = Math.floor(s / 60) % 60;
+  return d ? `${d}d ${h}h` : h ? `${h}h ${mi}m` : `${mi}m`; };
+const clockAt = ms => new Date(ms).toLocaleString([], Date.now() + 20 * 3600e3 > ms ? { hour: '2-digit', minute: '2-digit' } : { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+function usageMeter(a, model) {
+  const cfg = S.cfg.agents[a] || {};
+  if (!cfg.usage_cmd) return null;
+  usageShown = a;
+  ensureUsage(a);
+  const u = S.usage[a], again = () => ensureUsage(a, true), label = cfg.label || a;
+  const tail = '\n\nasked of its CLI at most every 15 min (no tokens) · click: ask now';
+  if (!u || !u.bars.length) {
+    return h('button', { class: 'umeter none', title: (u && u.err ? `${label}: ${u.err}` : `asking ${label} how much of its plan is used…`) + tail, onclick: again },
+      h('span', { class: 'dl' }, 'usage'), h('span', { class: 'ux' }, u ? '?' : '…'));
+  }
+  const now = Date.now();
+  const bars = usageBars(u.bars, model).map(b => ({ ...b, used: b.resets && b.resets <= now ? 0 : b.used }));
+  for (const b of bars) if (b.resets > now) usageTurn = Math.min(usageTurn, b.resets);
+  const tip = bars.map(b => `${b.scope ? b.scope + ' · ' : ''}${b.name}: ${Math.round(b.used)}% used` +
+    (b.resets ? ` · starts over in ${untilWords(b.resets)} (${clockAt(b.resets)})` : '')).join('\n');
+  return h('button', { class: 'umeter', 'aria-label': `${label} plan usage`, title: `${label} plan usage\n${tip}\n\nas of ${agoWords(u.at / 1000)}${tail}`, onclick: again },
+    ...bars.map(b => {
+      const p = Math.min(100, Math.max(0, b.used));
+      return h('span', { class: 'ub' + (p >= 90 ? ' hot' : p >= 75 ? ' warm' : '') },
+        h('span', { class: 'dl' }, b.label || b.name), h('i', { style: `--u:${p.toFixed(1)}%` }), h('b', {}, Math.round(p) + '%'));
+    }));
+}
 /* one menu for the model, in the pad and in the options flyout */
 /* the choices that make an agent, one click each: which one, which model, how hard it thinks and
    whether it asks first. The launch pad and the bar at the bottom are built from the same thing. */
@@ -119,6 +174,8 @@ function agentControls(c) {
     sg.classList.add('pagents');
     left.push(sg);
   }
+  const meter = c.onModel && usageMeter(c.agent, c.model);
+  if (meter) left.push(meter);
   // (a queued prompt has a reasoning level only: `levels` are its choices, the rest is its agent's)
   if (cfg.model_arg && c.onModel) right.push(modelRow(c, cfg));
   const levels = c.levels || (cfg.effort_arg && (cfg.efforts || []).length && effortApplies(c.agent, c.model)

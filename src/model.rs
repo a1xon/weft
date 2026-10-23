@@ -499,6 +499,11 @@ pub struct AgentCfg {
     /// middle model at medium reasoning. Empty = weft's own rules read the report (src/asks.rs).
     #[serde(default)]
     pub asks_cmd: String,
+    /// A one-shot command that prints how much of the plan is used, without a model request, run
+    /// with `sh -c` at most every 15 minutes (see engine/usage.rs for what it may print). Empty = no
+    /// meter for this agent.
+    #[serde(default)]
+    pub usage_cmd: String,
     /// How a new session gets the id weft picked for it (`{}`), e.g. `--session-id {}`. Empty = the CLI
     /// picks one and names it when it ends (`resume_hint`). See engine/resume.rs.
     #[serde(default)]
@@ -672,6 +677,8 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             title_cmd: r#"claude -p "$WEFT_TITLE_REQ" --model haiku --effort low --no-session-persistence --tools "" --strict-mcp-config --system-prompt "Do what the request asks, nothing more.""#.into(),
             // (haiku took recaps and notes for questions and missed real ones: sonnet tells them apart)
             asks_cmd: r#"claude -p "$WEFT_ASKS_REQ" --model sonnet --effort medium --no-session-persistence --tools "" --strict-mcp-config --system-prompt "Do what the request asks, nothing more.""#.into(),
+            // a command of its own: answered without the model, no tokens
+            usage_cmd: "claude -p /usage --no-session-persistence --strict-mcp-config".into(),
             // weft picks the id, so it never has to be found (a fork gets one of its own as well)
             session_arg: "--session-id {}".into(),
             resume_arg: "--resume {}".into(),
@@ -704,6 +711,10 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
                 .into(),
             asks_cmd: r#"codex exec -m gpt-6-luna -c model_reasoning_effort=medium -s read-only --ephemeral --skip-git-repo-check "$WEFT_ASKS_REQ""#
                 .into(),
+            // `codex exec` has no command for it, but every turn logs the limits it was told: the
+            // newest log that has them (nothing is asked)
+            usage_cmd: r#"for f in $(find "${CODEX_HOME:-$HOME/.codex}/sessions" -name 'rollout-*.jsonl' -mtime -31 2>/dev/null | xargs -r ls -t | head -n 5); do l=$(grep -h '"rate_limits":{"' "$f" | tail -n 1); if [ -n "$l" ]; then printf '%s\n' "$l"; break; fi; done"#
+                .into(),
             // one Ctrl+C at its prompt ends it with "To continue this session, run: codex resume <id>"
             resume_arg: "resume {}".into(),
             fork_arg: "fork {}".into(),
@@ -732,6 +743,8 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             // the reasoning level is in the model's name (an --effort beside it drops the model)
             title_cmd: r#"agy -p "$WEFT_TITLE_REQ" --model gemini-3.8-flash-low"#.into(),
             asks_cmd: r#"agy -p "$WEFT_ASKS_REQ" --model gemini-3.8-flash-medium"#.into(),
+            // a command of its own (no tokens): its JSON names the group of models of each limit
+            usage_cmd: "agy -p /usage --output-format json".into(),
             // the second Ctrl+C ends it with "Resume with -c (or command below): agy --conversation=<id>"
             resume_arg: "--conversation {}".into(),
             resume_hint: "--conversation=".into(),

@@ -296,7 +296,7 @@ fn clock_of(w: &str, next: Option<&str>) -> Option<(u32, u32)> {
 }
 
 /// Days since 1970-01-01 of a date (proleptic Gregorian).
-fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
+pub(super) fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = y.div_euclid(400);
     let yoe = y - era * 400;
@@ -320,7 +320,7 @@ fn civil(days: i64) -> (i64, u32, u32) {
 }
 
 /// Seconds east of UTC here and now (`date +%z`: GNU and BSD both have it); 0 when it cannot be told.
-fn local_offset() -> i64 {
+pub(super) fn local_offset() -> i64 {
     let out = std::process::Command::new("date").arg("+%z").output().ok().filter(|o| o.status.success());
     let z = out.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
     let (sign, d) = match z.split_at_checked(1) {

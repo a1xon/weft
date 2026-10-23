@@ -944,6 +944,7 @@ fn agents_run_in_yolo_mode_unless_switched_off() {
         effort_models: vec![],
         title_cmd: String::new(),
         asks_cmd: String::new(),
+        usage_cmd: String::new(),
         session_arg: String::new(),
         resume_arg: String::new(),
         fork_arg: String::new(),

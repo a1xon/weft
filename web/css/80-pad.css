@@ -38,6 +38,16 @@ body.padopen #dock,body.padopen #zoom,body.padopen #tray,body.padopen #empty{vis
 .seg.cells{flex-wrap:wrap;border:0;min-width:0}
 .seg.cells button{flex:none;max-width:26ch;overflow:hidden;text-overflow:ellipsis;padding:4px 10px;border:1px solid var(--l1);margin:0 -1px -1px 0}
 .seg.cells button[aria-pressed=true]{position:relative;z-index:1;border-color:var(--cy2)}
+/* how much of the agent's plan is used: a short segmented bar per limit, under the agents */
+.umeter{display:flex;align-items:center;flex-wrap:wrap;gap:4px 12px;padding:2px 0;font:500 calc(10.5px*var(--fs)) var(--mono);color:var(--i3);cursor:pointer}
+.umeter .ub{display:inline-flex;align-items:center;gap:5px;--uc:var(--cy2)}
+.umeter .ub i{width:40px;height:4px;background:linear-gradient(90deg,var(--uc) var(--u),var(--l1) var(--u));
+  -webkit-mask:repeating-linear-gradient(90deg,#000 0 3px,transparent 3px 4px);mask:repeating-linear-gradient(90deg,#000 0 3px,transparent 3px 4px)}
+.umeter .ub b{font-weight:500;color:var(--i2);min-width:3.5ch}
+.umeter .ub.warm{--uc:var(--am)}.umeter .ub.warm b{color:var(--am)}
+.umeter .ub.hot{--uc:var(--rd)}.umeter .ub.hot b{color:var(--rd)}
+.umeter:hover .ub b,.umeter:hover .dl{color:var(--i1)}
+.umeter.none .ux{color:var(--i4)}
 .seg.cells button.other{color:var(--i3);border-style:dashed}
 .seg.cells button.other:hover{color:var(--i0)}
 /* the prompt box: one component, big on the pad, .compact in the bar at the bottom */

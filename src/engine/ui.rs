@@ -285,6 +285,7 @@ impl Engine {
             "idle": self.idle_shown,
             "hold": self.flow.hold,
             "models": self.models.iter().map(|(a, l)| (a.clone(), models_json(l))).collect::<HashMap<_, _>>(),
+            "usage": self.usage.json(),
             "library": self.cfg.library,
             "networks": self.cfg.networks,
             "flow": {"nodes": self.flow.nodes, "edges": self.flow.edges, "talks": self.flow.talks},

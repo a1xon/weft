@@ -237,6 +237,13 @@ pub enum Cmd {
         #[serde(default)]
         force: bool,
     },
+    /// How much of an agent's plan is used (asked of its CLI at most every 15 minutes; `again`: a
+    /// click on the meter, at most every minute).
+    Usage {
+        agent: String,
+        #[serde(default)]
+        again: bool,
+    },
     Start {
         id: String,
     },
@@ -460,6 +467,7 @@ impl Cmd {
             Cmd::Proj { .. }
                 | Cmd::Dirs { .. }
                 | Cmd::Models { .. }
+                | Cmd::Usage { .. }
                 | Cmd::Preview { .. }
                 | Cmd::Read { .. }
                 | Cmd::Result { .. }
@@ -502,6 +510,7 @@ impl Engine {
             Cmd::Proj { dir } => self.cmd_proj(dir),
             Cmd::Dirs { q, like } => self.cmd_dirs(&q, &like),
             Cmd::Models { agent, force } => self.cmd_models(agent, force),
+            Cmd::Usage { agent, again } => self.cmd_usage(agent, again),
             // (these answer when their job is done: `Engine::handle` gives them the caller's reply)
             Cmd::Log { .. } | Cmd::CpDiff { .. } | Cmd::BoardOpen { .. } => json!({"ok": false, "error": "it answers by itself"}),
             Cmd::BoardForget { dir } => self.cmd_board_forget(dir),

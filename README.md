@@ -790,6 +790,15 @@ messages for Antigravity are built in). A message that names no time is tried ag
 `limit_retry_s` (1200 s); after 30 sleeps in one step the card asks you. A step that gave its
 status line finished the normal way, whatever it said about limits.
 
+**How much is used.** Under the agents in the launch pad and the bar, a meter shows how much of the
+chosen agent's plan is used: the 5-hour window and the week (amber from 75 %, red from 90 %), plus
+the chosen model's own limit where the CLI has one (Claude's *Sonnet only* week, agy's groups of
+models). Its tooltip says when each starts over. The CLI is asked by `usage_cmd`, which costs no
+tokens (claude and agy answer `-p /usage` themselves; for codex the newest of its own session logs is
+read, nothing is asked), at most every 15 minutes and only while a page shows that agent. The answer
+is kept in `~/.local/state/weft/usage.json` for every board, so a reload, a second page or another
+board does not ask again; a click on the meter asks now, at most once a minute.
+
 ### When something fails
 
 A click on **N failed** in the top bar (or *fix it* in a failed card's menu) starts a fresh agent
@@ -967,6 +976,7 @@ src/engine/        the single actor that owns all state
     gates.rs       the gates on a link: approve, screenshot, tests
     ci.rs          the CI check: the runs of the pushed commit (gh), red to the agent that did the work
     limits.rs      an agent at its usage limit sleeps until the reset its CLI names, then carries on
+    usage.rs       how much of each agent's plan is used (the meter by the agents), asked every 15 min at most
     rewind.rs      every step snapshotted before and after in a shadow repository: its diff, and undo
     resume.rs      a card keeps its agent's conversation: session ids, an agent that rests and comes back, twins
     loose.rs       loose ends: a push an older weft left waiting to be armed says what it has left, or is done by itself

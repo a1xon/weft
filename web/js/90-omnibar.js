@@ -97,7 +97,7 @@ function renderOmni() {
   const addKey = addenda ? JSON.stringify([S.lib.filter(x => x.kind === 'addendum').map(x => [x.id, x.title, addendumOn(x)]), !!pad.ed, S.lib.filter(x => x.kind === 'prompt').length]) : '';
   // only touch the DOM when something visible changed, and never steal focus from a user who is typing
   markAim();
-  const key = [ids.join(','), single ? single.name : '', ph, label, S.lastAgent, S.omniMode, ckey, agents.map(x => x[0]).join(','), addKey].join('|');
+  const key = [ids.join(','), single ? single.name : '', ph, label, S.lastAgent, S.omniMode, ckey, agents.map(x => x[0]).join(','), addKey, S.usageV].join('|');
   if (key === omni._key) return;
   omni._key = key;
   if (!addenda && !pad.open) pad.ed = null;   // an addendum being written has no room in this mode

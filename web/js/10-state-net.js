@@ -5,7 +5,7 @@ const S = {
   sel: new Set(), selEdge: null, focus: null, scroll: 0,
   fly: null, lens: new Map(), rid: 0, acks: new Map(),
   v: { x: 90, y: 110, k: 1 }, lastAgent: 'claude', lastNode: null, undo: [],
-  prefs: {}, models: {}, modelErr: {}, omniMode: 'then',
+  prefs: {}, models: {}, modelErr: {}, usage: {}, usageV: 0, omniMode: 'then',
   dirs: {}, sibs: null,   // other folders agents work in: their branch and uncommitted files; the project's neighbours
 };
 const nodeEls = new Map(), edgeEls = new Map(), juncEls = new Map();
@@ -55,6 +55,7 @@ function onMsg(m) {
       redrawPrompts();
       break;
     }
+    case 'usage': S.usage[m.agent] = m.usage; S.usageV++; redrawPrompts(); break;
     case 'toast': if (!(netBuilding && m.k === 'info' && / is now asked of /.test(m.m))) toast(m.k, m.m); break;
     // a card made from the browser (weft marks): in view when the person comes back, unless they are here working
     case 'reveal': whenNode(m.id).then(() => { if (!document.hasFocus()) reveal(m.id); }); break;
@@ -81,6 +82,7 @@ function loadState(m) {
   S.nets = m.networks;   // (undefined from a daemon that keeps none: the built-in networks still work)
   S.prefs = m.cfg.prefs && typeof m.cfg.prefs === 'object' ? m.cfg.prefs : {};
   S.models = m.models || {};
+  S.usage = m.usage || {}; S.usageV++;
   S.dirs = m.project.dirs || {};
   document.title = `${m.project.name} – weft`;
   BD.on = Array.isArray(m.boards);

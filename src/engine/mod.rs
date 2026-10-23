@@ -62,6 +62,7 @@ mod tests;
 mod talk;
 mod titles;
 mod ui;
+mod usage;
 mod util;
 
 pub use commands::Cmd;
@@ -162,6 +163,11 @@ pub enum Ev {
     Models {
         agent: String,
         res: Result<Vec<(String, String)>, String>,
+    },
+    /// What an agent's CLI printed when asked how much of its plan is used (`None`: it could not be asked).
+    Usage {
+        agent: String,
+        out: Option<String>,
     },
     Conn {
         id: u64,
@@ -289,6 +295,8 @@ pub struct Engine {
     /// models each agent's CLI reported, and which lookups are still running
     models: HashMap<String, Vec<(String, String)>>,
     models_busy: std::collections::HashSet<String>,
+    /// how much of each agent's plan is used (see usage.rs)
+    usage: usage::Usages,
     /// one git job at a time per folder: two commit steps merging into the same checkout would
     /// fight over its index
     git_locks: HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>,
@@ -332,6 +340,7 @@ impl Engine {
         let archive_path = boot.dir.join(".weft").join("archive.json");
         let flow: Flow = load_json(&flow_path).unwrap_or_default();
         let boards = Boards::new(boot.config_file.as_deref());
+        let usage = usage::Usages::new(boot.config_file.as_ref().map(|_| state_dir().join("usage.json")));
         let mut e = Engine {
             boot,
             flow,
@@ -359,6 +368,7 @@ impl Engine {
             last_check_sec: 0,
             models: HashMap::new(),
             models_busy: std::collections::HashSet::new(),
+            usage,
             git_locks: HashMap::new(),
             last_save: Instant::now(),
             archive: Archive::load(&archive_path),
@@ -612,6 +622,7 @@ impl Engine {
                 self.models.insert(agent.clone(), list);
                 self.bcast(&json!({"t": "models", "agent": agent, "models": items, "err": err}));
             }
+            Ev::Usage { agent, out } => self.on_usage(agent, out),
             Ev::TitleDue { id, text } => self.title_due(&id, text),
             Ev::Title { id, text, title } => self.on_title(&id, &text, title),
             Ev::Asks { id, ticket, asks } => self.on_asks(&id, ticket, asks),

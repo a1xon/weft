@@ -54,9 +54,10 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(await p.locator('#omodel').count() === 1, 'and the model');
   ok(await p.locator('#omni .oc .peff').count() === 1, 'and the reasoning level');
   ok(await p.locator('#oyolo').count() === 1, 'and yolo');
-  const r1 = await p.evaluate(() => { const q = s => { const r = document.querySelector(s).getBoundingClientRect(); return { t: r.top, b: r.bottom, l: r.left, r: r.right, c: (r.top + r.bottom) / 2 }; }; return { a: q('#omni .oc .pagents'), m: q('#omodel'), e: q('#omni .oc .peff'), y: q('#oyolo'), t: q('#omni textarea') }; });
+  const r1 = await p.evaluate(() => { const q = s => { const r = document.querySelector(s).getBoundingClientRect(); return { t: r.top, b: r.bottom, l: r.left, r: r.right, c: (r.top + r.bottom) / 2 }; }; return { a: q('#omni .oc .pagents'), l: q('#omni .oc .pleft'), m: q('#omodel'), e: q('#omni .oc .peff'), y: q('#oyolo'), t: q('#omni textarea') }; });
   ok(r1.m.l > r1.a.r && r1.e.l > r1.a.r && r1.m.b <= r1.e.t + 2, 'the agents sit on the left, the model first and the reasoning level second on the right');
-  ok(Math.abs(r1.a.c - (r1.m.t + r1.e.b) / 2) < 8 && r1.y.t > r1.m.b - 2 && r1.y.l > r1.e.r && r1.t.t > r1.e.b, 'the agents are centred against both lines, yolo ends the second one, the prompt is below');
+  // (the agents with the usage meter under them, as one block)
+  ok(Math.abs(r1.l.c - (r1.m.t + r1.e.b) / 2) < 8 && r1.y.t > r1.m.b - 2 && r1.y.l > r1.e.r && r1.t.t > r1.e.b, 'the agents are centred against both lines, yolo ends the second one, the prompt is below');
   ok(await p.locator('#omodel .seg button').count() >= 4 && await p.locator('#omodel select, #omodel .pmodel').count() === 0, 'the model is a row of one-click choices like the reasoning level, not a menu');
   ok((await p.locator('#omodel .seg button[aria-pressed=true]').innerText()) === 'default', 'default is the one selected');
   const names = await seg();
