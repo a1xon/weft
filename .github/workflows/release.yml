@@ -1,0 +1,42 @@
+# A tag `v*` builds weft for Linux and macOS and publishes the binaries as a GitHub release,
+# named as install.sh looks for them: weft-<linux|macos>-<x86_64|aarch64>.tar.gz
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, name: linux-x86_64 }
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, name: linux-aarch64 }
+          - { os: macos-14, target: aarch64-apple-darwin, name: macos-aarch64 }
+          - { os: macos-14, target: x86_64-apple-darwin, name: macos-x86_64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup target add ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - if: runner.os == 'macOS'
+        run: codesign --force --sign - target/${{ matrix.target }}/release/weft
+      - run: tar -czf weft-${{ matrix.name }}.tar.gz -C target/${{ matrix.target }}/release weft
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weft-${{ matrix.name }}
+          path: weft-${{ matrix.name }}.tar.gz
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - run: gh release create "$GITHUB_REF_NAME" weft-*.tar.gz --repo "$GITHUB_REPOSITORY" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
