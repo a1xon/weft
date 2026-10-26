@@ -8,7 +8,7 @@
 //! other board follows weft's own source too once that is a board, so all of them get the edits.
 //!
 //! To shed it: delete this file, `web/dev.js` and `tests/ui/dev.cjs`, then the lines marked
-//! `dev:` (`grep -rn 'dev:' src tests`) and the "Working on weft's UI" part of the README.
+//! `dev:` (`grep -rn 'dev:' src tests`) and the "Working on weft's UI" part of docs/manual.md.
 
 use crate::server::{host_ok, App};
 use axum::{
