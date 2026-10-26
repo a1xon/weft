@@ -251,11 +251,11 @@ async function spawnAt(agent0, x, y, opts = {}) {
   return r.id;
 }
 const spawnHere = (agent, x, y) => spawnAt(agent, x, y, {});
-function spawnLinked(fromId, dir, agent) {
+function spawnLinked(fromId, dir, agent, opts = {}) {
   const src = S.nodes.get(fromId); if (!src) return;
   const ag = agent || agentFor(src);
   const x = dir === 'next' ? src.x + nw(src) + 150 : src.x - NW - 150;
-  return spawnAt(ag, x, src.y, dir === 'next' ? { from: fromId } : { to: fromId });
+  return spawnAt(ag, x, src.y, { ...opts, ...(dir === 'next' ? { from: fromId } : { to: fromId }) });
 }
 async function cloneAt(id) {
   const n = S.nodes.get(id); if (!n) return;

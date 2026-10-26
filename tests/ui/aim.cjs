@@ -72,6 +72,19 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   await p.locator('#omni .tgx').click();
   ok((await sel()).length === 0 && await p.locator('#omni textarea').evaluate(e => document.activeElement === e), '✕ on the chip lets go and the prompt keeps the keyboard');
 
+  // --- a prompt for a card that is no agent (a note, a screenshot) starts a new agent after it, with that prompt
+  // (no empty box opened on the new card writes itself over the prompt when it is left: rubbermetrics n73)
+  const note = await p.evaluate(() => spawnAt('note', 200, 700, { text: 'textkit is a tiny text library.', edit: false }));
+  await p.evaluate(i => select([i]), note); await sleep(200);
+  await p.locator('#omni textarea').click();
+  await p.keyboard.type('Explain textkit/wrap.py in one sentence.'); await p.keyboard.press('Control+Enter');
+  const after = () => p.evaluate(i => { const e = [...S.edges.values()].find(e => e.from === i); return e && S.nodes.get(e.to); }, note);
+  ok(await waitFor(async () => !!(await after())), 'a card is made and linked after the note');
+  await sleep(300); await p.mouse.click(1500, 120); await sleep(600);   // (anywhere else: the bar and any box are left)
+  const made = await after();
+  ok(made && made.prompt.includes('wrap.py') && !made.draft, 'it keeps the prompt from the bar and is armed (' + JSON.stringify(made && { prompt: made.prompt, draft: made.draft, name: made.name }) + ')');
+  ok(made && await waitFor(async () => ['busy', 'starting', 'done'].includes(await st(made.id)), 20000), 'and it runs (' + (made && await st(made.id)) + ')');
+
   console.log('errors:', JSON.stringify(errs));
   ok(errs.length === 0, 'no page errors');
   await b.close();

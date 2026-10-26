@@ -531,7 +531,9 @@ function editAsk(id) {
   el.ask.hidden = false;
   el.ask.replaceWith(ta); ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
   el.refreshEdit = () => { ta.placeholder = hint(); };
-  let done = false;
+  // only what was typed here is written back: a box left untouched does not blank a prompt that came in meanwhile
+  let done = false, typed = false;
+  ta.addEventListener('input', () => { typed = true; });
   const fin = (ok, arm) => {
     if (done) return; done = true; el.editing = false; el.refreshEdit = null;
     const v = ta.value;
@@ -540,10 +542,10 @@ function editAsk(id) {
     const cur = S.nodes.get(id);
     if (!cur) return;
     // escape on a brand-new, still empty draft takes it back
-    if (!ok && wasDraft && !v.trim()) { send('node_del', { id }); return; }
+    if (!ok && wasDraft && !v.trim() && !(cur.prompt || cur.cmd || '').trim()) { send('node_del', { id }); return; }
     if (ok) {
       const field = isShell() ? 'cmd' : 'prompt';
-      if (v !== (cur[field] || '')) patchNode(id, { [field]: v }, 0);
+      if (typed && v !== (cur[field] || '')) patchNode(id, { [field]: v }, 0);
       if (arm === 'arm') send('arm', { id });
       else if (arm === 'fire') send('fire', { id });
     }

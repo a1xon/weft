@@ -150,7 +150,11 @@ async function submitOmni(mode) {
     S.omniMode = 'then';
     await takeoverFrom(single.id, S.lastAgent, text);
   } else if (single && kindOf(single) !== 'agent') {
-    await spawnLinked(single.id, 'next', S.lastAgent).then(async id => { if (id) { patchNode(id, { prompt: text, draft: false }, 0); setTimeout(() => send('arm', { id }), 120); } });
+    // the prompt goes in with the card, and no box opens on it: one opened before the prompt was patched
+    // in was empty, and leaving it wrote that over the prompt (a card with nothing to do, rubbermetrics n73)
+    const id = await spawnLinked(single.id, 'next', S.lastAgent, { text, edit: false });
+    if (id) send('arm', { id });
+    else if (!omniTa.value) { omniTa.value = text; growOmni(); saveDraft(omniTa); }   // (not made: the text stays)
   } else for (const id of ids) {
     // a busy agent gets the prompt as a card queued after its work; steering goes in right away
     const n = hostOf(S.nodes.get(id));
