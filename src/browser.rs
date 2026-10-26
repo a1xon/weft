@@ -76,6 +76,17 @@ const BROWSERS: &[(&str, &str)] = &[
     ("Vivaldi", "vivaldi"),
 ];
 
+/// The same on macOS, under `~/Library/Application Support`.
+const MAC_BROWSERS: &[(&str, &str)] = &[
+    ("Brave", "BraveSoftware/Brave-Browser"),
+    ("Chrome", "Google/Chrome"),
+    ("Chrome Beta", "Google/Chrome Beta"),
+    ("Chrome Canary", "Google/Chrome Canary"),
+    ("Chromium", "Chromium"),
+    ("Edge", "Microsoft Edge"),
+    ("Vivaldi", "Vivaldi"),
+];
+
 /// A browser message is at most this big (the browser itself allows 64 MiB to a host).
 const MAX_IN: usize = 64 << 20;
 
@@ -411,7 +422,7 @@ fn guess(url: &str, all: &[boards::Board]) -> Value {
             return json!({"dir": i.dir, "cwd": "", "new": false, "why": format!("the canvas of {}", b.name())});
         }
     }
-    let Ok(cwd) = std::fs::read_link(format!("/proc/{pid}/cwd")) else { return Value::Null };
+    let Some(cwd) = cwd_of(pid) else { return Value::Null };
     if cwd == home() || cwd.parent().is_none() {
         return Value::Null;
     }
@@ -495,8 +506,27 @@ fn local_port(url: &str) -> Option<u16> {
     }
 }
 
+/// The folder a process works in.
+fn cwd_of(pid: u32) -> Option<PathBuf> {
+    if Path::new("/proc/self").exists() {
+        return std::fs::read_link(format!("/proc/{pid}/cwd")).ok();
+    }
+    // no /proc (macOS): `n<path>` in lsof's field output
+    let out = lsof(&["-a", "-p", &pid.to_string(), "-d", "cwd", "-Fn"])?;
+    out.lines().find_map(|l| l.strip_prefix('n')).map(PathBuf::from)
+}
+
+fn lsof(args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new("lsof").args(args).stderr(std::process::Stdio::null()).output().ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
 /// The process (of this user) that listens on a TCP port of this machine.
 fn listener(port: u16) -> Option<u32> {
+    if !Path::new("/proc/net/tcp").exists() {
+        // no /proc (macOS)
+        return lsof(&["-nP", &format!("-iTCP:{port}"), "-sTCP:LISTEN", "-t"])?.lines().next()?.trim().parse().ok();
+    }
     let mut inodes: Vec<String> = Vec::new();
     for table in ["/proc/net/tcp", "/proc/net/tcp6"] {
         let Ok(t) = std::fs::read_to_string(table) else { continue };
@@ -583,8 +613,13 @@ pub fn install() -> Result<(PathBuf, Vec<&'static str>), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let manifest = host_manifest(&exe);
     let mut found = Vec::new();
-    for (label, sub) in BROWSERS {
-        let profile = model::config_home().join(sub);
+    let (base, browsers) = if cfg!(target_os = "macos") {
+        (home().join("Library/Application Support"), MAC_BROWSERS)
+    } else {
+        (model::config_home(), BROWSERS)
+    };
+    for (label, sub) in browsers {
+        let profile = base.join(sub);
         if !profile.is_dir() {
             continue;
         }

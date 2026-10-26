@@ -34,6 +34,14 @@ const BROWSERS: &[(&str, &str)] = &[
     ("chromium", "chromium"),
 ];
 
+/// The same on macOS, where browsers are apps rather than commands on PATH.
+const MAC_BROWSERS: &[(&str, &str)] = &[
+    ("/Applications/Brave Browser.app/Contents/MacOS/Brave Browser", "brave"),
+    ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "chrome"),
+    ("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge", "msedge"),
+    ("/Applications/Chromium.app/Contents/MacOS/Chromium", "chromium"),
+];
+
 fn on_path(cmd: &str) -> Option<PathBuf> {
     if cmd.contains('/') {
         return Some(PathBuf::from(cmd)).filter(|p| p.is_file());
@@ -56,7 +64,7 @@ fn browser() -> Option<(PathBuf, &'static str)> {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().trim_end_matches(".desktop").to_string())
         .unwrap_or_default();
     let first = BROWSERS.iter().filter(|(b, _)| *b == default);
-    first.chain(BROWSERS).find_map(|(b, p)| on_path(b).map(|path| (path, *p)))
+    first.chain(BROWSERS).chain(MAC_BROWSERS).find_map(|(b, p)| on_path(b).map(|path| (path, *p)))
 }
 
 /// Shows the canvas at `url`; a window falls back to a tab when no browser has an app mode.
@@ -80,7 +88,8 @@ pub fn show(url: &str, how: Show) {
             }
         }
     }
-    let _ = Command::new("xdg-open").arg(url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let _ = Command::new(opener).arg(url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
 }
 
 // ------------------------------------------------------------- the folder
@@ -102,12 +111,22 @@ pub fn app_dir(args: &[String]) -> Result<Option<PathBuf>, String> {
         }
     }
     let start = recent().first().and_then(|d| d.parent()).map(Path::to_path_buf).unwrap_or_else(home);
-    let out = Command::new("zenity")
-        .args(["--file-selection", "--directory", "--title=weft: which project folder?"])
-        .arg(format!("--filename={}/", start.display()))
+    let mut ask = if cfg!(target_os = "macos") {
+        let mut c = Command::new("osascript");
+        c.arg("-e").arg(format!(
+            "POSIX path of (choose folder with prompt \"weft: which project folder?\" default location POSIX file {})",
+            applescript_str(&start.to_string_lossy())
+        ));
+        c
+    } else {
+        let mut c = Command::new("zenity");
+        c.args(["--file-selection", "--directory", "--title=weft: which project folder?"]).arg(format!("--filename={}/", start.display()));
+        c
+    };
+    let out = ask
         .stderr(Stdio::null())
         .output()
-        .map_err(|_| "which folder? zenity is not installed to ask: weft app <folder>".to_string())?;
+        .map_err(|_| "which folder? nothing here to ask with (zenity): weft app <folder>".to_string())?;
     let picked = String::from_utf8_lossy(&out.stdout).trim().to_string();
     if !out.status.success() || picked.is_empty() {
         return Ok(None);
@@ -175,9 +194,23 @@ fn keep_recent(list: &[PathBuf]) {
 /// An error of a start from the desktop, where nobody reads stderr, also goes to a notification.
 pub fn tell(e: String) -> String {
     if !std::io::stderr().is_terminal() {
-        let _ = Command::new("notify-send").args(["--app-name=weft", "weft", &e]).stdin(Stdio::null()).status();
+        let mut c = if cfg!(target_os = "macos") {
+            let mut c = Command::new("osascript");
+            c.arg("-e").arg(format!("display notification {} with title \"weft\"", applescript_str(&e)));
+            c
+        } else {
+            let mut c = Command::new("notify-send");
+            c.args(["--app-name=weft", "weft", &e]);
+            c
+        };
+        let _ = c.stdin(Stdio::null()).status();
     }
     e
+}
+
+/// A string literal for AppleScript.
+fn applescript_str(s: &str) -> String {
+    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 // ------------------------------------------------------- the desktop entry
@@ -291,6 +324,11 @@ mod tests {
         assert_eq!(exec_arg("/home/p/my projects/x"), "\"/home/p/my projects/x\"");
         assert_eq!(exec_arg("/a/$b"), "\"/a/\\\\$b\"", "a quoted $ is escaped, and that backslash written twice");
         assert_eq!(exec_arg("/a/100%"), "/a/100%%");
+    }
+
+    #[test]
+    fn applescript_strings_escape_quotes_and_backslashes() {
+        assert_eq!(applescript_str(r#"say "hi" \ bye"#), r#""say \"hi\" \\ bye""#);
     }
 
     #[test]

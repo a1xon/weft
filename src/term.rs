@@ -709,7 +709,7 @@ All five slug tests now pass."
         // Claude Code 2.1.302 numbers nothing and highlights "No, exit": weft took it for no dialog,
         // typed the task, and its Enter picked "No, exit"
         let claude_now = crate::model::Config::default().agents["claude"].attention.clone();
-        let trust_now = "─────────\n Accessing workspace:\n\n /home/piet/CAD/cad-project\n\n Quick safety check: Is this a project you \
+        let trust_now = "─────────\n Accessing workspace:\n\n /home/x/cad-project\n\n Quick safety check: Is this a project you \
                          created or one you trust? (Like your own code, a well-known open\n source project, or work from your team). \
                          If not, take a moment to review what's in this folder first.\n\n Claude Code'll be able to read, edit, and \
                          execute files here.\n\n Security guide\n\n ❯ No, exit\n   Yes, I trust this folder\n\n Enter to confirm · \

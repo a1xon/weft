@@ -177,6 +177,7 @@ async fn real_main(args: Vec<String>) -> Result<i32, String> {
         "extension" => extension(),
         // the browser starts weft as the extension's native messaging host (see browser.rs)
         s if s.starts_with("chrome-extension://") => Ok(browser::host().await),
+        "desktop" if cfg!(target_os = "macos") => Err("weft desktop is for Linux desktops; on macOS, `weft app` opens a window of its own".into()),
         "desktop" => {
             let entry = launch::install()?;
             println!("weft is in the app grid now ({}): pin it to the dock from there", entry.display());
