@@ -85,6 +85,7 @@ function applyFlow(nodes, edges) {
     mergedInto.delete(id);
     S.nodes.delete(id);
     const el = nodeEls.get(id); if (el) el.root.remove();
+    dropJunction(id);
     if (into && S.sel.has(id)) S.sel.add(into);
     nodeEls.delete(id); S.rt.delete(id); S.sel.delete(id);
     if (S.fly && S.fly.id === id) closeFly();
@@ -207,6 +208,7 @@ function drawAllEdges() {
   drawTalks();
   for (const e of S.edges.values()) drawEdge(e);
   for (const id of S.nodes.keys()) updateJunction(id);
+  for (const id of [...juncEls.keys()]) if (!S.nodes.has(id)) dropJunction(id);
   for (const e of S.edges.values()) styleEdge(e);
 }
 function redrawEdgesOf(id) {
@@ -220,11 +222,15 @@ function arc(cx, cy, r, a0, a1) {
   const p = a => `${cx + r * Math.cos(a)} ${cy + r * Math.sin(a)}`;
   return `M${p(a0)}A${r} ${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${p(a1)}`;
 }
+function dropJunction(id) {
+  const el = juncEls.get(id); if (!el) return;
+  el.link.remove(); el.g.remove(); juncEls.delete(id);
+}
 function updateJunction(id) {
-  const n = S.nodes.get(id); if (!n) return;
+  const n = S.nodes.get(id);
+  if (!n || incoming(id).length < 2) return dropJunction(id);
   const inc = incoming(id);
   let el = juncEls.get(id);
-  if (inc.length < 2) { if (el) { el.link.remove(); el.g.remove(); juncEls.delete(id); } return; }
   if (!el) {
     const g = sv('g', { class: 'jn' });
     el = { g, segs: [], key: '' };
@@ -234,7 +240,7 @@ function updateJunction(id) {
     g.append(el.gl, el.ct);
     const open = ev => {
       ev.preventDefault(); ev.stopPropagation(); closeMenu();
-      const cur = S.nodes.get(id);
+      const cur = S.nodes.get(id); if (!cur) return;
       popup([
         { cap: `${cur.name}: start when…` },
         { k: cur.join !== 'any' ? '●' : ' ', label: 'all inputs have arrived', hint: 'Promise.all', run: () => send('node_set', { id, patch: { join: 'all' } }) },

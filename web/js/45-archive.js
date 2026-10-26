@@ -149,7 +149,10 @@ function archHover(ev, ids) {
   if (over === AR.over) return;
   AR.over = over;
   archEl.classList.toggle('over', over);
-  for (const i of ids) { const el = nodeEls.get(i); if (el) el.root.classList.toggle('tofile', over); }
+  for (const i of ids) {
+    const el = nodeEls.get(i); if (el) el.root.classList.toggle('tofile', over);
+    const j = juncEls.get(i); if (j) { j.g.classList.toggle('tofile', over); j.link.classList.toggle('tofile', over); }
+  }
   archEl.box.querySelector('.al').textContent = over ? (ids.length > 1 ? `file ${ids.length} cards` : 'file it') : 'drop to file';
 }
 /* the cards were let go: true if that was on the archive (they are being filed) */
@@ -169,19 +172,28 @@ function archDrop(ids) {
       setTimeout(() => archEl.classList.remove('back'), 260);
     }, 750);
   }
-  for (const i of ids) { const el = nodeEls.get(i); if (el) el.root.classList.remove('tofile'); }
+  for (const i of ids) {
+    const el = nodeEls.get(i); if (el) el.root.classList.remove('tofile');
+    const j = juncEls.get(i); if (j) { j.g.classList.remove('tofile'); j.link.classList.remove('tofile'); }
+  }
   if (hit) fileAway(ids);
   return hit;
 }
 async function fileAway(ids) {
   ids = ids.filter(i => S.nodes.has(i));
   if (!ids.length || !archOn()) return;
-  for (const i of ids) { const el = nodeEls.get(i); if (el) el.root.classList.add('filing'); }
+  for (const i of ids) {
+    const el = nodeEls.get(i); if (el) el.root.classList.add('filing');
+    const j = juncEls.get(i); if (j) { j.g.classList.add('filing'); j.link.classList.add('filing'); }
+  }
   if (S.fly && ids.includes(S.fly.id)) closeFly();
   const r = await req('archive', { ids });
   // what is still at work stays where it is
   const stay = new Set(r.busy || []);
-  for (const i of ids) { const el = nodeEls.get(i), n = S.nodes.get(i); if (el && (!r.ok || (n && stay.has(n.name)))) el.root.classList.remove('filing'); }
+  for (const i of ids) {
+    const el = nodeEls.get(i), n = S.nodes.get(i); if (el && (!r.ok || (n && stay.has(n.name)))) el.root.classList.remove('filing');
+    const j = juncEls.get(i); if (j && (!r.ok || (n && stay.has(n.name)))) { j.g.classList.remove('filing'); j.link.classList.remove('filing'); }
+  }
   if (stay.size) toast('info', `${[...stay].join(', ')} ${stay.size > 1 ? 'are' : 'is'} still at work and stays. Stop it or let it finish first.`, { ms: 6000 });
   else if (!r.ok) toast('err', r.error || 'could not file that');
   if (r.ok && r.group) S.undo.push(() => revive(r.group));

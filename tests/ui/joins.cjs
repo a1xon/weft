@@ -43,18 +43,24 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(pr.length && pr[0].includes('result-from-A') && pr[0].includes('result-from-B'), 'with both results');
 
   // --- delete and undo: the card comes back and starts once, with both
+  ok(await p.locator('#juncG .jn').count() === 2, 'the fork also has its junction');
   await p.evaluate(i => deleteNodes([i]), f);
   await sleep(600);
+  ok(await p.locator('#juncG .jn').count() === 1, 'deleting the fork removes its junction');
   before = await ids();
   fs.rmSync(W + '/proj/.weft/run/received-' + f + '.log', { force: true }); // (ids are reused)
   await p.evaluate(() => undo());
   let u = null;
   ok(await waitFor(async () => { u = (await ids()).find(i => !before.includes(i)); return !!u; }, 5000), 'undo brings it back');
+  ok(await waitFor(async () => (await p.locator('#juncG .jn').count()) === 2, 5000), 'undo brings its junction back');
   ok(await done(u), 'the restored card is done');
   await sleep(3000);
   pr = got(u);
   ok((await rt(u)).runs === 1 && pr.length === 1, 'it started once (' + (await rt(u)).runs + ' runs, ' + pr.length + ' prompts)');
   ok(pr.length && pr[0].includes('result-from-A') && pr[0].includes('result-from-B'), 'with both results');
+  await p.evaluate(i => deleteNodes([i]), u);
+  await sleep(600);
+  ok(await p.locator('#juncG .jn').count() === 1, 'canvas is back to one junction for T');
 
   // --- C is linked into the done T while it works: T waits for C alone, then runs with C only
   const c = await add({ name: 'C', agent: 'sh', cmd: 'sleep 4; echo result-from-C', prompt: 'go', x: 100, y: 900 }, true);
@@ -71,6 +77,14 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   pr = got(t);
   ok(pr.length === 2 && pr[1].includes('result-from-C') && !pr[1].includes('result-from-A') && !pr[1].includes('result-from-B'), 'with C\'s result only');
   ok((await rt(a)).runs === 1 && (await rt(bb)).runs === 1, 'A and B did not run again');
+
+  // --- archiving: when archiving, the junction leaves the canvas
+  ok((await p.locator('#juncG .jn').count()) >= 1, 'junction is on the canvas before archiving');
+  await p.evaluate(i => fileAway([i]), t);
+  ok(await waitFor(async () => (await p.locator('#juncG .jn').count()) === 0, 5000), 'archiving T removes the junction from the canvas');
+  await p.evaluate(() => undo());
+  ok(await waitFor(async () => (await p.locator('#juncG .jn').count()) >= 1, 5000), 'undo brings T and its junction back');
+
   ok(errs.length === 0, 'no page errors ' + errs.join(' | '));
   await b.close();
   console.log(fails ? fails + ' FAILED' : 'all passed');
