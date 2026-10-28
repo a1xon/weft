@@ -904,10 +904,13 @@ pub fn save_config_key(path: &Path, key: &str, value: serde_json::Value) {
     save_json(path, &cur);
 }
 
-/// Keep runtime files (prompt files, state, filed work, snapshots) out of `git add .`; flow.json stays
-/// committable. A folder weft worked in before one of them existed gets the ones it is missing.
+/// Keep runtime files (prompt files, state, filed work, snapshots) out of `git add .`. flow.json too:
+/// it is written whenever a card moves, and Claude Code shows each change of a file git does not
+/// ignore under whatever shell command an agent runs at the time, with the other cards' prompts in
+/// the diff, on a screen weft reads results off. A folder weft worked in before one of them existed
+/// gets the ones it is missing.
 pub fn ensure_weft_gitignore(dir: &Path) {
-    const IGNORED: [&str; 6] = ["run/", "shots/", "state.json", "archive.json", "archive/", "cp/"];
+    const IGNORED: [&str; 7] = ["run/", "shots/", "state.json", "archive.json", "archive/", "cp/", "flow.json"];
     let p = dir.join(".weft").join(".gitignore");
     let have = fs::read_to_string(&p).unwrap_or_default();
     let miss: Vec<&str> = IGNORED.into_iter().filter(|w| !have.lines().any(|l| l.trim() == *w)).collect();

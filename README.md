@@ -69,7 +69,7 @@ The agents live in `tmux -L weft attach`.
 
 | Path | What |
 | --- | --- |
-| `<project>/.weft/` | the flow (`flow.json`: plain JSON, fine to commit), run state, archive, screenshots |
+| `<project>/.weft/` | the flow (`flow.json`: plain JSON), run state, archive, screenshots; all git-ignored |
 | `~/.config/weft/config.json` | your overrides only: agents, models, flags, prompts, networks |
 | `~/.local/state/weft/` | per board: port, token, log, live status |
 

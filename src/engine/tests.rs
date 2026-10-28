@@ -2516,11 +2516,11 @@ fn the_archive_file_stays_out_of_git() {
     write_atomic(&p, b"run/\nshots/\nstate.json").unwrap();
     ensure_weft_gitignore(&dir);
     ensure_weft_gitignore(&dir);
-    assert_eq!(std::fs::read_to_string(&p).unwrap(), "run/\nshots/\nstate.json\narchive.json\narchive/\ncp/\n");
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "run/\nshots/\nstate.json\narchive.json\narchive/\ncp/\nflow.json\n");
     // and one from before the packs (and the step snapshots) gets theirs, and whatever else it lacks
     write_atomic(&p, b"run/\narchive.json\n").unwrap();
     ensure_weft_gitignore(&dir);
-    assert_eq!(std::fs::read_to_string(&p).unwrap(), "run/\narchive.json\nshots/\nstate.json\narchive/\ncp/\n");
+    assert_eq!(std::fs::read_to_string(&p).unwrap(), "run/\narchive.json\nshots/\nstate.json\narchive/\ncp/\nflow.json\n");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

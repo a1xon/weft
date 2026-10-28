@@ -869,7 +869,7 @@ Everything goes through one small local HTTP API, so scripts can drive a flow to
 
 | Path | What |
 | --- | --- |
-| `<project>/.weft/flow.json` | the graph; plain JSON, safe to commit and hand-edit |
+| `<project>/.weft/flow.json` | the graph; plain JSON, safe to hand-edit; git-ignored: it changes whenever a card moves, and Claude Code shows changes of files git does not ignore under any agent's running shell command |
 | `<project>/.weft/state.json`, `run/`, `shots/` | run state, prompt files, images; git-ignored |
 | `<project>/.weft/archive.json`, `archive/` | filed work: an index, and a gzipped pack per drop (cards, links, results); git-ignored |
 | `~/.config/weft/config.json` | **your overrides only**, merged onto the defaults; also your saved networks |
