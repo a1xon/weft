@@ -322,9 +322,11 @@ impl Engine {
         let Some(node) = self.node(id) else { return };
         let exit_node = node.finish == Finish::Exit;
         let chrome = self.cfg.chrome.clone();
-        let out = {
+        let (out, read) = {
             let Some(rt) = self.rt.get_mut(id) else { return };
             let cur = rt.cur.take();
+            // what the agent did not hand in itself was read off its screen
+            let read = cur.as_ref().map_or(how != How::Signal, |c| !c.given);
             let prompt = cur.as_ref().map(|c| c.prompt.clone()).unwrap_or_default();
             let given = text.filter(|t| !t.trim().is_empty());
             let out = match given {
@@ -347,7 +349,7 @@ impl Engine {
                 rt.steps.remove(0);
             }
             rt.ui = true;
-            out
+            (out, read)
         };
         let more = ok && how != How::Exit && !self.rt[id].queue.is_empty() && self.rt[id].reply_to.is_none();
         if more {
@@ -356,7 +358,7 @@ impl Engine {
             self.state_dirty = true;
             return;
         }
-        self.settle(id, ok, out);
+        self.settle_from(id, ok, out, true, read);
     }
 
     /// The agent has nothing left to do: its result is final for this run.
@@ -366,6 +368,11 @@ impl Engine {
 
     /// `settle`; with `hand_on` false the result stays at the card: the cards after it had it already.
     pub(super) fn settle_as(&mut self, id: &str, ok: bool, out: String, hand_on: bool) {
+        self.settle_from(id, ok, out, hand_on, false);
+    }
+
+    /// `settle_as`; `read`: the result was read off its screen, the agent handed none in.
+    fn settle_from(&mut self, id: &str, ok: bool, out: String, hand_on: bool, read: bool) {
         // a turn that ended has likely changed files
         self.refresh_project();
         let reply = self.rt.get_mut(id).and_then(|r| {
@@ -400,6 +407,7 @@ impl Engine {
             rt.cur = None;
             rt.ok = Some(ok);
             rt.output = Some(out.clone());
+            rt.out_read = read;
             rt.ui = true;
         }
         self.set_status(id, if ok { Status::Done } else { Status::Failed });
@@ -688,6 +696,9 @@ impl Engine {
         if let Some(r) = self.rt.get_mut(&id) {
             // a report is the agent's own word that it has the message: no reason to paste it again
             r.typing = None;
+            if let Some(c) = r.cur.as_mut().filter(|_| !issue) {
+                c.given = true;
+            }
         }
         if issue {
             let r = self.raise_issue(&id, text);
@@ -708,6 +719,7 @@ impl Engine {
             // a late report after the screen already went quiet: keep the better text
             let Some(rt) = self.rt.get_mut(&id) else { return json!({"ok": false, "error": "no such node"}) };
             rt.output = Some(text);
+            rt.out_read = false;
             rt.ui = true;
             self.state_dirty = true;
         }

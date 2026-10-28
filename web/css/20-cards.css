@@ -81,6 +81,19 @@
 .ans .commit i{font-style:normal;color:var(--gr);margin-right:8px}
 .ans:not(.hint):not(.kv):hover{background:rgba(92,200,255,.035)}
 .ans .fade{position:absolute;left:0;right:0;bottom:0;height:22px;background:linear-gradient(transparent,var(--void));pointer-events:none}
+/* a result: the reader's lines, about as small and close as the live peek's (resLines). One the agent handed in reads
+   from its start; one weft read off its screen ends with what the agent said last, so it sits at the bottom as the peek does */
+.ans.res{font:calc(11px*var(--fs))/1.42 var(--mono)}
+.res .cl{white-space:pre-wrap;overflow-wrap:anywhere}
+.res .cl.gap{margin-top:.45em}
+.res .cl.row{white-space:pre;overflow:hidden}
+.res .hx,.res b{color:var(--i0);font-weight:700}
+.res .ic{color:var(--c12)}
+.res a{color:var(--cy);text-decoration:underline;text-underline-offset:2px}
+.ans.res.tail{display:flex;flex-direction:column;justify-content:flex-end}
+.ans.tail .fade{top:0;bottom:auto;background:linear-gradient(var(--void),transparent)}
+/* its first row goes round the result / live switch in the corner (from the end, the fade is there) */
+.body.lensed .res:not(.tail) .resin::before{content:"";float:right;width:calc(60px*var(--fs) + 24px);height:1em}
 .note-edit{position:absolute;inset:0;width:100%;height:100%;resize:none;background:var(--void);border:1px solid var(--cy);color:var(--i0);font:calc(12.5px*var(--fs))/1.5 var(--mono);padding:7px 9px;outline:none}
 .live{display:flex;align-items:flex-end;cursor:zoom-in}
 .live:hover{background:rgba(92,200,255,.035)}

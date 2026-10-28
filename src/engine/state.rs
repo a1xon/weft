@@ -119,6 +119,8 @@ pub(super) struct Step {
     pub(super) task: bool,
     /// the report it gave while it asked the person something: the step's result if they let it go
     pub(super) report: Option<String>,
+    /// it handed its result in itself (`weft done|fail`): what it says is not read off the screen
+    pub(super) given: bool,
     /// the questions the person answered on the way (quoted in their answer): asked again, they hold nothing
     pub(super) answered: Vec<String>,
     /// the report they answered: what is read while the agent works on their answers
@@ -389,6 +391,9 @@ pub(super) struct Rt {
     pub(super) finished: bool,
     pub(super) ok: Option<bool>,
     pub(super) output: Option<String>,
+    /// the output was read off the screen: the agent went quiet without handing a result in, so
+    /// what it said last is at the end (a report reads from its start)
+    pub(super) out_read: bool,
     pub(super) queue: VecDeque<QItem>,
     pub(super) cur: Option<Step>,
     pub(super) steps: Vec<StepRec>,
@@ -760,6 +765,7 @@ impl Rt {
             finished: false,
             ok: None,
             output: None,
+            out_read: false,
             queue: VecDeque::new(),
             cur: None,
             steps: Vec::new(),
@@ -820,6 +826,7 @@ impl Rt {
             finished: self.finished,
             ok: self.ok,
             output: self.output.clone(),
+            out_read: self.out_read,
             runs: self.runs,
             inputs: self.inputs.clone(),
             worktree: self.worktree.clone(),
@@ -876,6 +883,7 @@ impl Rt {
         self.finished = s.finished;
         self.ok = s.ok;
         self.output = s.output;
+        self.out_read = s.out_read;
         self.runs = s.runs;
         self.inputs = s.inputs;
         self.worktree = s.worktree;
@@ -1152,6 +1160,8 @@ pub(super) struct Saved {
     pub(super) ok: Option<bool>,
     #[serde(default)]
     pub(super) output: Option<String>,
+    #[serde(default)]
+    pub(super) out_read: bool,
     #[serde(default)]
     pub(super) runs: u32,
     #[serde(default)]

@@ -96,7 +96,7 @@ let titleBeforePing = null;
 function notifyPing(n, r) {
   const what = { done: 'is done', failed: 'failed', attention: 'needs you', blocked: 'is blocked' }[r.status];
   if (!what) return;
-  const body = (r.out || '').replace(/\s+/g, ' ').slice(0, 140);
+  const said = (r.out || '').replace(/\s+/g, ' ').trim(), body = r.out_read ? said.slice(-140) : said.slice(0, 140);
   let shown = false;
   if ('Notification' in window && Notification.permission === 'granted') {
     try {

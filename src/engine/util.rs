@@ -61,6 +61,14 @@ pub(super) fn head_chars(s: &str, n: usize) -> String {
     }
 }
 
+/// `head_chars` from the end: the last `n` characters, after an ellipsis when there was more.
+pub(super) fn tail_chars(s: &str, n: usize) -> String {
+    match s.char_indices().rev().nth(n) {
+        Some((i, c)) => format!("\u{2026}{}", &s[i + c.len_utf8()..]),
+        None => s.to_string(),
+    }
+}
+
 /// A title for a shell command: its first words, exactly as typed.
 pub(super) fn title_cmd(cmd: &str, fallback: &str) -> String {
     let t = cmd.split_whitespace().take(4).collect::<Vec<_>>().join(" ");

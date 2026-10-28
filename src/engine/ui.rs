@@ -109,7 +109,8 @@ impl Engine {
         let pv = term::preview(rt.parser.screen(), crate::model::preview_rows(node.map_or(0.0, |n| n.h)), &self.cfg.chrome);
         let queue: Vec<Value> =
             rt.queue.iter().map(|q| json!({"id": q.id, "text": head_chars(q.shown.trim(), 240), "src": q.src})).collect();
-        let out = rt.output.as_deref().map(|o| head_chars(o.trim(), 1500));
+        // (one read off the screen ends with what the agent said last: that end is what the card shows)
+        let out = rt.output.as_deref().map(|o| if rt.out_read { tail_chars(o.trim(), 1500) } else { head_chars(o.trim(), 1500) });
         // steps that changed files (and the one running): the dots under the card (see rewind.rs)
         let cps: Vec<Value> = rt
             .cps
@@ -129,7 +130,7 @@ impl Engine {
         let mut v = json!({
             "t": "rt", "id": id, "status": status, "alive": rt.alive, "armed": rt.armed,
             "runs": rt.runs, "since": rt.since, "arrived": arrived, "need": need, "ok": rt.ok,
-            "out": out, "out_n": rt.output.as_ref().map_or(0, |o| o.len()), "wt": rt.worktree,
+            "out": out, "out_n": rt.output.as_ref().map_or(0, |o| o.len()), "out_read": rt.out_read, "wt": rt.worktree,
             "queue": queue, "asked": head_chars(rt.asked.trim(), 300),
             "cause": rt.cause, "blocked": blocked.get(id), "steps": rt.steps.len(),
             "step_now": rt.cur.is_some(), "pv": pv,

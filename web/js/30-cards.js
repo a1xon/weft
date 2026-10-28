@@ -86,6 +86,7 @@ function mkNode(n) {
   el.lL.addEventListener('click', e => { e.stopPropagation(); setLens(id, 'live'); });
   el.ans.addEventListener('click', e => {
     e.stopPropagation();
+    if (e.target.closest('a')) return;   // a link in a result opens itself
     const nd = S.nodes.get(id);
     if (kindOf(nd) === 'note') return editNote(id);
     if (!el.ans.classList.contains('hint') && !el.ans.classList.contains('kv')) { select([id]); openFly(id, 'result'); }
@@ -243,15 +244,36 @@ async function cloneDrag(e, id) {
 }
 
 const cat = st => ({ busy: 'run', starting: 'run', attention: 'run', idle: 'run', done: 'end', failed: 'end', exited: 'end', stopped: 'end' })[st] || 'pre';
-function lensOf(id, r) {
+/* result or live: live while it works; once it is finished its result, unless weft only read that off its
+   screen (it handed none in) and the screen is still there. Without a terminal (resting, stopped) only the result */
+function lensOf(id, r, live) {
+  if (!live) return 'ans';
   const c = cat(r ? r.status : 'new'), o = S.lens.get(id);
   if (o && o.cat === c) return o.lens;
-  return c === 'run' ? 'live' : 'ans';
+  return c === 'run' || (c === 'end' && r.out_read) ? 'live' : 'ans';
 }
 function setLens(id, lens) {
   const r = S.rt.get(id);
   S.lens.set(id, { lens, cat: cat(r ? r.status : 'new') });
   renderNode(id);
+}
+/* a result on the card: the reader's lines (headings, **bold**, `code`, list items under their text), close
+   together: a run of blank lines is a small gap, fences and rules are left out, table rows are not wrapped.
+   An indent is at most 12 columns: a row wrapped on a wide terminal can start 100 in, wider than the card */
+function resLines(text) {
+  const out = [];
+  let gap = false;
+  for (const l of String(text || '').replace(/\r/g, '').split('\n')) {
+    const t = l.trim();
+    if (!t || (MD_RULE.test(t) && !t.includes('|'))) { gap = out.length > 0; continue; }
+    if (MD_RULE.test(t) || /^(```|~~~)/.test(t)) continue;
+    const ind = Math.min(12, l.length - l.trimStart().length), line = ' '.repeat(ind) + l.trimStart();
+    const row = t.startsWith('|') || BOX_ROW.test(t) ? h('div', { class: 'cl row' }, line) : cliLine(line);
+    if (gap) row.classList.add('gap');
+    gap = false;
+    out.push(row);
+  }
+  return out;
 }
 const age = ms => {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
@@ -373,13 +395,15 @@ function renderNode(id) {
   }
 
   // body: kind-specific content
-  const lens = k === 'agent' && !isStep ? lensOf(id, r) : 'ans';
-  el.lens.hidden = k !== 'agent' || isStep;
+  const rows = r && r.pv && r.pv.length ? r.pv : null;
+  const live = k === 'agent' && !isStep && !!(rows || (r && (r.alive || st === 'starting')));
+  const lens = lensOf(id, r, live);
+  el.lens.hidden = !live;
+  el.body.classList.toggle('lensed', live);
   el.lA.classList.toggle('on', lens === 'ans');
   el.lL.classList.toggle('on', lens === 'live');
   el.ans.hidden = lens !== 'ans';
   el.live.hidden = lens !== 'live';
-  const rows = r && r.pv && r.pv.length ? r.pv : null;
   const liveKey = rows ? rows.join('\n') : 'none';
   if (liveKey !== el._liveKey) {
     el._liveKey = liveKey;
@@ -458,7 +482,8 @@ function renderNode(id) {
   } else if (r && r.issue) {
     key = 'i:' + r.issue; build = () => ({ cls: 'ans kv', kids: [h('span', { class: 'src ask' }, 'asks you \u2014 answer under the card \u2193'), r.issue] });
   } else if (r && r.out) {
-    key = 'o:' + r.out + (r.ok === false ? 'F' : ''); build = () => ({ cls: 'ans ' + (r.ok === false ? 'bad' : 'ok'), kids: [r.out, h('span', { class: 'fade' })] });
+    key = 'o:' + r.out + (r.ok === false ? 'F' : '') + (r.out_read ? 'R' : '');
+    build = () => ({ cls: 'ans res ' + (r.ok === false ? 'bad' : 'ok') + (r.out_read ? ' tail' : ''), kids: [h('div', { class: 'resin' }, resLines(r.out)), h('span', { class: 'fade' })] });
   } else if (r && r.status === 'waiting') {
     const inc = incoming(id);
     key = 'w:' + inc.map(e => e.id + (r.arrived.includes(e.id) ? 1 : 0)).join();

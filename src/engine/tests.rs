@@ -26,6 +26,13 @@ fn tail_bytes_respects_char_boundaries() {
 }
 
 #[test]
+fn tail_chars_counts_characters_and_says_when_it_cut() {
+    assert_eq!(tail_chars("héllo wörld", 5), "\u{2026}wörld");
+    assert_eq!(tail_chars("wörld", 5), "wörld");
+    assert_eq!(tail_chars("", 5), "");
+}
+
+#[test]
 fn titles_are_short_and_do_not_end_on_stop_words() {
     assert_eq!(title_from("Fix the slugify function in textkit/slug.py so that tests pass", "x"), "Fix the slugify function");
     assert_eq!(title_from("Review the work from the previous step: look for bugs", "x"), "Review the work");
@@ -4340,6 +4347,36 @@ async fn a_report_a_model_finds_nothing_to_ask_in_goes_on_once_it_is_read() {
     e.on_asks("a", ticket, Some(vec![]));
     assert!(e.rt["a"].finished && e.rt["a"].issue.is_none() && e.rt["a"].output.as_deref() == Some(RECAP));
     assert!(e.rt["b"].queue.iter().any(|q| q.text.contains("88 duplicate tasks dismissed")), "the next card got the report");
+}
+
+#[tokio::test]
+async fn a_result_handed_in_reads_from_its_start_and_one_read_off_the_screen_from_its_end() {
+    // reported with `weft done` (and read by a model on the way): the card shows its start
+    let mut e = engine();
+    tasked_agent(&mut e);
+    reads_reports(&mut e);
+    e.cmd_done("a".into(), true, RECAP.into(), false);
+    e.on_asks("a", reading(&e), Some(vec![]));
+    assert!(e.rt["a"].finished && !e.rt["a"].out_read);
+    assert_eq!(e.rt_json("a", &HashMap::new(), &HashMap::new())["out_read"], false);
+    // quiet without a report, read by a model all the same: its result was read off the screen, and the
+    // card shows the end of it (rubbermetrics n103 showed "Ran 1 shell command", its first line)
+    let mut e = engine();
+    deferring_agent(&mut e, Step { task: true, lone: true, ..Step::new("go".into(), vec![]) });
+    reads_reports(&mut e);
+    let long = "Ran 1 shell command\n".repeat(100);
+    says(&mut e, &format!("{long}The run goes on in the background; I will report once it is over."));
+    let t0 = Instant::now();
+    e.eval("a", t0);
+    e.eval("a", t0 + Duration::from_secs(5));
+    e.on_asks("a", reading(&e), Some(vec![]));
+    assert!(e.rt["a"].finished && e.rt["a"].out_read);
+    let v = e.rt_json("a", &HashMap::new(), &HashMap::new());
+    assert_eq!(v["out_read"], true);
+    assert!(v["out"].as_str().is_some_and(|o| o.ends_with("I will report once it is over.")), "{}", v["out"]);
+    // a report that comes after it replaces it, and reads from its start again
+    e.cmd_done("a".into(), true, "The run is green.".into(), false);
+    assert!(!e.rt["a"].out_read && e.rt["a"].output.as_deref() == Some("The run is green."));
 }
 
 #[tokio::test]
