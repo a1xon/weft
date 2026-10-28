@@ -315,17 +315,11 @@ impl Engine {
         g
     }
 
-    /// A link into a push (or a pull request) whose work went out in a round that is over: a push that
-    /// stays on the canvas collects the commits of one piece of work after another, and what it has sent
-    /// no longer ties that work to it. (After a failed round the next one takes it up again: it still does.)
-    fn pushed_through(&self, e: &Edge) -> bool {
-        let (Some(to), Some(rt)) = (self.node(&e.to), self.rt.get(&e.to)) else { return false };
-        to.kind() == Kind::Git && to.pushes() && rt.ok != Some(false) && !rt.git.seen.contains(&e.id) && self.resolved(e)
-    }
-
-    /// The canvas as flows: cards tied by a link, a takeover's lineage, a queued prompt's agent or a
-    /// talk belong together, but not work a push has already sent (`pushed_through`). Notes are context,
-    /// not work: a note goes along with the one flow it feeds, and one that feeds none or several belongs to none.
+    /// The canvas as flows: cards tied by a link, a takeover's lineage, a queued prompt's agent, a talk
+    /// or a fix (the agent and the cards it fixes) belong together. A flow is one tree: none of it goes
+    /// while any of it is at work, so work a push has sent stays with it while it waits for the next
+    /// commit, and a deploy after it, too. Notes are context, not work: a note goes along with the one
+    /// flow it feeds, and one that feeds none or several belongs to none.
     pub(super) fn flows(&self) -> Vec<Vec<String>> {
         fn root(up: &mut [usize], mut i: usize) -> usize {
             while up[i] != i {
@@ -342,9 +336,9 @@ impl Engine {
             .flow
             .edges
             .iter()
-            .filter(|e| !self.pushed_through(e))
             .map(|e| (e.from.as_str(), e.to.as_str()))
             .chain(self.flow.nodes.iter().flat_map(|n| [&n.takeover, &n.host, &n.twin].map(|o| (n.id.as_str(), o.as_str()))))
+            .chain(self.flow.nodes.iter().flat_map(|n| n.fixes.iter().map(|f| (n.id.as_str(), f.as_str()))))
             .chain(self.flow.talks.iter().map(|t| (t.a.as_str(), t.b.as_str())));
         for (a, b) in ties {
             if let (Some(&x), Some(&y)) = (at.get(a), at.get(b)) {
@@ -381,7 +375,8 @@ impl Engine {
     /// ran from where it stands: see `Active::stand`). A flow goes when every card in it is finished
     /// (done, or a branch whose condition did not come true), none failed, waits for a person or is
     /// kept, and it stayed so for `archive_s` (one card) or `archive_flow_s` (several) of work on the
-    /// canvas after its last step. Coming back from the archive starts the clock again.
+    /// canvas after its last step: no card of it has a countdown before the whole flow is green.
+    /// Coming back from the archive starts the clock again.
     pub(super) fn filing_plan(&self, blocked: &HashMap<String, String>) -> Vec<(Vec<String>, u64)> {
         let stand = self.active.stand(now_ms());
         let mut plan = Vec::new();

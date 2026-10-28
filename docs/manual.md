@@ -383,10 +383,12 @@ in the bottom left corner.
   still at work stays where it is (stop it or let it finish first). `ctrl+z` brings back what you
   just filed; *archive* is in a card's right-click menu too.
 * **It files by itself.** A lone card goes **10 minutes** after it is done. A **flow** (cards tied
-  by links, a hand-over's baton line or a queued prompt's agent) goes as one, **15 minutes after its
-  last step**, once every card in it is finished: done, or a branch whose condition did not come
-  true. Nothing in a flow that is still under way, failed or waits for you is filed, and a card whose
-  terminal you have open waits until you close it. A note goes along with the one flow it feeds, and
+  by links, a hand-over's baton line, a queued prompt's agent, or a fixer and the cards it fixes)
+  goes as one, **15 minutes after its last step**, once every card in it is finished: done, or a
+  branch whose condition did not come true. Its countdown starts only then: nothing in a flow that is
+  still under way, failed or waits for you is filed, not even a card that is done long ago (work a
+  push has sent waits while the push waits for the next commit, or while a deploy after it has still
+  to run), and a card whose terminal you have open waits until you close it. A note goes along with the one flow it feeds, and
   so does a draft that never ran and was given nothing to do (an empty queued prompt). A finished
   flow that another draft keeps here says so on its cards (*held · push not armed*; a click shows
   that card: arm it or delete it). See [loose ends](#loose-ends) for pushes nobody armed.

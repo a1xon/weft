@@ -3762,7 +3762,7 @@ async fn a_pushed_push_given_a_new_commit_pushes_again_with_only_that_commit() {
 }
 
 #[tokio::test]
-async fn work_a_push_has_sent_goes_to_the_archive_while_the_push_waits_for_the_next() {
+async fn nothing_of_a_tree_goes_to_the_archive_while_any_of_it_is_at_work() {
     let mut e = engine();
     at_work(&mut e);
     commit_with(&mut e, "c1", "slug");
@@ -3780,22 +3780,43 @@ async fn work_a_push_has_sent_goes_to_the_archive_while_the_push_waits_for_the_n
     for c in ["c1", "c2"] {
         e.rt.get_mut(c).unwrap().since = now_ms() - 20 * 60_000;
     }
+    // what it has sent stays with it: no countdown before the whole tree is green
     let mut flows = e.flows();
     flows.iter_mut().for_each(|f| f.sort());
-    flows.sort();
-    assert_eq!(flows, vec![vec!["c1".to_string()], vec!["c2".to_string()], vec!["c3".to_string(), "p".to_string()]]);
-    assert_eq!(due(&e), vec![vec!["c1"], vec!["c2"]]);
-    // what a failed round had taken is taken up again by the next one: it stays with the push
+    assert_eq!(flows, vec![vec!["c1".to_string(), "c2".to_string(), "c3".to_string(), "p".to_string()]]);
+    assert_eq!(due(&e), Vec::<Vec<String>>::new());
+    assert!(e.filing_map(&e.blocked_map()).is_empty());
+    // a push that is done, with a deploy after it still to run: the work before it waits for the deploy
     let mut e = engine();
+    at_work(&mut e);
     commit_with(&mut e, "c1", "slug");
-    commit_with(&mut e, "c2", "wrap");
     git_node(&mut e, "p", "push", "push");
     e.flow.nodes.iter_mut().find(|n| n.id == "p").unwrap().draft = false;
+    add(&mut e, "d", "deploy", "deploy it");
     link(&mut e, "e1", "c1", "p", On::Done);
-    link(&mut e, "e2", "c2", "p", On::Done);
-    committed(&mut e, "c2", true);
-    committed(&mut e, "c1", false);
-    assert_eq!(e.flows().len(), 1);
+    link(&mut e, "e2", "p", "d", On::Done);
+    finished(&mut e, "c1", true, 30);
+    finished(&mut e, "p", true, 20);
+    assert_eq!(due(&e), Vec::<Vec<String>>::new());
+    assert!(e.filing_map(&e.blocked_map()).is_empty());
+    finished(&mut e, "d", true, 16);
+    assert_eq!(due(&e), vec![vec!["c1", "d", "p"]], "once all of it is green, it goes as one");
+}
+
+#[test]
+fn a_fixer_stays_with_the_cards_it_fixes() {
+    let mut e = failed_chain("high");
+    at_work(&mut e);
+    let id = e.cmd(None, Cmd::Fix { ids: vec!["n2".into()] })["id"].as_str().unwrap().to_string();
+    let mut flows = e.flows();
+    flows.iter_mut().for_each(|f| f.sort());
+    assert_eq!(id, "n4");
+    assert_eq!(flows, vec![vec!["n1".to_string(), "n2".into(), "n3".into(), "n4".into()]]);
+    // it is done, but what it fixes has not run again yet: nothing goes
+    e.rt.get_mut(&id).unwrap().queue.clear();
+    finished(&mut e, &id, true, 20);
+    assert_eq!(due(&e), Vec::<Vec<String>>::new());
+    assert!(e.filing_map(&e.blocked_map()).is_empty());
 }
 
 #[tokio::test]
