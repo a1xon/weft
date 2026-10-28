@@ -3,7 +3,8 @@
 // a card, a tall card pushes only its own column, agents that talk stand side by side, lone cards
 // gather in a block of their own, the groups keep more room between them than cards inside a flow
 // and fill the wide window instead of one tall column; the daemon keeps it, a second tidy changes
-// nothing, ctrl+z undoes it.
+// nothing, ctrl+z undoes it. What ties agents stays together: a twin stands right after its agent,
+// an agent that talks with one in a flow right above it, the agent fixing a card right under it.
 const { chromium } = require(process.env.PLAYWRIGHT);
 const fs = require('fs');
 const W = process.env.SANDBOX;
@@ -21,22 +22,26 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   // drafts (nothing runs), dropped anywhere. One flow: plan fans out to three, all three feed review,
   // review goes on to ship; plan also hands straight to ship (a link that skips columns); a note
   // feeds review; b is tall. Another flow: fan out to x y z, all three join. Two lone cards, two agents
-  // that talk to each other.
+  // that talk to each other. A twin of ship, an agent that fixes review, one that talks with y.
   await p.evaluate(async () => {
     const spots = { plan: [900, 700], a: [100, 100], b: [1400, 300], c: [300, 900], review: [60, 500], ship: [700, 80], note: [1200, 1000], lone1: [500, 400], lone2: [1700, 800],
-      fan: [400, 1500], x: [1300, 1900], y: [100, 1700], z: [800, 1400], join: [200, 2000], tA: [2500, 200], tB: [100, 2400] };
+      fan: [400, 1500], x: [1300, 1900], y: [100, 1700], z: [800, 1400], join: [200, 2000], tA: [2500, 200], tB: [100, 2400],
+      twin: [2600, 2600], fixer: [3000, 300], tC: [2200, 1200] };
     const id = {};
     for (const [name, [x, y]] of Object.entries(spots)) {
       const node = name === 'note' ? { name, agent: 'note', prompt: 'context', x, y } : { name, agent: 'claude', prompt: 'do ' + name, draft: true, x, y };
+      if (name === 'twin') node.twin = id.ship;
+      if (name === 'fixer') node.fixes = [id.review];
       id[name] = (await req('node_add', { node })).id;
     }
     for (const [f, t] of [['plan', 'a'], ['plan', 'b'], ['plan', 'c'], ['a', 'review'], ['b', 'review'], ['c', 'review'], ['review', 'ship'], ['plan', 'ship'], ['note', 'review'],
       ['fan', 'x'], ['fan', 'y'], ['fan', 'z'], ['x', 'join'], ['y', 'join'], ['z', 'join']]) await req('edge_add', { from: id[f], to: id[t] });
     await req('talk_add', { a: id.tA, b: id.tB });
+    await req('talk_add', { a: id.tC, b: id.y });
     send('node_set', { id: id.b, patch: { h: 500 } });
     return id;
   });
-  await p.waitForFunction(n => S.edges.size === n && S.talks.size === 1 && nh([...S.nodes.values()].find(m => m.name === 'b')) === 500, 15);
+  await p.waitForFunction(n => S.edges.size === n && S.talks.size === 2 && nh([...S.nodes.values()].find(m => m.name === 'b')) === 500, 15);
   const at = () => p.evaluate(() => Object.fromEntries([...S.nodes.values()].map(n => [n.name, { x: n.x, y: n.y, w: nw(n), h: nh(n) }])));
   const before = await at();
 
@@ -53,7 +58,11 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(L.c.y - L.b.y - 500 >= 50 && L.c.y - L.b.y - 500 <= 60 && L.review.y === L.b.y, 'the tall card pushes only its own column: c right under it, review level with it');
   ok(L.tA.y === L.tB.y && Math.abs(L.tA.x - L.tB.x) === L.tA.w + 130, 'the two agents that talk stand side by side');
   ok(L.lone1.x === L.lone2.x || L.lone1.y === L.lone2.y, 'the lone cards line up in a block of their own');
-  const group = k => (['plan', 'a', 'b', 'c', 'review', 'ship', 'note'].includes(k) ? 1 : ['fan', 'x', 'y', 'z', 'join'].includes(k) ? 2 : k.startsWith('lone') ? 3 : 4);
+  ok(L.twin.x > L.ship.x && L.twin.y === L.ship.y, 'a twin stands right after the agent it copied');
+  const under = (u, v) => u.x === v.x && Math.abs(v.y - u.y - u.h - 56) <= 5;   // (on the 10 px raster)
+  ok(under(L.review, L.fixer), 'the agent fixing a card stands right under it');
+  ok(under(L.tC, L.y), 'an agent that talks with one in a flow stands right above it');
+  const group = k => (['plan', 'a', 'b', 'c', 'review', 'ship', 'note', 'twin', 'fixer'].includes(k) ? 1 : ['fan', 'x', 'y', 'z', 'join', 'tC'].includes(k) ? 2 : k.startsWith('lone') ? 3 : 4);
   const cards = Object.entries(L);
   const near = [];
   for (const [k, u] of cards) for (const [j, v] of cards) if (k < j && group(k) !== group(j) && Math.max(v.x - u.x - u.w, u.x - v.x - v.w, v.y - u.y - u.h, u.y - v.y - v.h) < 170) near.push(k + '~' + j);

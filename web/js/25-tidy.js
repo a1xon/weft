@@ -4,11 +4,14 @@
    fans out around the card it starts from, a join sits level with the middle of what it waits for.
    Links do not cross where another order of the cards avoids it, and none runs through a card: a
    link that skips columns gets a lane of its own. Each column stacks only its own cards, so a tall
-   card pushes nothing else down. Agents that talk stand side by side under their arches; lone cards
-   gather in a block of their own (one per folder while the canvas works in several). Those groups
-   are then packed to suit the window: the arrangement that shows the cards largest, or one nearly
-   as large that keeps closer to where things stood (what was on top stays on top), with more room
-   between groups than inside one. ctrl+z puts everything back. */
+   card pushes nothing else down. What ties agents keeps them together: a twin stands after the agent
+   it copied as a hand-over does, an agent that talks with one in a flow stands right above it (their
+   arch rounds the side, through no card), the agent fixing a card right under it, and agents that
+   talk otherwise stand side by side under their arches. Lone cards gather in a block of their own
+   (one per folder while the canvas works in several). Those groups are then packed to suit the
+   window: the arrangement that shows the cards largest, or one nearly as large that keeps closer to
+   where things stood (what was on top stays on top), with more room between groups than inside one.
+   ctrl+z puts everything back. */
 const TIDY = { gx: 130, gy: 56, lane: 42, apartX: 260, apartY: 180, loose: 70 };
 
 let glideRun = 0, gliding = false;
@@ -46,28 +49,75 @@ function glide(to, view) {
 function tidyLayout() {
   const ns = [...S.nodes.values()]; if (!ns.length) return null;
   const box = new Map(ns.map(n => [n.id, { id: n.id, w: nw(n), h: nh(n) + filmH(n.id), x: n.x, y: n.y }]));
-  // links, and the dotted line from an agent to the fresh one that took over from it
+  // links, the dotted line from an agent to the fresh one that took over from it or to its twin, and
+  // a queued prompt no link places: after its agent
   const links = new Map();
   const link = (a, b) => { if (a !== b && box.has(a) && box.has(b)) links.set(a + '\n' + b, [a, b]); };
   for (const e of S.edges.values()) link(e.from, e.to);
-  for (const n of ns) if (n.takeover) link(n.takeover, n.id);
-  // pieces: the cards joined by links (a flow, laid out on its own), or a card alone
+  for (const n of ns) {
+    if (n.takeover) link(n.takeover, n.id);
+    if (n.twin) link(n.twin, n.id);
+    if (n.agent === 'step' && n.host && !incoming(n.id).length) link(n.host, n.id);
+  }
+  // the cards joined by links (a flow), or a card alone
   const nb = new Map(ns.map(n => [n.id, []]));
   for (const [a, b] of links.values()) { nb.get(a).push(b); nb.get(b).push(a); }
-  const pieceOf = new Map(), pieces = [];
+  const flowOf = new Map(), flows = [];
   for (const n of ns) {
-    if (pieceOf.has(n.id)) continue;
-    const ids = [n.id]; pieceOf.set(n.id, pieces.length);
-    for (let i = 0; i < ids.length; i++) for (const m of nb.get(ids[i])) if (!pieceOf.has(m)) { pieceOf.set(m, pieces.length); ids.push(m); }
-    const bs = ids.map(id => box.get(id));
-    pieces.push({ ...(bs.length > 1 ? settledFlow(bs, [...links.values()]) : { at: new Map([[n.id, { x: 0, y: 0 }]]), w: bs[0].w, h: bs[0].h }), was: around(bs) });
+    if (flowOf.has(n.id)) continue;
+    const ids = [n.id]; flowOf.set(n.id, flows.length);
+    for (let i = 0; i < ids.length; i++) for (const m of nb.get(ids[i])) if (!flowOf.has(m)) { flowOf.set(m, flows.length); ids.push(m); }
+    flows.push(ids);
   }
-  // groups: pieces that talk to each other (nothing fires along a talk, it only keeps them together)
+  // talks (nothing fires along one) and fixes (the agent and the cards it fixes) tie cards too
+  const talks = [...(S.talks ? S.talks.values() : [])].filter(t => box.has(t.a) && box.has(t.b)).map(t => [t.a, t.b]);
+  const fixes = ns.flatMap(n => (n.fixes || []).filter(f => f !== n.id && box.has(f)).map(f => [n.id, f]));
+  // a lone card tied to a card that stands in a flow (or to one of those) is stacked against it: an
+  // agent that talks with it right above it (the arch then rounds their side and runs through no
+  // card, where above a flow it would have to come down through the card over its partner), the agent
+  // fixing it close by
+  const rides = new Map(), stack = new Map();   // card -> the card it is stacked against; card -> { talk, fix }
+  const base = id => (rides.has(id) ? base(rides.get(id)) : id);
+  const lone = id => flows[flowOf.get(id)].length === 1;
+  for (let again = true; again;) {
+    again = false;
+    for (const b of inReadingOrder([...box.values()], b => b)) {
+      const id = b.id;
+      if (!lone(id) || rides.has(id)) continue;
+      const fx = fixes.find(([x, f]) => x === id && base(f) !== id);
+      const tk = !fx && talks.map(([x, y]) => (x === id ? y : y === id ? x : null)).find(c => c && (!lone(c) || rides.has(c)) && base(c) !== id);
+      const on = fx ? fx[1] : tk;
+      if (!on) continue;
+      rides.set(id, on); again = true;
+      if (!stack.has(on)) stack.set(on, { talk: [], fix: [] });
+      stack.get(on)[fx ? 'fix' : 'talk'].push(id);
+    }
+  }
+  // the stacks, top to bottom. Nothing comes between two that talk: a card stacked above another has
+  // its own above it, one stacked under another has them under it; the card at the base has the last
+  // that talks with it under it (where there are two or more) and the others above, its fixers under
+  const column = (id, dir) => {
+    const { talk = [], fix = [] } = stack.get(id) || {}, under = !dir && talk.length > 1 ? talk.slice(-1) : [];
+    const up = ids => ids.flatMap(m => column(m, -1)), down = ids => ids.flatMap(m => column(m, 1));
+    if (dir < 0) return [...up(fix), ...up(talk), id];
+    if (dir > 0) return [id, ...down(talk), ...down(fix)];
+    return [...up(talk.slice(0, talk.length - under.length)), id, ...down(under), ...down(fix)];
+  };
+  const units = new Map([...stack.keys()].filter(id => !rides.has(id)).map(id => [id, column(id, 0)]));
+  for (const [id, f] of flowOf) if (rides.has(id)) { flows[f] = []; flowOf.set(id, flowOf.get(base(id))); flows[flowOf.get(id)].push(id); }
+  // pieces: a flow (with what is stacked into it) laid out on its own, or a card alone
+  const pieceOf = new Map(), pieces = [];
+  for (const ids of flows) {
+    if (!ids.length) continue;
+    for (const id of ids) pieceOf.set(id, pieces.length);
+    const bs = ids.map(id => box.get(id));
+    pieces.push({ ...(bs.length > 1 ? settledFlow(bs, [...links.values()], units) : { at: new Map([[ids[0], { x: 0, y: 0 }]]), w: bs[0].w, h: bs[0].h }), was: around(bs) });
+  }
+  // groups: pieces that talk to each other or fix one another, kept together
   const up = pieces.map((_, i) => i), root = i => (up[i] === i ? i : (up[i] = root(up[i])));
   const pairs = [];
-  for (const t of S.talks ? S.talks.values() : []) {
-    if (!box.has(t.a) || !box.has(t.b)) continue;
-    const a = pieceOf.get(t.a), b = pieceOf.get(t.b);
+  for (const [x, y] of [...talks, ...fixes]) {
+    const a = pieceOf.get(x), b = pieceOf.get(y);
     if (a !== b) { pairs.push([a, b]); up[root(a)] = root(b); }
   }
   const groups = new Map();
@@ -182,11 +232,11 @@ function shelves(list, W) {
 
 /* a flow laid out again from where it lands until it stays put, the way the next tidy would see it:
    tidy on a tidy canvas moves nothing */
-function settledFlow(bs, links) {
+function settledFlow(bs, links, units) {
   const snap = v => Math.round(v / 10) * 10;
-  let L = layoutFlow(bs, links);
+  let L = layoutFlow(bs, links, units);
   for (let i = 0; i < 4; i++) {
-    const again = layoutFlow(bs.map(b => ({ ...b, x: snap(L.at.get(b.id).x), y: snap(L.at.get(b.id).y) })), links);
+    const again = layoutFlow(bs.map(b => ({ ...b, x: snap(L.at.get(b.id).x), y: snap(L.at.get(b.id).y) })), links, units);
     if (bs.every(b => again.at.get(b.id).x === L.at.get(b.id).x && again.at.get(b.id).y === L.at.get(b.id).y)) break;
     L = again;
   }
@@ -194,8 +244,9 @@ function settledFlow(bs, links) {
 }
 
 /* one flow (layered, Sugiyama style): columns, then the order in each column (fewest crossings),
-   then heights (each card level with the median of its neighbours). Positions relative to 0,0. */
-function layoutFlow(list, links) {
+   then heights (each card level with the median of its neighbours). Positions relative to 0,0.
+   `units`: card -> the cards stacked with it, top to bottom (one column, no room between them). */
+function layoutFlow(list, links, units = new Map()) {
   const V = new Map(list.map(b => [b.id, { ...b, real: true, ins: [], outs: [], up: [], down: [] }]));
   const es = links.filter(([a, b]) => V.has(a) && V.has(b));
   // a loop is cut where it runs back: start from what nothing feeds, leftmost first
@@ -229,6 +280,8 @@ function layoutFlow(list, links) {
     const v = V.get(u);
     if (v.outs.length && (v.ins.length < v.outs.length || lead.get(u))) L.set(u, Math.min(...v.outs.map(s => L.get(s))) - 1);
   }
+  const unitOf = new Map([...units].filter(([id]) => V.has(id)).flatMap(([id, ids]) => ids.map(m => [m, id])));
+  for (const [m, id] of unitOf) L.set(m, L.get(id));
   const l0 = Math.min(...L.values());
   for (const [id, l] of L) L.set(id, l - l0);
 
@@ -252,7 +305,7 @@ function layoutFlow(list, links) {
 
   // order in each column: as they stand now, then barycenter sweeps and swaps while that uncrosses links
   let layers = [];
-  for (const id of nodes.keys()) (layers[L.get(id)] ||= []).push(id);
+  for (const id of nodes.keys()) if (!unitOf.has(id) || unitOf.get(id) === id) (layers[L.get(id)] ||= []).push(id);
   layers = Array.from(layers, ly => (ly || []).sort((a, b) => nodes.get(a).y - nodes.get(b).y));
   const pos = new Map();
   const index = () => layers.forEach(ly => ly.forEach((id, i) => pos.set(id, i)));
@@ -294,17 +347,22 @@ function layoutFlow(list, links) {
     const c = crossings();
     if (c < fewest) { fewest = c; best = layers.map(ly => [...ly]); }
   }
-  layers = best;
+  layers = best.map(ly => ly.flatMap(id => units.get(id) || [id]));   // (the stacks back in, round their card)
 
   // heights: each card as close as it can be to the (weighted) median height of its neighbours, the
   // order in its column kept and each column stacking only its own cards (a tall card pushes nothing
   // in the next column). Per column that is an L1 isotonic fit (pool adjacent violators) on the top
   // minus the room the cards above need; a tie stays where it is. A lane outweighs a fan: a link drawn
   // from one height to another across columns would cut through the cards in between, so a long link
-  // must run straight from end to end.
+  // must run straight from end to end. Each card starts level with what feeds it, where its column has
+  // room: a tie then keeps a chain straight behind its start (stacked cards push it down a row).
   const room = id => (nodes.get(id).real ? nodes.get(id).h : TIDY.lane) + TIDY.gy;
   const top = new Map();
-  for (const ly of layers) ly.reduce((t, id) => (top.set(id, t), t + room(id)), 0);
+  for (const ly of layers) ly.reduce((t, id) => {
+    const ups = nodes.get(id).up.map(d => top.get(d.id)).sort((a, b) => a - b);
+    const at = ups.length ? Math.max(t, ups[(ups.length - 1) >> 1]) : t;
+    top.set(id, at); return at + room(id);
+  }, 0);
   const settle = b => {
     const c = Math.round(b.cur.reduce((s, x) => s + x, 0) / b.cur.length);
     if (!b.pts.length) return (b.s = c);
@@ -320,7 +378,10 @@ function layoutFlow(list, links) {
       ly.reduce((off, id) => {
         const n = nodes.get(id);
         const b = { ids: [id], cur: [top.get(id) - off], pts: [...n.up, ...n.down].map(d => [top.get(d.id) - off, d.w]) };
-        settle(b); blocks.push(b);
+        settle(b);
+        // a stack moves as one
+        const last = blocks.at(-1);
+        if (last && unitOf.has(id) && unitOf.get(last.ids.at(-1)) === unitOf.get(id)) { last.ids.push(id); last.cur.push(...b.cur); last.pts.push(...b.pts); settle(last); } else blocks.push(b);
         while (blocks.length > 1 && blocks.at(-2).s > blocks.at(-1).s) {
           const z = blocks.pop(), a = blocks.at(-1);
           a.ids.push(...z.ids); a.cur.push(...z.cur); a.pts.push(...z.pts); settle(a);
