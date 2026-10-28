@@ -203,9 +203,21 @@ pub(super) async fn push(dir: &Path, remote: &str, branch: &str, hashes: &[Strin
         Ok((false, out)) => {
             let rejected = out.contains("[rejected]") || out.contains("non-fast-forward") || out.contains("fetch first");
             let tag = if rejected { "REJECTED:" } else { "" };
-            (Err(format!("{tag}push failed: {}", out.trim().lines().last().unwrap_or(""))), None)
+            (Err(format!("{tag}push failed: {}", why_not_pushed(&out))), None)
         }
     }
+}
+
+/// The line of a failed push that says why: the refused branch's (" ! [remote rejected] main -> main
+/// (incorrect old value provided)"), else git's last error. The last line alone is "error: failed to
+/// push some refs to ..." (all n219 said) or a hint.
+fn why_not_pushed(out: &str) -> String {
+    let lines: Vec<&str> = out.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let line = match lines.iter().find_map(|l| l.strip_prefix("! ")) {
+        Some(refused) => refused,
+        None => lines.iter().rev().find(|l| l.starts_with("fatal:") || l.starts_with("error:")).or(lines.last()).copied().unwrap_or(""),
+    };
+    line.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// What a push of `branch` still has to send, read from the refs only (writes nothing, asks nobody):
@@ -331,5 +343,18 @@ mod tests {
         assert_eq!(left.trim(), "?? .env");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_failed_push_says_why_not_only_that_it_failed() {
+        let raced = "To https://github.com/a/b.git\n ! [remote rejected] master -> master (incorrect old value provided)\n\
+                     error: failed to push some refs to 'https://github.com/a/b.git'\n";
+        assert_eq!(why_not_pushed(raced), "[remote rejected] master -> master (incorrect old value provided)");
+        let behind = "To /r.git\n ! [rejected]        main -> main (fetch first)\nerror: failed to push some refs to '/r.git'\n\
+                      hint: Updates were rejected because the remote contains work that you do not\nhint: have locally.\n";
+        assert_eq!(why_not_pushed(behind), "[rejected] main -> main (fetch first)");
+        let auth = "remote: Invalid username or password.\nfatal: Authentication failed for 'https://github.com/a/b.git/'\n";
+        assert_eq!(why_not_pushed(auth), "fatal: Authentication failed for 'https://github.com/a/b.git/'");
+        assert_eq!(why_not_pushed("something else\n\n"), "something else");
     }
 }

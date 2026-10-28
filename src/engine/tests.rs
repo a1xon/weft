@@ -4084,6 +4084,57 @@ async fn a_push_with_a_commit_still_to_come_is_not_done_and_what_is_linked_after
 }
 
 #[tokio::test]
+async fn two_pushes_after_one_commit_take_turns_and_both_get_through() {
+    // (n213 and n219 after one commit sent master at once: the remote refused the second, "[remote
+    // rejected] master -> master (incorrect old value provided)", and the push card failed)
+    let root = std::env::temp_dir().join(format!("weft-unit-pushes-{}-{}", std::process::id(), now_ms()));
+    let dir = root.join("w");
+    std::fs::create_dir_all(&dir).unwrap();
+    let sh = |at: &Path, args: &[&str]| {
+        let out = std::process::Command::new("git").arg("-C").arg(at).args(args).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    sh(&root, &["init", "-q", "--bare", "r.git"]);
+    sh(&dir, &["init", "-q", "-b", "main"]);
+    sh(&dir, &["config", "user.name", "t"]);
+    sh(&dir, &["config", "user.email", "t@t"]);
+    sh(&dir, &["remote", "add", "origin", &root.join("r.git").to_string_lossy()]);
+    for f in ["a", "b"] {
+        std::fs::write(dir.join(f), f).unwrap();
+        sh(&dir, &["add", f]);
+        sh(&dir, &["commit", "-q", "-m", f]);
+        if f == "a" {
+            sh(&dir, &["push", "-q", "-u", "origin", "main"]);
+        }
+    }
+    let mut e = engine();
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    e.tx = tx;
+    e.boot.dir = dir.clone();
+    commit_with(&mut e, "c1", "slug");
+    for p in ["p1", "p2"] {
+        git_node(&mut e, p, p, "push");
+        e.flow.nodes.iter_mut().find(|n| n.id == p).unwrap().draft = false;
+        link(&mut e, &format!("e-{p}"), "c1", p, On::Done);
+    }
+    committed(&mut e, "c1", true);
+    assert!(e.rt["p1"].git.busy && e.rt["p2"].git.busy, "both push");
+    tokio::time::timeout(Duration::from_secs(30), async {
+        while e.rt["p1"].git.busy || e.rt["p2"].git.busy {
+            e.handle(rx.recv().await.expect("channel open"));
+        }
+    })
+    .await
+    .expect("both pushes finished");
+    for p in ["p1", "p2"] {
+        assert_eq!(e.rt[p].status, Status::Done, "{p}: {:?}", e.rt[p].output);
+    }
+    assert_eq!(sh(&root.join("r.git"), &["rev-parse", "main"]), sh(&dir, &["rev-parse", "HEAD"]));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
 async fn a_push_that_sends_nothing_new_hands_nothing_on() {
     // (rubbermetrics n90 -> n71 -> n82: "commit now" twice on a commit with nothing to commit, and
     // the agent after the push did its whole task again on the same input, twice)

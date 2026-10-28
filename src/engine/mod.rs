@@ -298,7 +298,7 @@ pub struct Engine {
     /// how much of each agent's plan is used (see usage.rs)
     usage: usage::Usages,
     /// one git job at a time per folder: two commit steps merging into the same checkout would
-    /// fight over its index
+    /// fight over its index, and of two pushes of one branch at once the remote refuses one
     git_locks: HashMap<PathBuf, Arc<tokio::sync::Mutex<()>>>,
     /// when the state file was last written
     last_save: Instant,

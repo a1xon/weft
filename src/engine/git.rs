@@ -518,12 +518,16 @@ impl Engine {
             if several { self.git_hashes_in(id, &dir) } else { self.rt.get(id).map(|r| carry_hashes(&r.git.carry)).unwrap_or_default() };
         let remote = node.remote.trim().to_string();
         let (tx, nid) = (self.tx.clone(), id.to_string());
+        // two pushes after one commit sent the same branch at once, and the remote refused the one
+        // that came second (n219: "[remote rejected] ... incorrect old value provided")
+        let lock = self.git_lock(&dir);
         let Some(rt) = self.rt.get_mut(id) else { return };
         let gen = rt.git.gen;
         rt.git.busy = true;
         rt.git.at = Some(dir.clone());
         rt.ui = true;
         tokio::spawn(async move {
+            let _g = lock.lock().await;
             let (res, facts) = push(&dir, &remote, &branch, &hashes).await;
             let _ = tx.send(Ev::Git { id: nid, gen, job: GitJobKind::Push, res, facts });
         });
