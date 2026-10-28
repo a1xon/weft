@@ -143,7 +143,7 @@ impl Engine {
             "twin": self.can_twin(id), "rests": self.resumable(id),
             "issue": rt.issue.as_deref().map(|i| head_chars(i, 4000)),
             "waiting": rt.waiting.as_ref().map(|w| json!({"what": head_chars(&w.what, 200), "checks": w.checks})),
-            "limit": rt.limit.as_ref().map(|l| json!({"until": l.until, "said": head_chars(&l.said, 300), "known": l.known})),
+            "limit": rt.limit.as_ref().map(|l| json!({"until": l.until, "said": head_chars(&l.said, 300), "known": l.known, "error": l.error})),
             "step_wait": rt.step_wait.as_ref().and_then(|h| self.node(h)).map(|n| n.name.clone()),
             "eta": eta.map(|e| json!({"at": e.at, "set": e.set, "total": e.total, "note": e.note})),
             "feed": rt.checks.feed[rt.checks.feed.len().saturating_sub(24)..].iter().map(|f| json!({

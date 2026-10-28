@@ -58,19 +58,21 @@ setInterval(() => {
   renderEtaTop();
 }, 1000);
 /* usage limit (engine/limits.rs): the agent sleeps until its CLI's limit resets, then carries on. The box
-   where an ETA would be counts down to that moment; a click offers to try now or to hand the work over */
+   where an ETA would be counts down to that moment; a click offers to try now or to hand the work over.
+   A turn that broke off on an API error (l.error: no connection) waits the same way before it carries on */
 const hhmm = ms => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-const limitText = l => `usage limit \u00b7 ${l.known ? 'resumes' : 'tries again'} ${hhmm(l.until)}`;
+const limitText = l => `${l.error ? 'API error' : 'usage limit'} \u00b7 ${l.known ? 'resumes' : 'tries again'} ${hhmm(l.until)}`;
 function renderLimit(el, id, l) {
   if (el.eta && !el.eta._lim) { el.eta.remove(); el.eta = null; }
   if (!el.eta) {
     el.eta = h('div', { class: 'eta lim', title: 'it hit its usage limit: click to try now or hand over',
       onclick: ev => { ev.stopPropagation(); const b = el.eta.getBoundingClientRect(); popup(limitItems(id), b.left, b.bottom + 6); } },
-      h('span', { class: 'el' }, 'LIMIT'), h('b', { class: 'et' }), h('span', { class: 'en' }), h('i', { class: 'bar' }));
+      h('span', { class: 'el' }), h('b', { class: 'et' }), h('span', { class: 'en' }), h('i', { class: 'bar' }));
     el.eta._lim = true;
     el.root.append(el.eta);
   }
   el.eta._e = l;
+  el.eta.querySelector('.el').textContent = l.error ? 'ERROR' : 'LIMIT';
   el.eta.title = `${l.said}\n\nclick: try now, or hand the work over`;
   tickLimit(el.eta);
 }
@@ -81,11 +83,11 @@ function tickLimit(b) {
 }
 /* what a sleeping agent's box and menu offer: wake it now, or a fresh agent of another CLI takes over */
 function limitItems(id) {
-  const n = S.nodes.get(id); if (!n) return [];
+  const n = S.nodes.get(id), l = (S.rt.get(id) || {}).limit; if (!n) return [];
   const others = agentEntries().filter(([k]) => k !== n.agent && k !== 'sh');
   return [
-    { cap: 'at its usage limit' },
-    { label: 'try now', hint: 'instead of at the reset', run: () => req('limit_wake', { id }).then(r => { if (!r.ok) toast('warn', r.error || 'it is awake already'); }) },
+    { cap: l && l.error ? 'its turn broke off on an API error' : 'at its usage limit' },
+    { label: 'try now', hint: l && l.error ? 'instead of at ' + hhmm(l.until) : 'instead of at the reset', run: () => req('limit_wake', { id }).then(r => { if (!r.ok) toast('warn', r.error || 'it is awake already'); }) },
     ...others.map(([k, a]) => ({ label: `hand over to ${a.label || k}`, hint: 'it takes the links', run: () => takeoverFrom(id, k, '') })),
     { sep: true },
   ];

@@ -797,6 +797,14 @@ messages for Antigravity are built in). A message that names no time is tried ag
 `limit_retry_s` (1200 s); after 30 sleeps in one step the card asks you. A step that gave its
 status line finished the normal way, whatever it said about limits.
 
+**API errors.** A turn that breaks off because the request to the model failed (the internet went
+away: Claude Code's "API Error: Can't reach the API server", Codex's "stream disconnected") is no
+result either: before, its error line went on to the next card. The agent waits the same way, the
+countdown says **ERROR** and the status line *API error · tries again 12:31*; then weft tells it to
+carry on with its task. The first wait is a minute, each one after it twice as long, up to 15
+minutes; the eighth time in one step the card asks you. The error line must be the last thing the
+turn said. The first words of such lines are `errors` per agent (Claude Code and Codex built in).
+
 **How much is used.** Under the agents in the launch pad and the bar, a meter shows how much of the
 chosen agent's plan is used: the 5-hour window and the week (amber from 75 %, red from 90 %), plus
 the chosen model's own limit where the CLI has one (Claude's *Sonnet only* week, agy's groups of
@@ -896,7 +904,7 @@ leaves the agent alone). Model and reasoning are plain flags appended to the com
 lists what the CLI offers (`id<TAB>label` lines or a JSON catalog). `attention` lists screen
 substrings that mean "a human is needed", `limits` the ones that mean "it stopped at its usage limit"
 (see [Usage limits](#usage-limits); `limit_retry_s` is how often one without a reset time is tried
-again). `gh` names GitHub's CLI for the [CI check](#checks-gates-and-watches) (default `gh`).
+again), `errors` the first words of the line a turn that broke off on an API error ends with. `gh` names GitHub's CLI for the [CI check](#checks-gates-and-watches) (default `gh`).
 
 **Card names.** A card is named by its own agent's CLI with the smallest model at the lowest
 reasoning: `title_cmd` (claude `-p --model haiku --effort low`, without MCP servers or its own
@@ -982,7 +990,7 @@ src/engine/        the single actor that owns all state
     checks.rs      watches: screenshots, tests, changes, the ETA countdown
     gates.rs       the gates on a link: approve, screenshot, tests
     ci.rs          the CI check: the runs of the pushed commit (gh), red to the agent that did the work
-    limits.rs      an agent at its usage limit sleeps until the reset its CLI names, then carries on
+    limits.rs      an agent at its usage limit sleeps until the reset its CLI names, then carries on (after an API error: a while)
     usage.rs       how much of each agent's plan is used (the meter by the agents), asked every 15 min at most
     rewind.rs      every step snapshotted before and after in a shadow repository: its diff, and undo
     resume.rs      a card keeps its agent's conversation: session ids, an agent that rests and comes back, twins
@@ -1032,7 +1040,8 @@ state, and nothing inside `repo.rs` knows what a node is.
 * The CI check reads GitHub Actions runs with `gh` (`gh` in `config.json` names another one). It
   looks at one repository, the folder of the work, and at the runs of one commit.
 * Usage limits are read from the CLI's own words (`limits` per agent). A CLI that words it
-  differently is not caught; add its phrase there.
+  differently is not caught; add its phrase there. Likewise API errors (`errors`): Antigravity's
+  are not known, so a turn of it that breaks off on one still counts as finished.
 * Linux/macOS with tmux ≥ 3.2. tmux 3.6 crashes on `window-size manual` with a control client;
   weft never sets it.
 

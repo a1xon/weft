@@ -1,5 +1,6 @@
 // Usage limits: an agent whose CLI stops at its limit sleeps until the reset instead of being "done"; the
 // cards after it wait; it carries on by itself at the reset, on "try now", or a fresh agent takes over.
+// A turn that broke off on an API error (the internet went away) waits the same way, then carries on.
 const { chromium } = require(process.env.PLAYWRIGHT);
 const fs = require('fs');
 const W = process.env.SANDBOX;
@@ -77,6 +78,31 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   const lz = await limitOf(z);
   ok(!lz || lz.until - Date.now() < 120000, 'it sleeps only until the reset it was told, plus a margin (' + (lz ? Math.round((lz.until - Date.now()) / 1000) + 's' : 'awake') + ')');
   ok(await waitSt(z, ['done'], 200000), 'at the reset it is woken and finishes by itself (' + await st(z) + ')');
+
+  // --- its turn breaks off on an API error: that line is no result, the card after it waits, the card
+  // says when it tries again, and "try now" carries the task on
+  const c = await add({ agent: 'claude', name: 'offline', prompt: 'API_ERROR Fix the wrap function in textkit/wrap.py.', x: 1220, y: 480 });
+  const c2 = await add({ agent: 'claude', name: 'after the outage', prompt: 'Summarise: {{inputs}}', x: 1720, y: 480 });
+  await p.evaluate(([x, y]) => send('edge_add', { from: x, to: y }), [c, c2]);
+  await sleep(300);
+  await p.evaluate(id => send('arm', { id }), c);
+  ok(await waitFor(async () => !!(await limitOf(c)), 60000), 'the agent whose turn broke off on an API error waits instead of finishing');
+  const lc = await limitOf(c);
+  ok(lc && lc.error && /EAI_AGAIN/.test(lc.said), 'with what the CLI said: "' + (lc && lc.said) + '"');
+  const waits = lc ? Math.round((lc.until - Date.now()) / 1000) : 0;
+  ok(waits > 30 && waits <= 61, 'for a minute at first (' + waits + 's)');
+  ok(/API error · tries again \d/.test(await line(c)), 'its status line says so: "' + await line(c) + '"');
+  ok((await p.locator('.nw[data-id="' + c + '"] .eta.lim .el').innerText()).trim() === 'ERROR', 'its countdown says ERROR');
+  await sleep(3000);
+  ok(!['busy', 'done'].includes(await st(c2)), 'the card after it waits (' + await st(c2) + ')');
+  ok(!(await p.evaluate(id => (S.rt.get(id).out || ''), c)).includes('API Error'), 'the error line is no result');
+  await p.screenshot({ path: W + '/limit-3-api-error.png' });
+  await p.locator('.nw[data-id="' + c + '"] .eta.lim').click(); await sleep(250);
+  ok(await p.locator('.menu .cap', { hasText: 'API error' }).count() === 1, 'its menu says why it waits');
+  await p.locator('.menu .mi', { hasText: 'try now' }).click();
+  ok(await waitSt(c, ['done'], 60000), 'try now: it carries on with its task and finishes (' + await st(c) + ')');
+  ok((await p.evaluate(id => S.rt.get(id).out || '', c)).includes('wrap.py'), 'with the result of the task it was in: "' + (await p.evaluate(id => S.rt.get(id).out || '', c)).slice(0, 60) + '"');
+  ok(await waitSt(c2, ['done'], 60000), 'and the flow goes on (' + await st(c2) + ')');
 
   await p.screenshot({ path: W + '/limit-2-after.png' });
   ok(errs.length === 0, 'no page errors' + (errs.length ? ': ' + errs.join(' | ') : ''));

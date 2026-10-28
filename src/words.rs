@@ -208,9 +208,9 @@ STATUS line (DONE, ISSUE or FAILED as it turned out); if not, end with a STATUS 
     )
 }
 
-/// Typed when the usage limit an agent ran into has reset: it carries on with the step it was in,
-/// and reports the way it was asked to then.
-pub fn limit_resume(exe: &str, signal: bool, rule: bool) -> String {
+/// Typed when the usage limit an agent ran into has reset, or a while after its turn broke off on an
+/// API error: it carries on with the step it was in, and reports the way it was asked to then.
+pub fn limit_resume(exe: &str, signal: bool, rule: bool, error: bool) -> String {
     let report = if signal {
         format!(" When you are finished, report with `{exe} done` as before.")
     } else if rule {
@@ -218,7 +218,8 @@ pub fn limit_resume(exe: &str, signal: bool, rule: bool) -> String {
     } else {
         String::new()
     };
-    format!("{TAG} Your usage limit has reset. Carry on with the task where you stopped.{report}")
+    let why = if error { "Your last turn broke off on an API error." } else { "Your usage limit has reset." };
+    format!("{TAG} {why} Carry on with the task where you stopped.{report}")
 }
 
 /// The person undid some of an agent's steps (see engine/rewind.rs): said before its next prompt.

@@ -2,6 +2,10 @@
 //! says until when, the cards after it wait, and the CLI's limit message is never taken for its
 //! result (before, the silence after it settled the card as done and the links handed the message
 //! on to agents that often hit the same limit).
+//!
+//! A turn that broke off on an API error (the internet went away, the API was overloaded) sleeps the
+//! same way, for a minute and longer each time it happens again: its error line was taken for the
+//! result and started the next card while the work was half done.
 
 use super::*;
 
@@ -14,6 +18,9 @@ pub(super) struct Limit {
     pub(super) said: String,
     /// the reset time was read from them (else weft only tries again after a while)
     pub(super) known: bool,
+    /// no limit: its turn broke off on an API error
+    #[serde(default)]
+    pub(super) error: bool,
 }
 
 /// How often one step sleeps off a limit before the person is asked.
@@ -22,29 +29,63 @@ const MAX_SLEEPS: u32 = 30;
 const AFTER_RESET_MS: u64 = 90_000;
 /// No sleep is longer than this (a weekly limit is the longest there is).
 const LONGEST_MS: u64 = 8 * 86_400_000;
+/// The first wait after an API error, doubled each time it happens again in the same step up to the
+/// longest; the error that many times in one step is the person's to look at.
+const ERROR_WAIT_MS: u64 = 60_000;
+const ERROR_WAIT_MAX_MS: u64 = 15 * 60_000;
+const MAX_ERROR_TRIES: u32 = 8;
 
 impl Engine {
-    /// The step's output ends with the CLI saying it ran into its usage limit: those lines. A step
-    /// that gave its status line finished the normal way, whatever it talked about.
+    /// The step's output ends with the CLI saying it ran into its usage limit: those lines.
     pub(super) fn limit_hit(&mut self, id: &str) -> Option<String> {
-        let agent = self.node(id).filter(|n| n.kind() == Kind::Agent)?.agent.clone();
-        let pats = self.cfg.agents.get(&agent).map(|a| a.limits.clone()).unwrap_or_default();
-        if pats.is_empty() {
-            return None;
-        }
+        let pats = self.agent_cfg(id).map(|a| a.limits.clone()).filter(|p| !p.is_empty())?;
+        limit_line(&self.said_unsettled(id)?, &pats)
+    }
+
+    /// The step's turn broke off on an API error: the line that says so.
+    pub(super) fn error_hit(&mut self, id: &str) -> Option<String> {
+        let pats = self.agent_cfg(id).map(|a| a.errors.clone()).filter(|p| !p.is_empty())?;
+        error_line(&self.said_unsettled(id)?, &pats)
+    }
+
+    fn agent_cfg(&self, id: &str) -> Option<&AgentCfg> {
+        let agent = &self.node(id).filter(|n| n.kind() == Kind::Agent)?.agent;
+        self.cfg.agents.get(agent)
+    }
+
+    /// What the agent's step has said so far (an agent in no step: its screen), unless it gave its
+    /// status line: a step that did finished the normal way, whatever it talked about.
+    fn said_unsettled(&mut self, id: &str) -> Option<String> {
         let chrome = &self.cfg.chrome;
         let rt = self.rt.get_mut(id)?;
-        let said = match rt.cur.as_ref() {
-            Some(c) => {
-                let said = run::new_since(&mut rt.parser, &c.before, &c.typed(), chrome)?;
-                if c.rule && words::read_status(&said, c.asked).is_some() {
-                    return None;
-                }
-                said
-            }
-            None => rt.parser.screen().contents(),
+        let Some(c) = rt.cur.as_ref() else {
+            return Some(term::response_rows(&term::lines(&mut rt.parser), "", chrome).join("\n"));
         };
-        limit_line(&said, &pats)
+        let said = run::new_since(&mut rt.parser, &c.before, &c.typed(), chrome)?;
+        (!c.rule || words::read_status(&said, c.asked).is_none()).then_some(said)
+    }
+
+    /// Wait for the connection to come back: nothing is judged and nothing is typed into the agent
+    /// until then, a little longer each time. One that keeps failing is the person's to look at.
+    pub(super) fn error_sleep(&mut self, id: &str, said: String) {
+        let name = self.node(id).map(|n| n.name.clone()).unwrap_or_default();
+        let Some(rt) = self.rt.get_mut(id) else { return };
+        rt.error_tries += 1;
+        let tries = rt.error_tries;
+        if tries >= MAX_ERROR_TRIES {
+            rt.error_tries = 0;
+            self.raise_issue(id, format!("Its turn broke off on an API error {MAX_ERROR_TRIES} times. The CLI says: {said}"));
+            return;
+        }
+        let now = now_ms();
+        let until = now + (ERROR_WAIT_MS << (tries - 1).min(8)).min(ERROR_WAIT_MAX_MS);
+        rt.limit = Some(Limit { until, said, known: false, error: true });
+        rt.ui = true;
+        self.state_dirty = true;
+        // (the card counts down every try: the first one is worth a word)
+        if tries == 1 {
+            self.toast("warn", &format!("{name} stopped on an API error \u{b7} tries again {}", local_clock(until, now, local_offset())));
+        }
     }
 
     /// Sleep through the limit: nothing is judged and nothing is typed into the agent until it resets.
@@ -61,7 +102,7 @@ impl Engine {
             self.raise_issue(id, format!("It is still at its usage limit after {MAX_SLEEPS} tries. The CLI says: {said}"));
             return;
         }
-        rt.limit = Some(Limit { until, said, known: at.is_some() });
+        rt.limit = Some(Limit { until, said, known: at.is_some(), error: false });
         rt.ui = true;
         self.state_dirty = true;
         let when = if at.is_some() { "resumes" } else { "tries again" };
@@ -82,16 +123,14 @@ impl Engine {
     pub(super) fn limit_wake(&mut self, id: &str) {
         let exe = self.boot.exe.clone();
         let Some(rt) = self.rt.get_mut(id) else { return };
-        if rt.limit.take().is_none() {
-            return;
-        }
+        let Some(was) = rt.limit.take() else { return };
         rt.ui = true;
         self.state_dirty = true;
         if !rt.alive {
             return;
         }
         let (signal, rule) = rt.cur.as_ref().map_or((false, false), |c| (c.expect_signal, c.rule));
-        self.raw_type(id, &words::limit_resume(&exe, signal, rule), true);
+        self.raw_type(id, &words::limit_resume(&exe, signal, rule, was.error), true);
     }
 
     pub(super) fn cmd_limit_wake(&mut self, id: String) -> Value {
@@ -135,6 +174,20 @@ pub(super) fn limit_line(text: &str, pats: &[String]) -> Option<String> {
         !l.contains("fast limit") && pats.iter().any(|p| l.contains(p.as_str()))
     })?;
     Some(tail[at..].iter().take(3).copied().collect::<Vec<_>>().join(" "))
+}
+
+/// The line in which the CLI says the turn broke off on an error, when that is the last thing it said:
+/// its last paragraph, or the last lines of it (the line can wrap). An error from earlier in the step,
+/// with an answer after it, is over.
+pub(super) fn error_line(text: &str, pats: &[String]) -> Option<String> {
+    let pats: Vec<String> = pats.iter().filter(|p| !p.is_empty()).map(|p| p.to_lowercase()).collect();
+    let lines: Vec<&str> = text.lines().map(str::trim).collect();
+    let end = lines.iter().rposition(|l| !l.is_empty())? + 1;
+    let start = lines[..end].iter().rposition(|l| l.is_empty()).map_or(0, |i| i + 1).max(end.saturating_sub(3));
+    // (after the CLI's message marker: "● API Error: ...", "⎿ ...", "■ stream disconnected ...")
+    let words = |l: &str| l.trim_start_matches(|c: char| c.is_whitespace() || "\u{25cf}\u{23fa}\u{2022}\u{23bf}\u{25a0}".contains(c)).to_lowercase();
+    let at = (start..end).find(|&i| pats.iter().any(|p| words(lines[i]).starts_with(p.as_str())))?;
+    Some(lines[at..end].join(" "))
 }
 
 /// When the limit resets, read from the CLI's own words: "resets 3pm (Europe/Berlin)", "resets Oct 20,
@@ -433,10 +486,10 @@ mod tests {
         e.tick_limits();
         assert!(e.rt["a"].limit.is_none());
         // a restart keeps the sleep
-        e.rt.get_mut("a").unwrap().limit = Some(Limit { until: u64::MAX, said: "x".into(), known: false });
+        e.rt.get_mut("a").unwrap().limit = Some(Limit { until: u64::MAX, said: "x".into(), known: false, error: true });
         let mut back = Rt::new(80, 24);
         back.restore(e.rt["a"].to_saved());
-        assert_eq!(back.limit.map(|l| l.until), Some(u64::MAX));
+        assert_eq!(back.limit.map(|l| (l.until, l.error)), Some((u64::MAX, true)));
     }
 
     #[test]
@@ -448,6 +501,83 @@ mod tests {
         e.eval("a", t0 + Duration::from_secs(30));
         assert!(e.rt["a"].finished && e.rt["a"].limit.is_none());
         assert_eq!(e.rt["b"].inputs.len() + e.rt["b"].queue.len(), 1, "the result went on");
+    }
+
+    #[test]
+    fn an_api_error_counts_only_when_it_is_the_last_thing_said() {
+        let pats: Vec<String> = ["api error", "stream disconnected"].iter().map(|s| s.to_string()).collect();
+        let said = " Running the tests.\n\n API Error: Can't reach the API server \u{2014} check your internet or DNS (EAI_AGAIN)";
+        assert_eq!(error_line(said, &pats).as_deref(), Some("API Error: Can't reach the API server \u{2014} check your internet or DNS (EAI_AGAIN)"));
+        // wrapped onto the next lines, under a tool's marker, Codex's
+        let wrapped = "Done with the first part.\n\n  \u{23bf}  API Error: 500 Internal server error. This is a server-side\n     issue, usually temporary \u{2014} try again in a moment.";
+        assert!(error_line(wrapped, &pats).is_some_and(|l| l.ends_with("try again in a moment.")));
+        assert!(error_line("\u{25a0} stream disconnected before completion: error sending request", &pats).is_some());
+        // an answer after it (the turn weft woke it for went well), or one that only talks about errors
+        assert_eq!(error_line("API Error: Connection dropped (ECONNRESET)\n\nFixed it, the tests pass.", &pats), None);
+        assert_eq!(error_line("The client now retries on an API Error: 529 instead of failing.", &pats), None);
+        assert_eq!(error_line("", &pats), None);
+    }
+
+    /// A step of a chain that was told to report with `weft done`: its turn broke off on an API
+    /// error (the internet went away) and the commit step after it was handed the error line as the
+    /// result (rubbermetrics-website).
+    #[test]
+    fn a_turn_that_broke_off_on_an_api_error_is_no_result_and_carries_on_later() {
+        let mut e = engine();
+        alive_agent(&mut e, "a", "build");
+        e.flow.nodes.iter_mut().find(|n| n.id == "a").unwrap().agent = "claude".into();
+        add(&mut e, "b", "next", "{{inputs}}");
+        link(&mut e, "e1", "a", "b", On::Done);
+        let r = e.rt.get_mut("a").unwrap();
+        r.armed = true;
+        r.status = Status::Busy;
+        r.cause = Cause::Flow;
+        r.cur = Some(Step { expect_signal: true, ..Step::new("go".into(), vec![]) });
+        r.parser.process(
+            "\x1b[2J\x1b[H\u{25cf} Editing src/app.rs\r\n\r\n\u{25cf} API Error: Can't reach the API server \u{2014} check your internet or DNS (EAI_AGAIN)\r\n\r\n\u{273b} Saut\u{e9}ed for 2m 54s \u{b7} done 12:28\r\n\r\n\u{276f} \r\n"
+                .as_bytes(),
+        );
+        r.dirty = true;
+        let t0 = Instant::now();
+        e.eval("a", t0);
+        e.eval("a", t0 + Duration::from_secs(30));
+        let r = &e.rt["a"];
+        assert!(!r.finished, "the error line is no result");
+        assert!(r.limit.as_ref().is_some_and(|l| l.error && l.said.contains("EAI_AGAIN")), "it waits for the connection");
+        let wait = r.limit.as_ref().unwrap().until - now_ms();
+        assert!((50_000..=61_000).contains(&wait), "a minute at first ({wait} ms)");
+        assert!(e.rt["b"].inputs.is_empty() && e.rt["b"].queue.is_empty(), "nothing went down the link");
+        // it broke off again after weft woke it: a longer wait
+        e.rt.get_mut("a").unwrap().limit.as_mut().unwrap().until = 1;
+        e.tick_limits();
+        assert!(e.rt["a"].limit.is_none(), "woken");
+        e.eval("a", t0 + Duration::from_secs(60));
+        e.eval("a", t0 + Duration::from_secs(90));
+        let wait = e.rt["a"].limit.as_ref().map_or(0, |l| l.until - now_ms());
+        assert!((110_000..=121_000).contains(&wait), "two minutes the second time ({wait} ms)");
+        // the third time it carries on and answers: that answer is the result
+        e.rt.get_mut("a").unwrap().limit.as_mut().unwrap().until = 1;
+        e.tick_limits();
+        let r = e.rt.get_mut("a").unwrap();
+        r.parser.process("\x1b[2J\x1b[H\u{276f} [weft] Your last turn broke off on an API error.\r\n\r\n\u{25cf} Fixed the bug in src/app.rs.\r\n".as_bytes());
+        r.dirty = true;
+        e.eval("a", t0 + Duration::from_secs(120));
+        e.eval("a", t0 + Duration::from_secs(150));
+        assert!(e.rt["a"].finished && e.rt["a"].limit.is_none());
+        assert_eq!(e.rt["b"].inputs.len() + e.rt["b"].queue.len(), 1, "the result went on");
+    }
+
+    #[test]
+    fn an_api_error_that_does_not_go_away_is_the_persons_to_look_at() {
+        let mut e = engine();
+        limited(&mut e, "\u{25cf} API Error: 400 due to tool use concurrency issues. Run /rewind to recover the conversation.");
+        e.rt.get_mut("a").unwrap().error_tries = MAX_ERROR_TRIES - 1;
+        let t0 = Instant::now();
+        e.eval("a", t0);
+        e.eval("a", t0 + Duration::from_secs(30));
+        let r = &e.rt["a"];
+        assert!(r.limit.is_none() && !r.finished);
+        assert!(r.issue.as_deref().is_some_and(|i| i.contains("/rewind")), "{:?}", r.issue);
     }
 
     #[tokio::test]

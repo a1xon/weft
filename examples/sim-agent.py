@@ -19,6 +19,8 @@ Prompt directives it understands (case-insensitive):
                    rule would; weft then asks for the line and it answers
     HIT_LIMIT[=M]  stop at a usage limit that "resets" in M minutes (2); carry on once weft
                    says it has reset
+    API_ERROR      the turn breaks off on a lost connection (Claude Code's "API Error" line);
+                   carry on once weft says so
 
     FAIL_TASK      do the work badly: report failure
     REPORT_FILE=P  report DONE with the text of file P (a report that may still ask the person things)
@@ -295,6 +297,8 @@ def apply_work(prompt):
 outcome = ("done", "")
 # HIT_LIMIT: the task it stopped in at its usage limit, and the reset time it named
 held = None
+# API_ERROR: the task its turn broke off in
+broke = None
 
 
 def work(prompt):
@@ -318,7 +322,18 @@ def work(prompt):
         remember(head[:160])
     # HIT_LIMIT[=<minutes>]: a CLI at its usage limit: it stops with the limit line, drops whatever it is
     # sent until weft says the limit has reset, and then carries on with the task it was in
-    global held
+    global held, broke
+    # API_ERROR: the connection drops as it works; told to carry on, it does the task it was in
+    if broke is not None and "broke off on an api error" in low:
+        prompt, broke = broke, None
+        low = prompt.lower()
+    elif "api_error" in low:
+        broke = re.sub(r"API_ERROR", "", prompt)
+        time.sleep(0.8)
+        say("", "● Reading the code.", "",
+            "● API Error: Can't reach the API server — check your internet or DNS (EAI_AGAIN)", "",
+            "✻ Sautéed for 2m 54s · done 12:28", "")
+        return
     if held is not None:
         if "your usage limit has reset" not in low:
             say("", "  ⎿  You've hit your session limit · resets " + held[1], "")

@@ -988,6 +988,7 @@ fn agents_run_in_yolo_mode_unless_switched_off() {
         working: vec![],
         busy: vec![],
         limits: vec![],
+        errors: vec![],
         effort_models: vec![],
         title_cmd: String::new(),
         asks_cmd: String::new(),

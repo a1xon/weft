@@ -346,6 +346,9 @@ pub(super) struct Rt {
     /// its CLI ran into the usage limit: it sleeps until then (see limits.rs), and how often this step did
     pub(super) limit: Option<Limit>,
     pub(super) limit_sleeps: u32,
+    /// how often this step's turn broke off on an API error (the waits grow with it; a restart
+    /// starts them short again)
+    pub(super) error_tries: u32,
     /// its steps as snapshots of its folder, before and after (see rewind.rs); the last number given;
     /// and what the next prompt tells it about a rewind the person did
     pub(super) cps: Vec<Cp>,
@@ -740,6 +743,7 @@ impl Rt {
             waiting: None,
             limit: None,
             limit_sleeps: 0,
+            error_tries: 0,
             cps: Vec::new(),
             cp_seq: 0,
             rewound: None,
@@ -1101,6 +1105,7 @@ impl Rt {
         self.waiting = None;
         self.limit = None;
         self.limit_sleeps = 0;
+        self.error_tries = 0;
         self.typing = None;
         self.ok = None;
         self.output = None;

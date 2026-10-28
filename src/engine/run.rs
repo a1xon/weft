@@ -102,6 +102,10 @@ impl Engine {
         if let Some(said) = self.limit_hit(id) {
             return self.limit_sleep(id, said);
         }
+        // nor has one whose turn broke off on an API error (the connection dropped): it carries on later
+        if let Some(said) = self.error_hit(id) {
+            return self.error_sleep(id, said);
+        }
         let chrome = self.cfg.chrome.clone();
         let max_checks = (self.cfg.background_s / self.cfg.recheck_s.max(1.0)).ceil().max(1.0) as u32;
         let act = {
@@ -545,6 +549,7 @@ impl Engine {
         rt.waiting = None;
         rt.limit = None;
         rt.limit_sleeps = 0;
+        rt.error_tries = 0;
         if consumed {
             rt.briefed = true;
         }

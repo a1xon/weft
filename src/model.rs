@@ -485,6 +485,11 @@ pub struct AgentCfg {
     /// until the time the same lines name, then carries on (see engine/limits.rs).
     #[serde(default)]
     pub limits: Vec<String>,
+    /// The first words (any case) of the line a CLI ends a turn with when the request to its model
+    /// failed (no connection, the API overloaded): that turn is no answer. The agent waits a while
+    /// and is told to carry on (see engine/limits.rs).
+    #[serde(default)]
+    pub errors: Vec<String>,
     /// The reasoning level applies only to these models (substrings; "" = the CLI's default
     /// model). Empty = every model.
     #[serde(default)]
@@ -671,6 +676,10 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             // "You've hit your session limit · resets 3pm (Europe/Berlin)" (not the fast-mode one:
             // that only slows it down)
             limits: strings(&["you've hit your", "usage limit reached", "reached your weekly usage limit"]),
+            // after its own retries: "API Error: Can't reach the API server — check your internet or
+            // DNS (EAI_AGAIN)", "API Error: Repeated 529 Overloaded errors…", "Request timed out",
+            // "Please run /login · API Error: 401…" (a login in another session lets the retry through)
+            errors: strings(&["api error", "request timed out", "please run /login"]),
             // no tools: the request must not turn into work. No MCP servers and a system prompt of
             // its own: Claude Code's own and the person's MCP tools were 52k tokens of context to
             // read one request, without them it is 0.6k
@@ -707,6 +716,9 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             busy: strings(&["esc to interrupt"]),
             // "You've hit your usage limit. ... or try again at 3:04 PM."
             limits: strings(&["you've hit your usage limit"]),
+            // "■ stream disconnected before completion: error sending request for url (…)",
+            // "■ exceeded retry limit, last status: 529"
+            errors: strings(&["stream disconnected", "error sending request", "exceeded retry limit"]),
             title_cmd: r#"codex exec -m gpt-6-luna -c model_reasoning_effort=low -s read-only --ephemeral --skip-git-repo-check "$WEFT_TITLE_REQ""#
                 .into(),
             asks_cmd: r#"codex exec -m gpt-6-luna -c model_reasoning_effort=medium -s read-only --ephemeral --skip-git-repo-check "$WEFT_ASKS_REQ""#
