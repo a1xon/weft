@@ -465,7 +465,8 @@ impl Engine {
         let expect_signal = self.reports_with_commands(&item.text);
         let (consumed, rule) = self.told(id, &item.text, &item.src);
         let (first, ruled) = self.rt.get(id).map_or((false, true), |r| (!r.briefed, r.ruled));
-        if consumed && first {
+        // (the report addendum says what weft is itself)
+        if consumed && first && !expect_signal {
             item.text = format!("{}\n\n{}", words::intro(), item.text);
         }
         // a twin's first prompt says it is one; a new conversation of a card that worked before (its old

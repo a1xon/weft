@@ -102,6 +102,46 @@ fn render_places_inputs_and_addenda() {
 }
 
 #[test]
+fn the_report_addendum_leaves_git_to_the_person_and_the_git_steps() {
+    let mut e = engine();
+    let full = |e: &Engine, prompt: &str, typed: Option<&str>| {
+        let mut n = node("a", "worker", prompt);
+        n.addenda = vec!["report-done".into()];
+        match typed {
+            Some(t) => e.with_addenda(&n, t),
+            None => e.render_parts(&n, &[]).1,
+        }
+    };
+    add(&mut e, "a", "worker", "Fix the slug bug.");
+    let lone = full(&e, "Fix the slug bug.", None);
+    assert!(lone.ends_with("other agents may be working in this folder."), "{lone}");
+    assert!(!lone.contains("{{git}}"));
+    // the person asked for a commit: the task decides
+    let asked = full(&e, "Fix the slug bug and commit it.", None);
+    assert!(asked.ends_with("Git: do only the git work your task asks for."), "{asked}");
+    assert!(full(&e, "x", Some("now commit and push")).ends_with("your task asks for."), "a typed message is read the same way");
+    // what an earlier step handed on is not the person asking
+    let n = node("a", "worker", "Fix the slug bug.");
+    let ins = vec![Input { from: "n0".into(), name: "plan".into(), ok: true, text: "I committed 3 files".into(), kind: InputKind::Result }];
+    let mut n2 = n.clone();
+    n2.addenda = vec!["report-done".into()];
+    assert!(e.render_parts(&n2, &ins).1.ends_with("this folder."));
+    // a git step drawn after the agent (also after it started): weft will ask it for the commit
+    add_kind(&mut e, "t", "tests", "tests", "");
+    add_kind(&mut e, "g", "commit", "git", "");
+    link(&mut e, "e1", "a", "t", On::Done);
+    link(&mut e, "e2", "t", "g", On::Ok);
+    let chain = full(&e, "Fix the slug bug.", Some("and wrap.py too"));
+    assert!(chain.contains("do not stage, commit") && chain.ends_with("weft asks you when it is time."), "{chain}");
+    // a git step after another agent commits that agent's work
+    e.flow.edges.retain(|x| x.id != "e2");
+    add(&mut e, "b", "other", "x");
+    link(&mut e, "e3", "t", "b", On::Ok);
+    link(&mut e, "e4", "b", "g", On::Ok);
+    assert!(full(&e, "Fix the slug bug.", None).ends_with("this folder."));
+}
+
+#[test]
 fn promise_all_waits_for_every_input_and_blocks_on_a_failure() {
     let mut e = engine();
     add(&mut e, "n1", "a", "go");

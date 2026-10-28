@@ -89,7 +89,7 @@ function textPane() {
     cur.kind === 'addendum'
       ? h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: cur.default_on, onchange: e => { cur.default_on = e.target.checked; saveLib(); } }), 'switch on for new agents')
       : h('span', { class: 'note' }, 'Standard prompts are copied into an agent when you insert them (type / in a prompt), so you can edit them there.'),
-    cur.kind === 'addendum' ? h('span', { class: 'note' }, 'Addenda are referenced, not copied: editing one here changes every agent that uses it. Variables: {{weft}}, {{node}}, {{cwd}}.') : null,
+    cur.kind === 'addendum' ? h('span', { class: 'note' }, 'Addenda are referenced, not copied: editing one here changes every agent that uses it. Variables: {{weft}}, {{node}}, {{cwd}}, {{git}} (the git line).') : null,
     h('div', {}, h('button', { class: 'btn sm danger', onclick: () => {
       S.lib = S.lib.filter(s => s.id !== cur.id);
       for (const n of S.nodes.values()) if ((n.addenda || []).includes(cur.id)) send('node_set', { id: n.id, patch: { addenda: n.addenda.filter(a => a !== cur.id) } });

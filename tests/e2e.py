@@ -577,7 +577,9 @@ try:
     call("run")
     check(wait(lambda: status(ca)[0] == "done", "commander", 60), "an agent told to use the commands finishes with them (%s)" % (status(ca),))
     log = received(ca)
-    check("## How to report back to weft" in log and "STATUS: <WORD>" not in log, "and is not also given the status line")
+    check("## You are run by weft" in log and "STATUS: <WORD>" not in log, "and is not also given the status line")
+    check("You are one step in a chain" not in log, "nor the chain intro: the addendum says what weft is")
+    check("other agents may be working in this folder" in log, "and it leaves git alone")
 
     # a prompt that was not taken is not a finished agent: the Enter is repeated, a lost paste is pasted again
     clear()

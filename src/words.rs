@@ -20,9 +20,44 @@
 pub const TAG: &str = "[weft]";
 
 /// Reporting with commands instead of the status line: exact text, no label to parse, but it needs
-/// a shell the agent may run `weft` in. A library addendum (`{{weft}}` is the path of this binary),
-/// on by default; a person can switch it off per agent (the status line comes back) or reword it.
+/// a shell the agent may run `weft` in. A library addendum (`{{weft}}` is the path of this binary,
+/// `{{git}}` the line on git work, [`git_rule`]), on by default; a person can switch it off per agent
+/// (the status line comes back) or reword it. It says what weft is, so a step of a chain that has it
+/// is not given the [`intro`] as well.
 pub const REPORT_ADDENDUM: &str = "\
+## You are run by weft
+weft runs coding agents side by side on a canvas and passes their reports on. Messages that start with [weft] come from it, \
+not from the person. Your report is shown to the person and handed to the next agent, if there is one, which cannot see \
+this conversation: it must be complete on its own.
+
+End every turn by running exactly one of these shell commands as your very last action; it is the only way weft knows you \
+have finished.
+
+DONE (finished and checked; nothing left for the person to answer or decide):
+{{weft}} done <<'EOF'
+<summary: results, changed files, what you decided and why, what is left>
+EOF
+
+ISSUE (the person has to answer or decide something: a question, a choice, something you leave to them (\"your call\"), \
+access or information you need). Your work stays open; they answer you in this session. One question per line, its \
+options under it:
+{{weft}} issue <<'EOF'
+<where you are, in a line or two>
+<the questions>
+EOF
+
+FAIL (you tried and it cannot be done):
+{{weft}} fail \"<why>\"
+
+Questions go in an ISSUE: a DONE that asks something or ends with an offer (\"want me to ...?\") is held as an ISSUE.
+Do not end your turn to wait (\"I will get back to you\"): nothing will resume you. Wait for builds, tests and background \
+jobs here, then report.
+{{git}}";
+
+/// Earlier wordings of [`REPORT_ADDENDUM`]: a library entry still saying one of them was never
+/// changed by the person, and follows the current one (`model::load_config`).
+pub const REPORT_ADDENDUM_BEFORE: [&str; 2] = [
+    "\
 ## How to report back to weft
 weft only knows that you are finished when you run one of these commands as your very last action. \
 The text you give is handed to the next step and shown to the person.
@@ -48,11 +83,8 @@ FAILURE (you tried and it cannot be done):
 
 Do not end your turn to wait for something (\"I will get back to you when it is done\"): nothing will resume you. \
 If you are waiting for a build, a test run or a background job, keep checking it here until it has finished, then report. \
-Report once, and only when it is true.";
-
-/// Earlier wordings of [`REPORT_ADDENDUM`]: a library entry still saying one of them was never
-/// changed by the person, and follows the current one (`model::load_config`).
-pub const REPORT_ADDENDUM_BEFORE: [&str; 1] = ["\
+Report once, and only when it is true.",
+    "\
 ## How to report back to weft
 weft only knows that you are finished when you run one of these commands as your very last action. \
 The text you give is handed to the next step and shown to the person.
@@ -70,7 +102,56 @@ FAILURE (you tried and it cannot be done):
 
 Do not end your turn to wait for something (\"I will get back to you when it is done\"): nothing will resume you. \
 If you are waiting for a build, a test run or a background job, keep checking it here until it has finished, then report. \
-Report once, and only when it is true."];
+Report once, and only when it is true.",
+];
+
+/// What `{{git}}` in the report addendum says: an agent leaves git to the person and to weft's git
+/// steps. `asked`: the task itself asks for git work ([`asks_for_git`]), so it decides. `follows`: a
+/// git step is linked after the agent, and weft will ask it for the commit. Without one the rule
+/// still holds (the folder may be shared), and a git step drawn after the agent started asks it with
+/// a `[weft]` request, which the rule lets through: a chain added later never contradicts it.
+pub fn git_rule(asked: bool, follows: bool) -> String {
+    let hands_off = format!(
+        "Git: reading (status, diff, log) is fine, but do not stage, commit, push, merge, rebase, stash, reset or switch branches \
+unless the person or a {TAG} request asks you to"
+    );
+    match (asked, follows) {
+        (true, false) => "Git: do only the git work your task asks for.".into(),
+        (true, true) => "Git: do only the git work your task asks for; a git step follows you on the canvas and does the rest.".into(),
+        (false, true) => format!("{hands_off}: a git step follows you on the canvas, and weft asks you when it is time."),
+        (false, false) => format!("{hands_off}: other agents may be working in this folder."),
+    }
+}
+
+/// Does a task ask for git work that changes the repository: a commit, a push, a pull request, a
+/// merge, a rebase ...? Then the task says what to do, and [`git_rule`] only keeps it to that. Words
+/// count from their start, English and German alike ("committed", "committen"; not "uncommitted").
+/// "push" and "merge" have other meanings ("push notifications", "merge two lists"), so they count only
+/// in a task that has a git word too, or with "it"/"them" after them. A miss costs little: the full rule
+/// lets the person's own request through anyway.
+pub fn asks_for_git(task: &str) -> bool {
+    const VERBS: [&str; 15] = [
+        "add", "commit", "push", "merge", "rebase", "reset", "stash", "checkout", "switch", "tag", "revert", "pull", "cherry", "restore",
+        "clean",
+    ];
+    const CONTEXT: [&str; 14] = [
+        "git", "branch", "branches", "origin", "remote", "upstream", "main", "master", "github", "gitlab", "repo", "repository", "worktree",
+        "pr",
+    ];
+    let lower = task.to_lowercase();
+    let words: Vec<&str> = lower.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
+    let next = |i: usize| words.get(i + 1).copied().unwrap_or("");
+    let context = words.iter().any(|w| CONTEXT.contains(w));
+    words.iter().enumerate().any(|(i, w)| match *w {
+        "pr" | "prs" => true,
+        "pull" | "merge" if next(i).starts_with("request") => true,
+        "cherry" if next(i) == "pick" => true,
+        "git" => VERBS.iter().any(|v| next(i).starts_with(v)),
+        w if ["commit", "comit", "rebase"].iter().any(|p| w.starts_with(p)) => true,
+        w if ["push", "gepush", "merge", "gemerg"].iter().any(|p| w.starts_with(p)) => context || ["it", "them"].contains(&next(i)),
+        _ => false,
+    })
+}
 
 /// Follows the person's answer to a report that asked them something: that report is not the result.
 pub fn answered() -> String {
@@ -80,7 +161,8 @@ it replaces your last report. Ask only what is still open."
     )
 }
 
-/// The first lines of the first message weft types into a session that is a step of a chain.
+/// The first lines of the first message weft types into a session that is a step of a chain (unless
+/// that message has the report addendum, which says all of this).
 pub fn intro() -> String {
     format!(
         "{TAG} You are one step in a chain of agents run by weft: your final message is handed to the next step as its input, so \
@@ -970,6 +1052,48 @@ mod tests {
             assert!(REPORT_ADDENDUM.contains(w), "{w}");
         }
         assert!(!REPORT_ADDENDUM_BEFORE.contains(&REPORT_ADDENDUM), "the current wording is not an old one");
+        // it says what weft is, as the intro would, and ends with the git line
+        for w in ["weft runs coding agents", "come from it, not from the person", "cannot see this conversation"] {
+            assert!(REPORT_ADDENDUM.contains(w), "{w}");
+        }
+        assert!(REPORT_ADDENDUM.ends_with("\n{{git}}"));
+    }
+
+    #[test]
+    fn the_git_line_hands_git_off_unless_the_task_asks_for_it() {
+        let off = git_rule(false, false);
+        assert!(off.contains("do not stage, commit, push") && off.contains("[weft] request asks you to") && off.contains("this folder"), "{off}");
+        let chain = git_rule(false, true);
+        assert!(chain.contains("do not stage, commit, push") && chain.contains("a git step follows you"), "{chain}");
+        assert!(!git_rule(true, false).contains("do not") && git_rule(true, true).contains("a git step follows you"));
+        // asks for git work
+        for t in [
+            "Fix the slug bug and commit it.",
+            "fix it, then commit and push",
+            "Bitte committen und pushen.",
+            "comit when the tests pass",
+            "open a PR for this",
+            "open a pull request",
+            "rebase onto main",
+            "run git checkout -b feature first",
+            "cherry-pick abc123 onto release",
+            "push it when the build is green",
+            "merge the feature branch into main",
+            "push to origin",
+        ] {
+            assert!(asks_for_git(t), "{t}");
+        }
+        // does not
+        for t in [
+            "Add push notifications to the settings page.",
+            "merge the two config dicts",
+            "There are 42 uncommitted files; fix the failing test.",
+            "explain what git log shows for slug.py",
+            "print the report",
+            "push the new frame onto the stack",
+        ] {
+            assert!(!asks_for_git(t), "{t}");
+        }
     }
 
     #[test]

@@ -590,11 +590,12 @@ impl Engine {
             };
         }
         let body = body.trim().to_string();
-        let full = self.append_addenda(node, body.clone()).trim().to_string();
+        let full = self.append_addenda(node, body.clone(), &node.prompt).trim().to_string();
         (body, full)
     }
 
-    /// What `{{weft}}`, `{{node}}` and `{{cwd}}` stand for in a template written for `node`.
+    /// What `{{weft}}`, `{{node}}` and `{{cwd}}` stand for in a template written for `node`. (`{{git}}`
+    /// is an addendum's only: see `append_addenda`.)
     pub(super) fn node_var(&self, node: &Node, key: &str) -> Option<String> {
         match key {
             "weft" => Some(self.boot.exe.clone()),
@@ -604,14 +605,19 @@ impl Engine {
         }
     }
 
-    /// `text` followed by the node's addenda, each expanded for this node.
-    fn append_addenda(&self, node: &Node, text: String) -> String {
+    /// `text` followed by the node's addenda, each expanded for this node. `task` is what the person
+    /// asked, without what earlier steps handed on: `{{git}}` is the git line for a task that does or
+    /// does not ask for git work itself (nor in another of its addenda), with or without a git step after it.
+    fn append_addenda(&self, node: &Node, text: String, task: &str) -> String {
+        let lib: Vec<_> = node.addenda.iter().filter_map(|aid| self.cfg.library.iter().find(|s| s.id == *aid)).collect();
+        let git = || {
+            let asked = words::asks_for_git(task) || lib.iter().any(|s| !s.text.contains("{{git}}") && words::asks_for_git(&s.text));
+            words::git_rule(asked, self.git_follows(&node.id))
+        };
         let mut full = text;
-        for aid in &node.addenda {
-            if let Some(s) = self.cfg.library.iter().find(|s| s.id == *aid) {
-                full.push_str("\n\n");
-                full.push_str(&expand(&s.text, &|k| self.node_var(node, k)));
-            }
+        for s in &lib {
+            full.push_str("\n\n");
+            full.push_str(expand(&s.text, &|k| if k == "git" { Some(git()) } else { self.node_var(node, k) }).trim_end());
         }
         // its answer goes down a "for each" link: the next step needs the jobs as a list
         if self.lists_jobs(&node.id) {
@@ -627,7 +633,7 @@ impl Engine {
         if node.kind() != Kind::Agent || node.finish != Finish::Idle || node.addenda.is_empty() || is_cli_command(text) {
             return text.to_string();
         }
-        self.append_addenda(node, text.trim_end().to_string())
+        self.append_addenda(node, text.trim_end().to_string(), text)
     }
 
     pub(super) fn render(&self, node: &Node, inputs: &[Input]) -> String {
