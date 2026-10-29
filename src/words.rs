@@ -966,6 +966,15 @@ and do not commit or report for it."
     )
 }
 
+/// The person moved the agent's card to another board; the next prompt it gets there says so (moves.rs).
+pub fn moved(from_board: &str, was: &str, to_board: &str, own_id: &str) -> String {
+    let id = if was == own_id { format!("it is still {own_id}") } else { format!("it is {own_id} there (it was {was})") };
+    format!(
+        "{TAG} Note: the person moved your card from the board \"{from_board}\" to the board \"{to_board}\"; {id}. \
+Your folder and your work stay as they are, and the weft commands reach your card where it is now."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

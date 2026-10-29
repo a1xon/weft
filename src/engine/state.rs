@@ -354,6 +354,8 @@ pub(super) struct Rt {
     pub(super) cps: Vec<Cp>,
     pub(super) cp_seq: u32,
     pub(super) rewound: Option<String>,
+    /// what the next prompt tells it about its card going to another board (see moves.rs)
+    pub(super) moved: Option<String>,
     /// a message pasted that has not been seen taken yet
     pub(super) typing: Option<Typing>,
     /// what the person typed into the terminal from the page since their last Enter
@@ -747,6 +749,7 @@ impl Rt {
             cps: Vec::new(),
             cp_seq: 0,
             rewound: None,
+            moved: None,
             typing: None,
             keyed: String::new(),
             briefed: false,
@@ -825,6 +828,7 @@ impl Rt {
             cps: self.cps.clone(),
             cp_seq: self.cp_seq,
             rewound: self.rewound.clone(),
+            moved: self.moved.clone(),
             briefed: self.briefed,
             ruled: self.ruled,
             finished: self.finished,
@@ -882,6 +886,7 @@ impl Rt {
         self.cps = s.cps.into_iter().filter(|c| !c.before.is_empty()).collect();
         self.cp_seq = s.cp_seq;
         self.rewound = s.rewound;
+        self.moved = s.moved;
         self.briefed = s.briefed;
         self.ruled = s.ruled;
         self.finished = s.finished;
@@ -1155,6 +1160,8 @@ pub(super) struct Saved {
     pub(super) cp_seq: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) rewound: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) moved: Option<String>,
     #[serde(default)]
     pub(super) briefed: bool,
     #[serde(default)]

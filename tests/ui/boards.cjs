@@ -110,6 +110,27 @@ const weft = (args, cwd) => cp.execFileSync(BIN, args, { cwd: cwd || W, encoding
   await padUp(p);
   ok(await until(async () => (await p.locator('.nw').count()) === 1), 'with its card');
 
+  // --- a card put on the wrong board goes to another one from its right-click menu
+  const asker = (await api(other, { op: 'ls' })).nodes.find(n => n.name === 'asker');
+  await p.keyboard.press('Escape'); await sleep(200);
+  await p.locator(`.nw[data-id="${asker.id}"] .hd`).click({ button: 'right' }); await sleep(200);
+  const moveItem = p.locator('.menu .mi', { hasText: 'move to another board' });
+  ok(await moveItem.isVisible(), 'its right-click menu can move it to another board');
+  await moveItem.click(); await sleep(200);
+  ok((await p.locator('.menu .cap').innerText()) === 'move asker to', 'a second menu asks where to: ' + await p.locator('.menu .cap').innerText());
+  ok(await p.locator('.menu .mi', { hasText: 'a new board' }).isVisible(), 'a new board is one of the choices');
+  await p.screenshot({ path: W + '/boards-4-move.png' });
+  await p.locator('.menu .mi', { hasText: /^proj/ }).click();
+  ok(await until(async () => (await p.locator('.nw').count()) === 0), 'the card leaves this board');
+  const moved = await until(async () => (await api(W + '/proj', { op: 'ls' })).nodes.some(n => n.name === 'asker'));
+  ok(moved, 'and is on proj, with its name');
+  const there = (await api(W + '/proj', { op: 'ls' })).nodes.find(n => n.name === 'asker');
+  const res = await api(W + '/proj', { op: 'result', id: there.id });
+  ok(/ASK_QUESTION fix the slug/.test(res.asked || ''), 'with what it was asked: ' + JSON.stringify(res.asked));
+  ok(await until(async () => /went to proj/.test(await p.locator('.toast').allInnerTexts().then(t => t.join(' ')))), 'this board says where it went');
+  // (proj opens on its pad below, as before)
+  await api(W + '/proj', { op: 'node_del', id: there.id });
+
   // --- leaving a sleeping board off the list
   await p.goto(url); await p.waitForSelector('#pad:not([hidden]) textarea');
   weft(['stop', other]);

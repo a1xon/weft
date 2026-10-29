@@ -63,6 +63,11 @@ pub fn find_running(dir: &Path) -> Option<Info> {
 /// Candidate daemons in order of preference: the pane's own environment, then
 /// the project it was started for (survives a daemon restart), then the cwd.
 pub fn endpoints() -> Vec<(u16, String)> {
+    // an agent whose card went to another board reaches it there, and only there (on the board it was
+    // started on, its card's id may be another card's by now)
+    if let Some(m) = crate::boards::moved_here() {
+        return find_running(Path::new(&m.dir)).map(|i| vec![(i.port, i.token)]).unwrap_or_default();
+    }
     let mut v: Vec<(u16, String)> = Vec::new();
     if let (Ok(url), Ok(tok)) = (std::env::var("WEFT_URL"), std::env::var("WEFT_TOKEN")) {
         if let Some(p) = url.rsplit(':').next().and_then(|p| p.trim_end_matches('/').parse::<u16>().ok()) {

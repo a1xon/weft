@@ -449,7 +449,9 @@ struct AgentArgs {
 
 impl AgentArgs {
     fn parse(args: &[String], switches: &[&str]) -> AgentArgs {
-        let mut a = AgentArgs { node: std::env::var("WEFT_NODE").ok(), ..AgentArgs::default() };
+        // (the card of an agent that went to another board has an id of its own there)
+        let node = boards::moved_here().map(|m| m.id).or_else(|| std::env::var("WEFT_NODE").ok());
+        let mut a = AgentArgs { node, ..AgentArgs::default() };
         let mut it = args.iter();
         while let Some(w) = it.next() {
             match w.as_str() {

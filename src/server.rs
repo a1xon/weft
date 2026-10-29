@@ -59,7 +59,8 @@ pub fn router(app: App) -> Router {
         .route("/f/{name}", get(font))
         .route("/shots/{name}", get(shot))
         .route("/api/shot", post(upload_shot).layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)))
-        .route("/api/cmd", post(api_cmd))
+        // (cards handed over by another board carry all they knew: see engine/moves.rs)
+        .route("/api/cmd", post(api_cmd).layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)))
         .merge(crate::dev::routes()) // dev: the page follows edits to web/ (src/dev.rs)
         .with_state(app)
 }

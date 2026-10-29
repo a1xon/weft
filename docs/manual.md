@@ -522,10 +522,22 @@ once, each with its agents (in as many folders as it likes, see above).
   board of its own anyway. The home folder and `/` never take in folders below them.
 * Your settings (last agent, model, addenda, library, networks) are the same on every board: a
   board picks up what you changed on another one when its page connects or comes to the front.
+* **A card put on the wrong board moves to another one:** *move to another board…* in its
+  right-click menu (or the menu of several selected cards), then the board, or *a new board…* in a
+  folder you pick. It arrives as it was: its prompt, result, folder (it keeps working where it
+  did), checks, and the prompts queued on it. An agent at work goes on working: its terminal moves
+  along, and its `weft done` reaches the card on the new board. The agent is told with the next
+  prompt it gets there ("the person moved your card from the board … to …; it is n12 there"), not
+  in a turn of its own, which would only make an answer that replaces its result. Links to cards
+  that stay are cut. Checks, git steps and deploys belong to the links they sit on and stay; so
+  does an agent that answers one of them right now. A card that is starting or taking a prompt
+  goes once that is over. If the other board does not take it, it stays where it was.
 
-Boards never call each other: each daemon writes what it is doing (agents, working, needs you,
+Boards do not watch each other: each daemon writes what it is doing (agents, working, needs you,
 cards, its agents' folders) to `<id>.live.json` beside its record in `~/.local/state/weft/`, and
-a board with a page open reads the others' every few seconds.
+a board with a page open reads the others' every few seconds. Only a move hands something over: the
+board the cards leave sends them to the other board's daemon (waking it), the way the archive
+keeps them, and the other one takes them in like filed work that comes back.
 
 ### Marks from the browser
 
@@ -875,7 +887,7 @@ Everything goes through one small local HTTP API, so scripts can drive a flow to
 | `<project>/.weft/state.json`, `run/`, `shots/` | run state, prompt files, images; git-ignored |
 | `<project>/.weft/archive.json`, `archive/` | filed work: an index, and a gzipped pack per drop (cards, links, results); git-ignored |
 | `~/.config/weft/config.json` | **your overrides only**, merged onto the defaults; also your saved networks |
-| `~/.local/state/weft/` | per board: the daemon's record (port, token), `<id>.live.json` (what it is doing, for the board list), its log; `recent` |
+| `~/.local/state/weft/` | per board: the daemon's record (port, token), `<id>.live.json` (what it is doing, for the board list), its log; `recent`; `moved/`: where the card of an agent that moved while it ran is now (its `weft` commands look there) |
 
 ```json
 {
@@ -1009,6 +1021,7 @@ src/engine/        the single actor that owns all state
     info.rs        the folders agents work in (branch, uncommitted files, sibling folders), each CLI's model list
     boards.rs      this board's live file, the other boards for the pages, open / rename / forget, shared settings
     marks.rs       a mark from the browser becomes a card: a new agent set up like the launch pad's, or a queued prompt
+    moves.rs       cards moved to another board: packed here, taken in there, a working agent's window moved along
 web/               index.html (the shell), css/*.css and js/*.js (joined in file order); dev.js (dev only)
 extension/         the browser extension: background.js (button, screenshots, native messaging), mark.js (the
                    picker and the note box), probe.js (in the page's own world: components, console),

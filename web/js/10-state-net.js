@@ -105,6 +105,7 @@ function loadState(m) {
   applyFlow(m.flow.nodes, m.flow.edges);
   S.talkLog = m.talk || []; S.talkOn = Array.isArray(m.talk);
   S.fixOn = !!m.fix;
+  S.moveOn = !!m.move;
   applyTalks(m.flow.talks);
   for (const id of S.nodes.keys()) renderRt(id);
   onArchive({ groups: m.archive });

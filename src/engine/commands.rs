@@ -142,6 +142,22 @@ pub enum Cmd {
     BoardName {
         name: String,
     },
+    /// Move cards to the board in `dir` (see moves.rs). Answered in `Engine::handle`, once that board
+    /// has them or could not take them.
+    CardMove {
+        ids: Vec<String>,
+        dir: String,
+    },
+    /// Cards another board's daemon hands over: `pack` as the archive keeps them, the windows of its
+    /// agents at work, and the folder and name of the board they come from.
+    CardTake {
+        pack: Value,
+        #[serde(default)]
+        wins: HashMap<String, Win>,
+        from: String,
+        #[serde(default)]
+        board: String,
+    },
     /// The commits of a folder's branch for the git tree in the corner ("": what is checked out,
     /// "*": every branch), or one commit in full (`show`). Answered in `Engine::handle`, off the engine.
     /// `remote`: ask the remote first where its branches are (fetching what moved there).
@@ -512,7 +528,10 @@ impl Engine {
             Cmd::Models { agent, force } => self.cmd_models(agent, force),
             Cmd::Usage { agent, again } => self.cmd_usage(agent, again),
             // (these answer when their job is done: `Engine::handle` gives them the caller's reply)
-            Cmd::Log { .. } | Cmd::CpDiff { .. } | Cmd::BoardOpen { .. } => json!({"ok": false, "error": "it answers by itself"}),
+            Cmd::Log { .. } | Cmd::CpDiff { .. } | Cmd::BoardOpen { .. } | Cmd::CardMove { .. } => {
+                json!({"ok": false, "error": "it answers by itself"})
+            }
+            Cmd::CardTake { pack, wins, from, board } => self.cmd_card_take(pack, wins, from, board),
             Cmd::BoardForget { dir } => self.cmd_board_forget(dir),
             Cmd::BoardName { name } => self.cmd_board_name(name),
             Cmd::LibSet { library } => self.cmd_lib_set(library),

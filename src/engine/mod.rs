@@ -51,6 +51,7 @@ mod limits;
 mod loose;
 mod marks;
 mod merge;
+mod moves;
 mod reads;
 mod repo;
 mod resume;
@@ -77,6 +78,7 @@ use ci::*;
 use deploy::*;
 use limits::*;
 use loose::*;
+use moves::*;
 use repo::*;
 use resume::*;
 use rewind::*;
@@ -201,6 +203,31 @@ pub enum Ev {
     },
     /// What every board is doing, as the pages list them (see boards.rs).
     Boards(Vec<Value>),
+    /// The board cards are moved to is up, or could not be woken (see moves.rs).
+    MoveTo {
+        ids: Vec<String>,
+        dir: PathBuf,
+        to: Result<crate::client::Info, String>,
+        reply: Option<oneshot::Sender<Value>>,
+        /// how often it was looked at again because a card was just starting or being given a prompt
+        tries: u32,
+    },
+    /// That board took the cards (its answer), or did not: then they come back (`pack`, `wins`).
+    Moved {
+        pack: Value,
+        wins: HashMap<String, Win>,
+        board: String,
+        stay: Vec<String>,
+        res: Result<Value, String>,
+        reply: Option<oneshot::Sender<Value>>,
+    },
+    /// The window of an agent that came over from another board is in this board's session now, with
+    /// what its pane shows and whether its program has ended (None: it was gone).
+    Arrived {
+        id: String,
+        w: Win,
+        got: Option<(Snap, bool)>,
+    },
 }
 /// A pane as tmux shows it: the rows (with history when asked for), the cursor, whether the
 /// program is on the alternate screen, the mouse modes it set, and the pane's size.
@@ -317,6 +344,8 @@ pub struct Engine {
     talk_due: Option<Instant>,
     /// the other boards, and what this one told them last (see boards.rs)
     boards: Boards,
+    /// windows that are coming over from another board, and since when (ms): see moves.rs
+    arriving: HashMap<String, u64>,
 }
 
 /// How the daemon was asked to leave: the agents carry on in tmux (the next `weft` adopts them),
@@ -379,6 +408,7 @@ impl Engine {
             writing: HashMap::new(),
             talk_due: None,
             boards,
+            arriving: HashMap::new(),
         };
         let mut saved: HashMap<String, Saved> = load_json(&e.state_path).unwrap_or_default();
         let mut max_q = 0;
@@ -474,46 +504,51 @@ impl Engine {
     /// answer would count as its own result and start that step all over again).
     pub(super) fn resume_steps(&mut self) {
         let ids: Vec<String> = self.rt.keys().cloned().collect();
-        for id in ids {
-            let Some(r) = self.rt.get(&id) else { continue };
-            if !r.alive {
-                let r = self.rt.get_mut(&id).unwrap();
-                r.cur = None;
-                r.reply_to = None;
-                continue;
-            }
-            if r.cur.is_none() && r.reply_to.is_none() && r.armed && !r.finished && r.queue.is_empty() {
-                let asked = r.asked.clone();
-                let step = self.flow.nodes.iter().map(|n| n.id.clone()).find(|s| {
-                    self.node(s).is_some_and(|n| n.kind() == Kind::Step && n.host == id)
-                        && self.rt.get(s).is_some_and(|x| !x.finished && x.runs > 0)
-                });
-                if let Some(step) = step {
-                    let expect_signal = self.reports_with_commands(&asked);
-                    let rule = !expect_signal && self.cfg.chain_status && self.step_is_consumed(&id, &Src::Reply(step.clone()));
-                    if let Some(s) = self.rt.get_mut(&step) {
-                        s.step_wait = Some(id.clone());
-                    }
-                    let r = self.rt.get_mut(&id).unwrap();
-                    r.reply_to = Some(step);
-                    // (an agent that was briefed before this step was given the short rule)
-                    let extra = if rule { words::status_rule(false) } else { String::new() };
-                    r.cur = Some(Step { expect_signal, rule, extra, ..Step::new(asked, Vec::new()) });
-                }
-            }
-            let r = self.rt.get_mut(&id).unwrap();
-            if r.cur.is_some() {
-                let lines = term::lines(&mut r.parser);
-                if let Some(c) = r.cur.as_mut() {
-                    c.rebase(lines);
-                }
-            }
+        for id in &ids {
+            self.resume_step(id);
         }
-        let ids: Vec<String> = self.rt.keys().cloned().collect();
         for id in &ids {
             self.reread(id);
         }
         self.resume_gates(&ids);
+    }
+
+    /// One agent's part of `resume_steps` (also for one whose window came over from another board).
+    pub(super) fn resume_step(&mut self, id: &str) {
+        let id = id.to_string();
+        let Some(r) = self.rt.get(&id) else { return };
+        if !r.alive {
+            let r = self.rt.get_mut(&id).unwrap();
+            r.cur = None;
+            r.reply_to = None;
+            return;
+        }
+        if r.cur.is_none() && r.reply_to.is_none() && r.armed && !r.finished && r.queue.is_empty() {
+            let asked = r.asked.clone();
+            let step = self.flow.nodes.iter().map(|n| n.id.clone()).find(|s| {
+                self.node(s).is_some_and(|n| n.kind() == Kind::Step && n.host == id)
+                    && self.rt.get(s).is_some_and(|x| !x.finished && x.runs > 0)
+            });
+            if let Some(step) = step {
+                let expect_signal = self.reports_with_commands(&asked);
+                let rule = !expect_signal && self.cfg.chain_status && self.step_is_consumed(&id, &Src::Reply(step.clone()));
+                if let Some(s) = self.rt.get_mut(&step) {
+                    s.step_wait = Some(id.clone());
+                }
+                let r = self.rt.get_mut(&id).unwrap();
+                r.reply_to = Some(step);
+                // (an agent that was briefed before this step was given the short rule)
+                let extra = if rule { words::status_rule(false) } else { String::new() };
+                r.cur = Some(Step { expect_signal, rule, extra, ..Step::new(asked, Vec::new()) });
+            }
+        }
+        let r = self.rt.get_mut(&id).unwrap();
+        if r.cur.is_some() {
+            let lines = term::lines(&mut r.parser);
+            if let Some(c) = r.cur.as_mut() {
+                c.rebase(lines);
+            }
+        }
     }
 
     pub async fn run(mut self, mut rx: mpsc::UnboundedReceiver<Ev>) {
@@ -643,6 +678,11 @@ impl Engine {
             // (a sleeping board's daemon takes a moment to come up)
             Ev::Cmd { cmd: Cmd::BoardOpen { dir, window }, reply, .. } => self.cmd_board_open(dir, window, reply),
             Ev::Boards(list) => self.on_boards(list),
+            // (the board the cards go to may have to wake up first)
+            Ev::Cmd { cmd: Cmd::CardMove { ids, dir }, reply, .. } => self.cmd_card_move(ids, dir, reply),
+            Ev::MoveTo { ids, dir, to, reply, tries } => self.on_move_to(ids, dir, to, reply, tries),
+            Ev::Moved { pack, wins, board, stay, res, reply } => self.on_moved(pack, wins, board, stay, res, reply),
+            Ev::Arrived { id, w, got } => self.on_arrived(id, w, got),
             Ev::Cmd { client, cmd, reply } => {
                 if client.is_some() && cmd.is_work() {
                     self.worked();
@@ -699,6 +739,9 @@ impl Engine {
                 self.restart_if_queued(&id);
             }
             TEv::WinClosed { win } => {
+                if self.came_over(&win) {
+                    return;
+                }
                 let Some(id) = self.wins.remove(&win) else { return };
                 if let Some(rt) = self.rt.get_mut(&id) {
                     if let Some(p) = rt.pane.take() {

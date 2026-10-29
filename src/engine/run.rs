@@ -514,6 +514,12 @@ impl Engine {
                 item.text = format!("{note}\n\n{}", item.text);
             }
         }
+        // its card went to another board since its last prompt (moves.rs)
+        if agent && plain {
+            if let Some(note) = self.rt.get_mut(id).and_then(|r| r.moved.take()) {
+                item.text = format!("{note}\n\n{}", item.text);
+            }
+        }
         // the answer to a report that asked the person something: the questions they quoted are settled,
         // and the next report has to stand on its own (it replaces that one)
         let task = agent && plain && !self.weft_asks(&item.src);

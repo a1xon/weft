@@ -144,6 +144,34 @@ function openBoard(dir, ev) {
     location.href = r.url;
   });
 }
+/* move cards to another board (their right-click menu): agents and notes go, with what they knew and
+   the prompts queued on them; an agent at work goes on working there. Links to cards that stay are cut. */
+const movable = n => !!n && (kindOf(n) === 'note' || (kindOf(n) === 'agent' && n.agent !== 'step' && !n.deploy));
+function moveItems(ids, x, y) {
+  const can = ids.filter(id => movable(S.nodes.get(id)));
+  if (!S.moveOn || !BD.on || !can.length) return [];
+  return [{ label: can.length > 1 ? `move ${can.length} to another board\u2026` : 'move to another board\u2026',
+    hint: 'put on the wrong one', run: () => moveMenu(can, x, y) }];
+}
+function moveMenu(ids, x, y) {
+  const others = BD.list.filter(b => !b.me);
+  const what = ids.length === 1 ? (S.nodes.get(ids[0]) || {}).name || ids[0] : `${ids.length} cards`;
+  popup([
+    { cap: `move ${what} to` },
+    ...others.map(b => ({ label: boardLabel(b), hint: b.up ? '' : 'asleep: it wakes up', run: () => moveCards(ids, b.dir, boardLabel(b)) })),
+    ...(others.length ? [{ sep: true }] : []),
+    { label: 'a new board\u2026', hint: 'in a folder you pick', run: () => folderPicker(x, y, { title: `move ${what} to a new board in`, cur: '', refocus: false,
+      onPick: d => moveCards(ids, d, baseName(d)) }) },
+  ], x, y);
+}
+function moveCards(ids, dir, label) {
+  // (the daemon says when they are there; a board that sleeps takes a moment to come up)
+  req('card_move', { ids, dir }, 30000).then(r => {
+    if (r && r.error === 'timeout') r.error = `${label} did not answer in time`;
+    if (!r || !r.ok) return toast('err', (r && r.error) || 'could not move it');
+    if (r.stay && r.stay.length) toast('warn', `stayed here: ${r.stay.join('; ')}`);
+  });
+}
 function newBoard(anchor) {
   const r = anchor.getBoundingClientRect();
   folderPicker(r.left, r.bottom + 6, { title: 'a new board in', cur: '', refocus: false, onPick: d => openBoard(d) });

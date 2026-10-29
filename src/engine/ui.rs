@@ -296,6 +296,8 @@ impl Engine {
             "boards": self.boards.list(),
             // (the page offers to fix what failed only to a daemon that can: see fix.rs)
             "fix": true,
+            // (and to move cards to another board only one that can take them in: see moves.rs)
+            "move": true,
         })
     }
 

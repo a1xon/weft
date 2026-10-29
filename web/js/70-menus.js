@@ -125,7 +125,7 @@ function nodeMenu(id, x, y) {
       { label: 'add an agent that uses it', run: () => spawnLinked(id, 'next') },
     );
   }
-  items.push({ sep: true }, ...archItems(id), { label: 'delete', danger: true, hint: 'del', run: () => deleteNodes([id]) });
+  items.push({ sep: true }, ...moveItems([id], x, y), ...archItems(id), { label: 'delete', danger: true, hint: 'del', run: () => deleteNodes([id]) });
   popup(items, x, y);
 }
 function multiMenu(x, y) {
@@ -141,6 +141,7 @@ function multiMenu(x, y) {
     { label: 'stop all', run: () => ids.forEach(i => send('stop', { id: i })) },
     { label: 'tidy up', run: tidy },
     { sep: true },
+    ...moveItems(ids, x, y),
     ...archMulti(ids),
     { label: `delete ${ids.length}`, danger: true, hint: 'del', run: () => deleteNodes(ids) },
   ], x, y);

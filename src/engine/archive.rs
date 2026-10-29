@@ -725,10 +725,20 @@ impl Engine {
         let Some(pos) = self.archive.groups.iter().position(|g| g.id == group) else {
             return json!({"ok": false, "error": "that is no longer in the archive"});
         };
-        let Some(mut g) = self.open_pack(&self.archive.groups[pos]) else {
+        let Some(g) = self.open_pack(&self.archive.groups[pos]) else {
             return json!({"ok": false, "error": "its cards could not be read from the archive"});
         };
         self.take_group(pos);
+        let (order, _) = self.bring_in(g, dx, dy, false);
+        self.archive_changed(None);
+        json!({"ok": true, "ids": order})
+    }
+
+    /// Cards that come back from the archive, or come over from another board (`foreign`, see
+    /// moves.rs), moved by (dx, dy): the same ids where they are free, what each knew, and their links
+    /// (a foreign card's only among the cards that came with it: here the ids of the cards it was tied
+    /// to are other cards). Returns their ids here, in order, and the ids they had.
+    pub(super) fn bring_in(&mut self, mut g: Pack, dx: f64, dy: f64, foreign: bool) -> (Vec<String>, HashMap<String, String>) {
         let (dx, dy) = (if dx.is_finite() { dx } else { 0.0 }, if dy.is_finite() { dy } else { 0.0 });
         let now = now_ms();
         // the same ids where they are free (they are, unless the files were edited by hand)
@@ -757,23 +767,51 @@ impl Engine {
         }
         // (nothing it asked comes back with it)
         self.resume_gates(&order);
+        let tie = |id: &mut String| match ids.get(id.as_str()) {
+            Some(t) => *id = t.clone(),
+            None if foreign => id.clear(),
+            None => {}
+        };
         for n in self.flow.nodes.iter_mut().filter(|n| order.contains(&n.id)) {
-            if let Some(t) = ids.get(&n.takeover) {
-                n.takeover = t.clone();
+            tie(&mut n.takeover);
+            tie(&mut n.host);
+            if foreign {
+                tie(&mut n.twin);
+                tie(&mut n.each_of);
+                n.fixes.retain(|f| ids.contains_key(f));
+                for f in &mut n.fixes {
+                    tie(f);
+                }
             }
-            if let Some(h) = ids.get(&n.host) {
-                n.host = h.clone();
+        }
+        if foreign {
+            // the step an agent answers, and the agent a step waits for, came along or are not here
+            for id in &order {
+                let Some(rt) = self.rt.get_mut(id) else { continue };
+                for t in [&mut rt.reply_to, &mut rt.step_wait] {
+                    *t = t.as_ref().and_then(|x| ids.get(x)).cloned();
+                }
+                for (_, i) in rt.inputs.iter_mut() {
+                    if let Some(t) = ids.get(&i.from) {
+                        i.from = t.clone();
+                    }
+                }
             }
         }
         // links come back without delivering anything: what arrived before was used then
         let mut taken = self.taken_ids(true);
+        let mut links: HashMap<String, String> = HashMap::new();
         for mut e in std::mem::take(&mut g.edges) {
+            if foreign && !(ids.contains_key(&e.from) && ids.contains_key(&e.to)) {
+                continue;
+            }
             e.from = ids.get(&e.from).cloned().unwrap_or(e.from);
             e.to = ids.get(&e.to).cloned().unwrap_or(e.to);
             if self.node(&e.from).is_none() || self.node(&e.to).is_none() || self.flow.edges.iter().any(|x| x.from == e.from && x.to == e.to)
             {
                 continue;
             }
+            let was = e.id.clone();
             if self.flow.edges.iter().any(|x| x.id == e.id) {
                 let old = std::mem::replace(&mut e.id, self.next_id("e", taken.iter().cloned()));
                 taken.push(e.id.clone());
@@ -783,12 +821,16 @@ impl Engine {
                     }
                 }
             }
+            links.insert(was, e.id.clone());
             self.flow.edges.push(e);
         }
         let live: Vec<String> = self.flow.edges.iter().map(|e| e.id.clone()).collect();
         for id in &order {
             if let Some(rt) = self.rt.get_mut(id) {
                 rt.inputs.retain(|(eid, _)| live.contains(eid));
+                if foreign {
+                    rt.unsent = rt.unsent.iter().filter_map(|l| links.get(l).cloned()).collect();
+                }
             }
             if self.node(id).is_some_and(|n| n.kind() == Kind::Note) {
                 self.refresh_note(id);
@@ -800,8 +842,7 @@ impl Engine {
         }
         self.state_dirty = true;
         self.flow_changed();
-        self.archive_changed(None);
-        json!({"ok": true, "ids": order})
+        (order, ids)
     }
 
     /// What filed work was asked and said, in full.

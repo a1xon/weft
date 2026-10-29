@@ -56,6 +56,61 @@ pub fn write_live(dir: &Path, live: &Live) {
     }
 }
 
+/// A running agent whose card went to another board (see engine/moves.rs) still has the address of
+/// the board it was started on and its card id there in its environment. The board that has it now
+/// notes where the card is, under the agent's tmux server and pane, so its `weft` commands reach it.
+/// (Pane ids are never given twice by one tmux server, and the server's pid is in the name.)
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct Moved {
+    /// what its environment says: the board it was started on (`WEFT_PROJECT`) and its card there
+    pub from_dir: String,
+    pub from: String,
+    /// where its card is now
+    pub dir: String,
+    pub id: String,
+}
+
+/// How long a note of a moved agent is kept (one that ran that long without resting is rare).
+const MOVED_KEEP: Duration = Duration::from_secs(30 * 86400);
+
+/// `server`: the tmux server as `$TMUX` names it ("<socket>,<pid>"); `pane`: "%12".
+fn moved_path(server: &str, pane: &str) -> PathBuf {
+    state_dir().join("moved").join(format!("{:016x}-{}.json", model::fnv1a(server.as_bytes()), pane.trim_start_matches('%')))
+}
+
+pub fn moved_of(server: &str, pane: &str) -> Option<Moved> {
+    load_json(&moved_path(server, pane))
+}
+
+/// Note where the agent in `pane` went (None: back where its environment says, nothing to note).
+pub fn note_moved(server: &str, pane: &str, m: Option<&Moved>) {
+    let p = moved_path(server, pane);
+    let Some(m) = m else {
+        let _ = std::fs::remove_file(&p);
+        return;
+    };
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+        for e in std::fs::read_dir(d).into_iter().flatten().flatten() {
+            if e.metadata().and_then(|m| m.modified()).is_ok_and(|t| t.elapsed().is_ok_and(|a| a > MOVED_KEEP)) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    if let Ok(b) = serde_json::to_vec(m) {
+        let _ = write_atomic(&p, &b);
+    }
+}
+
+/// Inside an agent's pane: where its card is now, when it went to another board since the agent started.
+pub fn moved_here() -> Option<Moved> {
+    let var = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+    // ("<socket>,<pid>,<session>")
+    let tmux = var("TMUX")?;
+    let m = moved_of(tmux.rsplit_once(',')?.0, &var("TMUX_PANE")?)?;
+    (var("WEFT_PROJECT")? == m.from_dir && var("WEFT_NODE")? == m.from).then_some(m)
+}
+
 /// One board as the list shows it.
 #[derive(Clone, Debug)]
 pub struct Board {
