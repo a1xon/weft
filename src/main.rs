@@ -586,15 +586,12 @@ fn report(args: &[String], default: Report) -> Result<i32, String> {
     };
     let node = a.node()?;
     let mut text = a.words.join(" ");
-    if !std::io::stdin().is_terminal() {
-        let mut s = String::new();
-        std::io::stdin().read_to_string(&mut s).ok();
-        if !s.trim().is_empty() {
-            if !text.is_empty() {
-                text.push('\n');
-            }
-            text.push_str(s.trim());
-        }
+    // stdin only when the text is not given: Claude Code runs a command that has a heredoc anywhere in
+    // it with a socket as stdin that never ends, and `weft fail "<why>"` waited on it for good
+    if text == "-" || (text.is_empty() && !std::io::stdin().is_terminal()) {
+        text.clear();
+        std::io::stdin().read_to_string(&mut text).ok();
+        text = text.trim().to_string();
     }
     let id = if node.starts_with('n') && node[1..].chars().all(|c| c.is_ascii_digit()) { node } else { client::resolve(&node)? };
     let r = client::call(json!({"op": "done", "id": id, "ok": kind != Report::Fail, "issue": kind == Report::Issue, "text": text}))?;

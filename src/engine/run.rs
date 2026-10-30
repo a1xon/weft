@@ -704,6 +704,10 @@ impl Engine {
         if self.node(&id).is_none() {
             return json!({"ok": false, "error": "no such node"});
         }
+        // the example from the instructions, run as it stands (an ISSUE of "<the questions>" asked the person nothing)
+        if words::only_placeholders(&text) {
+            return json!({"ok": false, "error": words::PLACEHOLDER_REPORT});
+        }
         if let Some(r) = self.rt.get_mut(&id) {
             // a report is the agent's own word that it has the message: no reason to paste it again
             r.typing = None;

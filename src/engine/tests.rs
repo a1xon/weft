@@ -121,31 +121,18 @@ fn the_report_addendum_leaves_git_to_the_person_and_the_git_steps() {
     };
     add(&mut e, "a", "worker", "Fix the slug bug.");
     let lone = full(&e, "Fix the slug bug.", None);
-    assert!(lone.ends_with("other agents may be working in this folder."), "{lone}");
+    assert!(lone.ends_with(words::GIT_RULE), "{lone}");
     assert!(!lone.contains("{{git}}"));
-    // the person asked for a commit: the task decides
-    let asked = full(&e, "Fix the slug bug and commit it.", None);
-    assert!(asked.ends_with("Git: do only the git work your task asks for."), "{asked}");
-    assert!(full(&e, "x", Some("now commit and push")).ends_with("your task asks for."), "a typed message is read the same way");
-    // what an earlier step handed on is not the person asking
-    let n = node("a", "worker", "Fix the slug bug.");
-    let ins = vec![Input { from: "n0".into(), name: "plan".into(), ok: true, text: "I committed 3 files".into(), kind: InputKind::Result }];
-    let mut n2 = n.clone();
-    n2.addenda = vec!["report-done".into()];
-    assert!(e.render_parts(&n2, &ins).1.ends_with("this folder."));
-    // a git step drawn after the agent (also after it started): weft will ask it for the commit
+    // the same line whatever the task says about git (the person's own request goes through it),
+    // in a typed message too, and with a git step linked after the agent
+    for (prompt, typed) in [("Fix the slug bug and commit it.", None), ("x", Some("why do agents ask me to commit?"))] {
+        assert!(full(&e, prompt, typed).ends_with(words::GIT_RULE), "{prompt} {typed:?}");
+    }
     add_kind(&mut e, "t", "tests", "tests", "");
     add_kind(&mut e, "g", "commit", "git", "");
     link(&mut e, "e1", "a", "t", On::Done);
     link(&mut e, "e2", "t", "g", On::Ok);
-    let chain = full(&e, "Fix the slug bug.", Some("and wrap.py too"));
-    assert!(chain.contains("do not stage, commit") && chain.ends_with("weft asks you when it is time."), "{chain}");
-    // a git step after another agent commits that agent's work
-    e.flow.edges.retain(|x| x.id != "e2");
-    add(&mut e, "b", "other", "x");
-    link(&mut e, "e3", "t", "b", On::Ok);
-    link(&mut e, "e4", "b", "g", On::Ok);
-    assert!(full(&e, "Fix the slug bug.", None).ends_with("this folder."));
+    assert!(full(&e, "Fix the slug bug.", Some("and wrap.py too")).ends_with(words::GIT_RULE));
 }
 
 #[test]
@@ -1923,6 +1910,26 @@ fn every_prompt_to_an_agent_asks_for_the_status_line_and_only_a_chain_step_is_to
     assert_eq!(told(&e, "explain slug.py", Src::Flow), (true, true));
     e.cfg.chain_status = false;
     assert_eq!(told(&e, "explain slug.py", Src::Flow), (true, false), "chain_status off: no status line anywhere");
+}
+
+#[test]
+fn a_report_that_is_only_the_example_is_turned_down() {
+    let mut e = engine();
+    deferring_agent(&mut e, with_command());
+    // n232 ran the addendum's example: an ISSUE of "<the questions>" asked the person nothing
+    let examples =
+        [(true, true, "<where you are, in a line or two>\n<the questions>"), (false, false, "<why>"), (true, false, "<summary: results>")];
+    for (ok, issue, text) in examples {
+        let r = e.cmd_done("a".into(), ok, text.into(), issue);
+        assert_eq!(r["ok"], false, "{text}: {r}");
+        assert!(r["error"].as_str().unwrap().contains("example"), "{r}");
+    }
+    let rt = &e.rt["a"];
+    assert!(rt.issue.is_none() && !rt.finished && rt.cur.is_some(), "the step goes on as if nothing came");
+    assert_eq!(rt.status, Status::Busy);
+    // a report that only starts like the example is a report
+    assert_eq!(e.cmd_done("a".into(), true, "<where you are, in a line or two>\nWhich API version?".into(), true)["ok"], true);
+    assert_eq!(e.rt["a"].status, Status::Attention);
 }
 
 #[test]

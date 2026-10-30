@@ -771,13 +771,14 @@ line, unless it has the addendum below (which says what weft is itself, so it re
 Agents that can run a shell say the same words with commands, which carry exact text:
 `weft done "..."`, `weft issue "..."`, `weft fail "..."`. The **Report with weft commands** addendum
 is on by default, so new agents get these commands and not the status line; switch it off for an
-agent to get the status line back. It starts with two lines on what weft is and ends with a line on git
-(`{{git}}`): an agent may read git but not stage, commit, push, merge, rebase, stash, reset or switch
-branches unless you or a `[weft]` request ask it to, because the folder may be shared and a git step
-does that. With a git step linked after the agent (past its queued prompts and gates) the line says
-that step will ask it; a git step drawn later asks with a `[weft]` request, which the line lets
-through. A task that asks for git work itself (commit, PR, rebase, `git checkout` ...; *push* and
-*merge* only next to a git word) gets *do only the git work your task asks for* instead. An agent told to use the commands that goes quiet without doing
+agent to get the status line back. It starts with two lines on what weft is, tells the agent to name
+work it did not do instead of offering it (*want me to ...?* would hold the report as a question), and
+ends with a line on git (`{{git}}`), the same for every task: run only git commands that read; do not
+commit, push, stage, stash, reset or switch branches, and do not ask or offer to, because weft asks
+when it is time; do such git work only when you or a `[weft]` request ask for it. A git step asks the
+agent with a `[weft]` request, also one drawn after the agent started, and a task of yours that says
+*commit it* is you asking. A report that is nothing but the example's `<...>` lines is turned down
+(the agent is told to run the command again with its own text). An agent told to use the commands that goes quiet without doing
 so is finished by that silence (after a grace of `signal_grace_s`, 12 s); weft types nothing into it.
 
 A prompt is typed only into a process that is **up**: it has drawn something and then gone quiet

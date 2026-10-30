@@ -202,26 +202,6 @@ impl Engine {
         None
     }
 
-    /// Is a git step linked after `id`, past its queued prompts and gates? Then weft asks this agent for
-    /// the commit (git.rs). Past another agent it is that agent's work the step commits.
-    pub(super) fn git_follows(&self, id: &str) -> bool {
-        let mut seen = std::collections::HashSet::new();
-        let mut todo = vec![id.to_string()];
-        while let Some(at) = todo.pop() {
-            if !seen.insert(at.clone()) {
-                continue;
-            }
-            for e in self.flow.edges.iter().filter(|e| e.from == at) {
-                match self.node(&e.to).map(Node::kind) {
-                    Some(Kind::Git) => return true,
-                    Some(k) if k == Kind::Step || k.is_gate() => todo.push(e.to.clone()),
-                    _ => {}
-                }
-            }
-        }
-        false
-    }
-
     /// A queued prompt is asked of the agent it is linked after, and so is the one behind it: when a
     /// step moves to another agent the steps (and gates) after it go with it. `host` is a copy made
     /// when a link was drawn; this is where it is kept true to the graph. A step with several links
