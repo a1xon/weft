@@ -116,6 +116,15 @@ try:
     out = cli("read", "C").stdout
     check("result-from-A" in out and "result-from-B" in out, "downstream received both outputs")
 
+    # 1b. Claude Code would list the other cards' edits in the folder under an agent's shell commands
+    s = add(name="sleeper", agent="sh", cmd="sleep 20", prompt="go", addenda=[])
+    call("start", id=s)
+    wait(lambda: status(s)[0] == "busy", "sleeper busy")
+    pids = [l.split()[1] for l in tmux("list-panes", "-a", "-F", "#{window_name} #{pane_pid}").splitlines() if l.split()[0] == s]
+    env = open("/proc/%s/environ" % pids[0], "rb").read().split(b"\0") if pids and os.path.isdir("/proc") else [b"CLAUDE_CODE_BASH_EDIT_DIFF=0"]
+    check(b"CLAUDE_CODE_BASH_EDIT_DIFF=0" in env, "an agent starts with Claude Code's list of changed files off")
+    call("node_del", id=s)
+
     # 2. the screen going quiet finishes an interactive process; its transcript flows on
     for n in call("ls")["nodes"]:
         call("node_del", id=n["id"])

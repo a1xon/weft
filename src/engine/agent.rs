@@ -259,6 +259,10 @@ impl Engine {
             ("WEFT_TOKEN".to_string(), self.boot.token.clone()),
             ("WEFT_BIN".to_string(), self.boot.exe.clone()),
             ("WEFT_PROJECT".to_string(), self.boot.dir.to_string_lossy().into_owned()),
+            // Claude Code lists, under a shell command, every file that changed while it ran, whoever
+            // changed it: a card would show the work of the others in its folder. Its own edits through
+            // the shell go unlisted too; Edit and Write still show theirs.
+            ("CLAUDE_CODE_BASH_EDIT_DIFF".to_string(), "0".to_string()),
         ];
         let plan = SpawnPlan {
             tm,

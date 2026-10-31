@@ -1060,6 +1060,10 @@ state, and nothing inside `repo.rs` knows what a node is.
 * A step's "before" snapshot is taken as its prompt goes out, not before: an edit the agent makes in
   its first moment can land in it. Two agents working in one folder show each other's edits in
   their steps; undo leaves what changed since alone, but cannot tell whose an edit was.
+* Claude Code lists under a shell command every file that changed while it ran, by anyone, so a card
+  would show its neighbours' edits. weft starts its agents with `CLAUDE_CODE_BASH_EDIT_DIFF=0`,
+  which turns that list off; a card's own edits made through the shell are no longer listed either
+  (Edit and Write still show theirs). Cards started before this keep the list until they restart.
 * The CI check reads GitHub Actions runs with `gh` (`gh` in `config.json` names another one). It
   looks at one repository, the folder of the work, and at the runs of one commit.
 * Usage limits are read from the CLI's own words (`limits` per agent). A CLI that words it
