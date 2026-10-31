@@ -393,7 +393,7 @@ impl Engine {
             rt.typing = None;
             return;
         };
-        match if t.started_turn(rt.turn) { Typed::Taken } else { t.next(rt.parser.screen(), rt.last_change, now, submit) } {
+        match if t.started_turn(rt.turn) { Typed::Taken } else { t.next(rt.parser.screen(), rt.queued, rt.last_change, now, submit) } {
             Typed::Wait => {}
             Typed::Enter => {
                 tm.send_key(&pane, "Enter");
@@ -541,6 +541,8 @@ impl Engine {
                 rt.keyed.pop();
             }
             "C-c" | "C-u" | "Escape" => rt.keyed.clear(),
+            // a new line in the message (shift+Enter on the page)
+            "M-Enter" => rt.keyed.push('\n'),
             "Enter" => {
                 let typed = std::mem::take(&mut rt.keyed);
                 let answered = rt.issue.take().is_some();

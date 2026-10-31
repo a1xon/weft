@@ -481,6 +481,17 @@ pub struct AgentCfg {
     /// has been taken.
     #[serde(default)]
     pub busy: Vec<String>,
+    /// Status-bar substrings that say a message waits for the turn to end (Claude Code's input box
+    /// then reads "Press up to edit queued messages"). The agent is in a turn, and a message sent
+    /// while it works has been taken, wherever its text went: the queue above the spinner is out of
+    /// sight in a view scrolled up, and shows the message rendered (no backticks).
+    #[serde(default)]
+    pub queued: Vec<String>,
+    /// Status-bar substrings of a hint that stands where the status bar was for a few seconds
+    /// (Claude Code's "paste again to expand" after a paste). It hides the turn marker: while it is
+    /// there, the agent is taken to be where it was, in a turn or not.
+    #[serde(default)]
+    pub hints: Vec<String>,
     /// Screen substrings (any case) that mean the CLI ran into its usage limit: the agent sleeps
     /// until the time the same lines name, then carries on (see engine/limits.rs).
     #[serde(default)]
@@ -673,6 +684,9 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             // "✻ Brewed for 3s · done 7:07 · 1 shell still running": it will wake up when it ends
             working: strings(&["shell still running", "shells still running"]),
             busy: strings(&["esc to interrupt"]),
+            queued: strings(&["Press up to edit queued messages"]),
+            // for some seconds after a paste the footer reads only this, "esc to interrupt" is gone
+            hints: strings(&["paste again to expand"]),
             // "You've hit your session limit · resets 3pm (Europe/Berlin)" (not the fast-mode one:
             // that only slows it down)
             limits: strings(&["you've hit your", "usage limit reached", "reached your weekly usage limit"]),

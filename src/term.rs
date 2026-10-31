@@ -281,7 +281,8 @@ pub fn transcript(p: &mut Parser, max_lines: usize) -> String {
 
 fn norm(s: &str) -> String {
     let t = s.trim_start_matches(|c: char| "❯›>│●⏺•*- \u{a0}".contains(c));
-    t.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+    // Claude Code shows a message it took (or queued) rendered as markdown: `code` loses its backticks
+    t.replace('`', "").split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
 }
 
 /// How to find a message again in an input box: the tail of its last line, lowercased and

@@ -266,8 +266,9 @@ impl Typing {
         self.entered && turn && !self.turn
     }
 
-    /// What to do now, given the screen and when it last changed.
-    pub(super) fn next(&self, screen: &vt100::Screen, last_change: Instant, now: Instant, submit: Duration) -> Typed {
+    /// What to do now, given the screen and when it last changed. `queued`: the input box says a
+    /// message waits for the agent's turn to end (see `Rt::queued`).
+    pub(super) fn next(&self, screen: &vt100::Screen, queued: bool, last_change: Instant, now: Instant, submit: Duration) -> Typed {
         let waited = now.saturating_duration_since(self.at);
         if !self.entered {
             return if waited >= submit { Typed::Enter } else { Typed::Wait };
@@ -284,6 +285,11 @@ impl Typing {
         }
         if term::traces(screen, &self.probe) > self.traces_before {
             // it left the box and is in the transcript (or folded into a placeholder): the program has it
+            return Typed::Taken;
+        }
+        if queued {
+            // it left the box for the queue of a working agent, which may be out of sight: it has it.
+            // (Pasting it again put the same request in the queue twice.)
             return Typed::Taken;
         }
         // no trace of it anywhere: the paste went to a program that was not reading yet. A screen
@@ -383,6 +389,8 @@ pub(super) struct Rt {
     pub(super) bg: bool,
     /// the agent shows it is in the middle of a turn ("esc to interrupt")
     pub(super) turn: bool,
+    /// its input box says a message waits for the turn to end (`AgentCfg::queued`)
+    pub(super) queued: bool,
     /// when the text on the screen last changed (a hold on a busy agent does not count)
     pub(super) screen_changed: Instant,
     /// tmux was asked what the pane really shows while the screen sat unchanged under a turn marker
@@ -764,6 +772,7 @@ impl Rt {
             work_since: None,
             bg: false,
             turn: false,
+            queued: false,
             screen_changed: Instant::now(),
             verified: None,
             status: Status::New,
@@ -961,15 +970,25 @@ impl Rt {
         self.last_change = now;
         self.screen_changed = now;
         self.verified = None;
-        let (attention, working, busy) = agent.map_or((&[][..], &[][..], &[][..]), |a| (&a.attention[..], &a.working[..], &a.busy[..]));
+        let none: &[String] = &[];
+        let (attention, working, busy, queued, hints) =
+            agent.map_or((none, none, none, none, none), |a| (&a.attention[..], &a.working[..], &a.busy[..], &a.queued[..], &a.hints[..]));
         self.attn = term::dialog_on(&text, attention);
+        let has = |hay: &str, v: &[String]| v.iter().any(|p| !p.is_empty() && hay.contains(p.as_str()));
         // the status line lives just above the input box: look only at the bottom of the screen,
         // so a sentence that merely mentions it, scrolled up, does not hold anything back
         let bottom: String = text.lines().rev().filter(|l| !l.trim().is_empty()).take(10).collect::<Vec<_>>().join("\n");
-        self.work = working.iter().any(|p| !p.is_empty() && bottom.contains(p.as_str()));
+        self.work = has(&bottom, working);
         // the turn marker sits in the status bar, the last lines: not in what the agent wrote above them
         let bar: String = bottom.lines().take(4).collect::<Vec<_>>().join("\n");
-        self.turn = busy.iter().any(|p| !p.is_empty() && bar.contains(p.as_str()));
+        // a message waits for the turn to end: it is one
+        self.queued = has(&bar, queued);
+        let marker = has(&bar, busy) || self.queued;
+        // a hint over the status bar hides the marker: the agent is where it was. Before, a paste into
+        // a working agent whose view stood still (scrolled up) looked like the end of its turn
+        if marker || !has(&bar, hints) {
+            self.turn = marker;
+        }
         self.ui = true;
         self.scr = true;
         true

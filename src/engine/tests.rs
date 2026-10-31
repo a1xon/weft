@@ -974,6 +974,8 @@ fn agents_run_in_yolo_mode_unless_switched_off() {
         yolo_arg: String::new(),
         working: vec![],
         busy: vec![],
+        queued: vec![],
+        hints: vec![],
         limits: vec![],
         errors: vec![],
         effort_models: vec![],
@@ -2043,34 +2045,34 @@ fn a_pasted_prompt_is_checked_to_have_been_taken() {
     };
 
     // the Enter follows the paste after a moment
-    assert_eq!(mk(true, &empty).next(still_in_input.screen(), t0, t0 + ms(100), submit), Typed::Wait);
-    assert_eq!(mk(true, &empty).next(still_in_input.screen(), t0, t0 + ms(350), submit), Typed::Enter);
+    assert_eq!(mk(true, &empty).next(still_in_input.screen(), false, t0, t0 + ms(100), submit), Typed::Wait);
+    assert_eq!(mk(true, &empty).next(still_in_input.screen(), false, t0, t0 + ms(350), submit), Typed::Enter);
     // a steering note to a working agent is not checked
-    assert_eq!(entered(mk(false, &empty), t0).next(empty.screen(), t0, t0 + ms(400), submit), Typed::Taken);
+    assert_eq!(entered(mk(false, &empty), t0).next(empty.screen(), false, t0, t0 + ms(400), submit), Typed::Taken);
 
     // given its time, then: the text is still in the box, so the Enter was not taken as a submit
     let t = entered(mk(true, &empty), t0);
-    assert_eq!(t.next(still_in_input.screen(), t0, t0 + ms(900), submit), Typed::Wait);
-    assert_eq!(t.next(still_in_input.screen(), t0, t0 + ms(2000), submit), Typed::Enter);
+    assert_eq!(t.next(still_in_input.screen(), false, t0, t0 + ms(900), submit), Typed::Wait);
+    assert_eq!(t.next(still_in_input.screen(), false, t0, t0 + ms(2000), submit), Typed::Enter);
     let mut t2 = entered(mk(true, &empty), t0);
     t2.enters = 2;
-    assert_eq!(t2.next(still_in_input.screen(), t0, t0 + ms(2000), submit), Typed::GaveUp, "then the person is asked");
+    assert_eq!(t2.next(still_in_input.screen(), false, t0, t0 + ms(2000), submit), Typed::GaveUp, "then the person is asked");
     // it left the box and shows in the transcript, or folded: taken
-    assert_eq!(t.next(sent.screen(), t0 + ms(500), t0 + ms(2000), submit), Typed::Taken);
-    assert_eq!(t.next(folded.screen(), t0 + ms(500), t0 + ms(2000), submit), Typed::Taken);
+    assert_eq!(t.next(sent.screen(), false, t0 + ms(500), t0 + ms(2000), submit), Typed::Taken);
+    assert_eq!(t.next(folded.screen(), false, t0 + ms(500), t0 + ms(2000), submit), Typed::Taken);
     // the same words already on the screen from an earlier turn are not a sign that this one was taken
     let again = entered(mk(true, &sent), t0);
-    assert_ne!(again.next(sent.screen(), t0 - ms(5000), t0 + ms(4000), submit), Typed::Taken);
+    assert_ne!(again.next(sent.screen(), false, t0 - ms(5000), t0 + ms(4000), submit), Typed::Taken);
 
     // no trace of it: a screen that is still repainting is waited for ...
     let lost = entered(mk(true, &empty), t0);
-    assert_eq!(lost.next(starting.screen(), t0 + ms(2900), t0 + ms(3200), submit), Typed::Wait);
+    assert_eq!(lost.next(starting.screen(), false, t0 + ms(2900), t0 + ms(3200), submit), Typed::Wait);
     // ... one that has been still is waiting for the message: pasted again, once
-    assert_eq!(lost.next(empty.screen(), t0 + ms(100), t0 + ms(1600), submit), Typed::Wait, "not before it had its time");
-    assert_eq!(lost.next(empty.screen(), t0 + ms(100), t0 + ms(3200), submit), Typed::Paste);
+    assert_eq!(lost.next(empty.screen(), false, t0 + ms(100), t0 + ms(1600), submit), Typed::Wait, "not before it had its time");
+    assert_eq!(lost.next(empty.screen(), false, t0 + ms(100), t0 + ms(3200), submit), Typed::Paste);
     let mut lost2 = entered(mk(true, &empty), t0);
     lost2.pastes = 1;
-    assert_eq!(lost2.next(empty.screen(), t0 + ms(100), t0 + ms(3200), submit), Typed::GaveUp);
+    assert_eq!(lost2.next(empty.screen(), false, t0 + ms(100), t0 + ms(3200), submit), Typed::GaveUp);
 
     // the agent shows it started a turn after the Enter: taken, even with no echo anywhere
     assert!(lost.started_turn(true) && !lost.started_turn(false));
@@ -2145,6 +2147,97 @@ fn an_agent_in_the_middle_of_a_turn_is_not_finished_by_a_pause() {
     r.parser.process("The hint esc to interrupt shows while it works.\r\nline\r\nline\r\nline\r\nline\r\n\u{276f} \r\n  bypass permissions on\r\n".as_bytes());
     r.read_screen(e.cfg.agents.get("claude"), t0);
     assert!(!r.turn);
+}
+
+#[test]
+fn a_hint_over_the_status_bar_does_not_end_a_turn() {
+    // n255 (2026-10-31): the person pasted into a working agent whose view was scrolled up, so the
+    // screen stood still. For a few seconds after a paste Claude Code's footer reads only "paste
+    // again to expand": the turn marker was gone, the step was taken for over after 2.5 s of quiet,
+    // and its old report went on to the commit after it, which then asked the busy agent to commit
+    let mut e = engine();
+    alive_agent(&mut e, "a", "fix");
+    e.flow.nodes[0].agent = "claude".into();
+    let paint = |e: &mut Engine, s: &str| {
+        let r = e.rt.get_mut("a").unwrap();
+        r.parser.process(format!("\x1b[2J\x1b[H{s}").as_bytes());
+        r.dirty = true;
+    };
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.armed = true;
+        r.status = Status::Busy;
+        r.cur = Some(Step::new("do that:".into(), vec![]));
+    }
+    let t0 = Instant::now();
+    let at = |s: u64| t0 + Duration::from_secs(s);
+    let above = "  the old report\r\n                    3 new messages (ctrl+End)\r\n\r\n";
+    paint(&mut e, &format!("{above}\u{276f} \r\n  bypass permissions on \u{b7} esc to interrupt\r\n"));
+    e.eval("a", at(0));
+    assert!(e.rt["a"].turn);
+    // pasted into the box: the hint stands where the marker was
+    paint(&mut e, &format!("{above}\u{276f} [Pasted text #1 +12 lines]\r\n  paste again to expand\r\n"));
+    e.eval("a", at(1));
+    e.eval("a", at(30));
+    assert!(e.rt["a"].turn && !e.rt["a"].finished, "still in its turn");
+    // sent while it works: queued, which says it is in a turn as well
+    paint(&mut e, &format!("{above}\u{276f} Press up to edit queued messages\r\n  paste again to expand\r\n"));
+    e.eval("a", at(31));
+    e.eval("a", at(60));
+    assert!(e.rt["a"].turn && e.rt["a"].queued && !e.rt["a"].finished);
+    paint(&mut e, &format!("{above}\u{276f} Press up to edit queued messages\r\n  bypass permissions on\r\n"));
+    e.eval("a", at(61));
+    e.eval("a", at(90));
+    assert!(e.rt["a"].turn && !e.rt["a"].finished, "a queued message alone is a turn");
+    // the turn ends: the marker goes, then the screen goes quiet, and it is done
+    paint(&mut e, "\u{25cf} Did it.\r\n\r\n\u{273b} Worked for 3m\r\n\r\n\u{276f} \r\n  bypass permissions on\r\n");
+    e.eval("a", at(91));
+    assert!(!e.rt["a"].turn && !e.rt["a"].queued);
+    e.eval("a", at(100));
+    assert!(e.rt["a"].finished);
+    // the hint on an agent that rests holds nothing
+    let mut r = Rt::new(80, 24);
+    r.parser.process("\u{276f} [Pasted text #1 +3 lines]\r\n  paste again to expand\r\n".as_bytes());
+    r.read_screen(e.cfg.agents.get("claude"), t0);
+    assert!(!r.turn);
+}
+
+#[test]
+fn a_new_line_typed_into_a_terminal_stays_in_the_message() {
+    let mut e = engine();
+    alive_agent(&mut e, "n1", "a");
+    e.rt.get_mut("n1").unwrap().armed = true;
+    e.settle("n1", true, "first".into());
+    e.rt.get_mut("n1").unwrap().keyed = "do that:".into();
+    // shift+Enter on the page: a new line, nothing is sent
+    e.keyed("n1", "M-Enter");
+    assert!(e.rt["n1"].finished && e.rt["n1"].cur.is_none());
+    e.rt.get_mut("n1").unwrap().keyed.push_str("the plan");
+    e.keyed("n1", "Enter");
+    assert!(!e.rt["n1"].finished);
+    assert_eq!(e.rt["n1"].asked, "do that:\nthe plan");
+}
+
+#[test]
+fn a_request_typed_into_a_working_agent_is_taken_once_it_is_queued() {
+    // n255 (2026-10-31): weft's commit request went into an agent at work. Claude Code queued it,
+    // shown above the spinner as rendered markdown (no backticks), or out of sight in a view
+    // scrolled up. weft found no trace of it, pasted it again and asked the person to press Enter
+    let t0 = Instant::now();
+    let ms = Duration::from_millis;
+    let msg = "[weft] Request: Commit the work you just did.\n\nIf something goes wrong, run `/bin/weft fail \"<what>\"`.";
+    let working = screen_with("\u{2722} Orbiting\u{2026} (1m 6s \u{b7} thinking)\n------\n\u{276f} \n------\n  bypass permissions on \u{b7} esc to interrupt");
+    let in_queue = screen_with(
+        "  If something goes wrong, run /bin/weft fail \"<what>\".\n  ctrl+enter to send now\n\u{2722} Orbiting\u{2026} (1m 8s \u{b7} thinking)\n------\n\u{276f} Press up to edit queued messages\n------\n  paste again to expand",
+    );
+    let scrolled =
+        screen_with("  the old report\n          3 new messages (ctrl+End)\n------\n\u{276f} Press up to edit queued messages\n------\n  bypass permissions on \u{b7} esc to interrupt");
+    let t = Typing { turn: true, entered: true, ..Typing::new(msg, true, working.screen(), t0) };
+    // the queue shows it rendered: its tail is found without the backticks
+    assert_eq!(t.next(in_queue.screen(), false, t0, t0 + ms(2000), ms(300)), Typed::Taken);
+    // out of sight: the box says a message is queued, and that is enough
+    assert_eq!(t.next(scrolled.screen(), true, t0, t0 + ms(2000), ms(300)), Typed::Taken);
+    assert_eq!(t.next(scrolled.screen(), false, t0 - ms(5000), t0 + ms(4000), ms(300)), Typed::Paste, "nothing else shows it");
 }
 
 #[test]

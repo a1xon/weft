@@ -118,6 +118,14 @@ function onTermKey(e) {
   if (k === 'v' && (e.ctrlKey || e.metaKey)) return;
   if ((k === 'c' || k === 'C') && (e.ctrlKey || e.metaKey) && getSelection().toString()) return;
   if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'AltGraph'].includes(k)) return;
+  // shift+Enter is a new line, as in every box of weft. tmux sends it as a plain Enter, which Claude
+  // Code takes as "send" (it sent "do that:" alone, before what was to be pasted under it); Esc+Enter
+  // is its new line
+  if (k === 'Enter' && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && S.nodes.get(S.focus)?.agent === 'claude') {
+    e.preventDefault();
+    send('key', { id: S.focus, k: 'M-Enter' });
+    return;
+  }
   const names = { Enter: 'Enter', Escape: 'Escape', Backspace: 'BSpace', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', Delete: 'DC', Insert: 'IC', ' ': 'Space' };
   let key = null, text = null;
   if (k === 'Tab') key = e.shiftKey ? 'BTab' : 'Tab';

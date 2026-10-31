@@ -68,6 +68,7 @@ Every card is one agent (one tmux window). What you can do, without a menu:
 | `Alt`-drag a card | clone it |
 | drag a card's bottom-right corner | resize it: a taller card shows more rows of its terminal; double-click the corner for the default size |
 | the wheel in an open terminal | scroll back: an agent that reads the mouse (Claude Code) scrolls its own transcript, anything else weft's history; *jump to latest* goes back down |
+| `Shift+Enter` in an open Claude Code terminal | a new line in the message, as in weft's boxes (sent as `Esc`+`Enter`: tmux sends a plain `Enter` for it, which sends the message) |
 | *result* / *live* in a card's corner | what the card shows: its terminal (*live*) while it works, its **result** once it is done, small and laid out as the reader lays it out. A report (`weft done`) is shown from its start; a result weft only read off the screen because the agent handed none in is shown from its end, and as *live* while its terminal is still there. A resting agent has no terminal, so its card has no switch |
 | click a card's answer, or `R` | the whole **result**, full size and laid out as the agent's terminal showed it: indents and tables kept (a markdown table from `weft done` is drawn as a table), long lines wrapped under their own indent; `+`/`-` text size, `Esc` back. `weft result <node>` prints the same text in your terminal. The prompt bar stays over it, aimed at that card: start typing (or `Enter`) to answer, `Esc` in the bar goes back to reading and keeps the text. A report that still asks you something ([below](#done-but-still-asking)) has a violet line beside each question and quick answers (`yes`/`no` or the options it gave, *do it*, *you decide*, *skip*, *answer…* to write your own) that put `> question` + answer into the bar; nothing is sent before `ctrl+enter`, *skip all* lets it go on as it is, and the reader then shows the next answer when it is in |
 | click a step in a card's *steps* bar | what that step changed, as a diff; **undo this step** or **rewind to before it** puts its files back (below) |
@@ -792,9 +793,12 @@ card stays busy ("waiting on background work") until that ends and the agent has
 `background_s` (10 minutes) have passed, in case a server was left running on purpose.
 
 A turn in progress (`esc to interrupt` on the status line) holds an agent the same way, however
-long its output pauses. weft's own copy of the screen is checked against tmux's when that marker
-sits on a screen that has not changed for 20 seconds: if the pane does not show it, the copy is
-replaced by what tmux shows. A marker on a screen that has not moved for `background_s` is dropped.
+long its output pauses. So does a message waiting for the turn to end (`Press up to edit queued
+messages` in Claude Code's input box). A hint that stands in the status line for a few seconds
+(`paste again to expand` after a paste) hides the marker; while it is there the agent is taken to
+be where it was (`busy`, `queued` and `hints` per agent in `config.json`). weft's own copy of the
+screen is checked against tmux's when that marker sits on a screen that has not changed for 20
+seconds: if the pane does not show it, the copy is replaced by what tmux shows. A marker on a screen that has not moved for `background_s` is dropped.
 
 ### Usage limits
 
@@ -955,7 +959,10 @@ and its first prompt then says what the card did before.
 * **A prompt is seen taken before anything is judged.** The Enter follows the paste after
   `submit_ms`; weft then looks for the message in the input box next to the cursor. Still there
   after a second and a half: Enter again (twice at most, then the card asks you). No trace of it
-  anywhere: pasted again, once. Until it is taken the card is busy, never quiet or done.
+  anywhere: pasted again, once. Until it is taken the card is busy, never quiet or done. A message
+  sent to an agent at work goes into its queue; the queue marker in its input box says it was
+  taken, since the queue itself may be out of sight. Claude Code shows a message it took rendered,
+  `code` without its backticks, and weft looks for it that way.
 * One actor owns all state; the browser gets changed rows only, throttled to 10 Hz per node.
 * **Ask the agent.** Whatever an agent does better, weft asks it to do: commits, merge conflicts,
   handover notes, screenshots, tests, summaries are requests in its own session. weft itself only
