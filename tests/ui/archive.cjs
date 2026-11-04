@@ -82,14 +82,20 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(await p.locator('.toast', { hasText: 'still at work' }).count() >= 1, 'and a toast says why');
   ok((await p.locator('#arch .an').innerText()) === '', 'nothing more was filed');
 
-  // --- right-click: keep it, archive it; and forget it for good
+  // --- the lock: from the right-click menu or the card's header; a locked card stays even when dropped on the archive
   await card(alpha).locator('.nm').click({ button: 'right' }); await sleep(200);
-  ok(await p.locator('.menu .mi', { hasText: 'keep on the canvas' }).count() === 1, 'the card menu offers keep');
-  await p.locator('.menu .mi', { hasText: 'keep on the canvas' }).click(); await sleep(400);
-  ok(await card(alpha).locator('.fil.on').count() === 1 && (await card(alpha).locator('.fil').innerText()).includes('kept'), 'a kept card says so on its footer');
+  ok(await p.locator('.menu .mi', { hasText: 'lock card' }).count() === 1, 'the card menu offers the lock');
+  await p.locator('.menu .mi', { hasText: 'lock card' }).click(); await sleep(400);
+  ok(await card(alpha).locator('.hd .lk.on').count() === 1, 'a locked card shows its lock lit on its header');
+  await dragToArchive(alpha); await sleep(300);
+  ok(await card(alpha).count() === 1 && (await p.locator('#arch .an').innerText()) === '', 'a locked card dropped on the archive stays');
+  ok(await p.locator('.toast', { hasText: 'is locked' }).count() >= 1, 'and a toast says why');
+  await card(alpha).locator('.hd .lk').click(); await sleep(400);
+  ok(await card(alpha).locator('.hd .lk.on').count() === 0, 'a click on the lock unlocks it');
+  // --- right-click: archive it; and forget it for good
   await card(alpha).locator('.nm').click({ button: 'right' }); await sleep(200);
   await p.locator('.menu .mi', { hasText: /^archive/ }).first().click();
-  ok(await waitFor(async () => (await card(alpha).count()) === 0, 5000), 'archive in the menu files it too (kept or not)');
+  ok(await waitFor(async () => (await card(alpha).count()) === 0, 5000), 'archive in the menu files it');
   await p.click('#arch .abox');
   await p.locator('#arch .arow .fb:not(.cy)').click();
   ok((await p.locator('#arch .arow .fb.no').innerText()).includes('forget for good'), 'forgetting asks once more');
@@ -114,13 +120,13 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   const up = await add({ name: 'up', agent: 'claude', prompt: 'Say what textkit/slug.py is for', x: 700, y: 140 });
   const down = await add({ name: 'down', agent: 'claude', prompt: 'Summarize what you got' }, { from: up, run: false });
   await p.evaluate(([id, x, y]) => send('node_move', { moves: [{ id, x, y }] }), [down, 1200, 140]);
-  ok(await card(held).locator('.fil.on').count() === 1, 'held is kept from the start');
+  ok(await card(held).locator('.hd .lk.on').count() === 1, 'held is locked from the start');
   ok(await waitFor(async () => (await st(lone)) === 'done', 45000), 'lone is done');
   ok(await waitFor(async () => (await card(lone).locator('.fil:not([hidden])').count()) === 1, 3000), 'its footer says it goes to the archive soon: ' + await card(lone).locator('.fil').innerText().catch(() => ''));
   await card(lone).locator('.fil').click(); await sleep(300);
-  ok(await card(lone).locator('.fil.on').count() === 1, 'one click keeps it');
-  await card(lone).locator('.fil').click(); await sleep(300);
-  ok(await card(lone).locator('.fil.on').count() === 0, 'another lets it go again');
+  ok(await card(lone).locator('.hd .lk.on').count() === 1 && (await card(lone).locator('.fil:not([hidden])').count()) === 0, 'one click on the countdown locks it (the lock says it, the countdown goes)');
+  await card(lone).locator('.hd .lk').click(); await sleep(300);
+  ok(await card(lone).locator('.hd .lk.on').count() === 0 && (await card(lone).locator('.fil:not([hidden])').count()) === 1, 'the lock lets it go again, and the countdown is back');
   ok(await waitFor(async () => (await card(lone).count()) === 0, 30000), 'lone files itself');
   ok(await p.locator('.toast', { hasText: 'went to the archive' }).count() >= 1, 'a toast says where it went');
   // (it may be done and filed already by the time lone has gone)
@@ -129,7 +135,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
   ok(await waitFor(async () => (await card(up).count()) === 0 && (await card(down).count()) === 0, 30000), 'the whole flow files itself, together');
   const groups = await filed();
   ok(groups.includes('up+down') && groups.includes('lone'), 'as one drop, the lone card as another: ' + JSON.stringify(groups));
-  ok(await st(held) === 'done' && (await card(held).count()) === 1, 'the kept card is still there');
+  ok(await st(held) === 'done' && (await card(held).count()) === 1, 'the locked card is still there');
   // the flow comes back with its link, and its clock starts again
   await p.click('#arch .abox');
   await p.locator('#arch .arow', { hasText: 'up' }).locator('.fb.cy').click();

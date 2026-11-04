@@ -71,7 +71,15 @@ body.padopen #arch{visibility:hidden}
 #arch .afoot{padding:8px 2px 0;font:calc(10.5px*var(--fs))/1.5 var(--mono);color:var(--i3)}
 #arch .kk svg{width:11px;height:11px;vertical-align:-1px;color:var(--cy)}
 
-/* on a finished card: when it goes there by itself; click to keep it */
+/* the lock on a card's header: lit while locked (never archived), else seen only with the pointer on the card.
+   It keeps its room either way, so the name never moves */
+.hd>.lk{width:18px;margin-left:4px;opacity:0;transition:opacity .12s steps(3)}
+.hd>.lk svg{width:12px;height:12px}
+.nw:hover .hd>.lk,.nw.sel .hd>.lk,.hd>.lk:focus-visible{opacity:.7}
+.hd>.lk:hover{opacity:1}
+.hd>.lk.on{opacity:1;color:var(--cy)}
+.hd>.lk.on:hover{color:var(--i0)}
+/* on a finished card: when it goes there by itself; click to lock it */
 .fil{flex:none;display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 6px;border:1px solid transparent;
   font:500 calc(10.5px*var(--fs)) var(--mono);color:var(--i3);white-space:nowrap}
 .fil svg{width:12px;height:12px}

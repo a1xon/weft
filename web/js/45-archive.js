@@ -6,7 +6,6 @@
 ICON.archive = I('<path d="M2.4 3.2h11.2v3H2.4z"/><path d="M3.4 6.2v6.6h9.2V6.2"/><path d="M6.2 8.8h3.6"/>');
 ICON.lock = I('<path d="M3.6 7.2h8.8v6.2H3.6z"/><path d="M5.4 7.2V5a2.6 2.6 0 0 1 5.2 0v2.2"/><path d="M8 9.6v1.6"/>');
 ICON.unlock = I('<path d="M3.6 7.2h8.8v6.2H3.6z"/><path d="M5.4 7.2V5a2.6 2.6 0 0 1 5.1-.7"/>');
-ICON.keep = I('<path d="M5.4 2.4h5.2M6.4 2.4v4.2L4.4 9h7.2l-2-2.4V2.4M8 9v4.8"/>');
 const AR = { groups: null, open: false, q: '', unfold: null, full: new Map(), over: false, sure: null, leave: null };
 const archEl = $('#arch');
 const archOn = () => Array.isArray(AR.groups);
@@ -82,7 +81,7 @@ function renderArchPanel() {
     AR.groups.length > 4 ? find : null,
     h('div', { class: 'alist' }, groups.length ? groups.map(archRow)
       : h('div', { class: 'aempty' }, q ? 'nothing filed matches that.' : 'nothing filed yet. drag finished cards onto the archive.')),
-    h('div', { class: 'afoot' }, by.length ? `files by itself: ${by.join(', ')} (counting while you work here). ` : 'nothing files itself. ', h('span', { class: 'kk', html: ICON.keep }), ' keep on a card holds it and its flow.')]));
+    h('div', { class: 'afoot' }, by.length ? `files by itself: ${by.join(', ')} (counting while you work here). ` : 'nothing files itself. ', h('span', { class: 'kk', html: ICON.lock }), ' a lock on a card holds it and its flow on the canvas.')]));
   if (typing) { const f = p.querySelector('input'); if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } }
 }
 function archRow(g) {
@@ -194,7 +193,14 @@ async function fileAway(ids) {
     const el = nodeEls.get(i), n = S.nodes.get(i); if (el && (!r.ok || (n && stay.has(n.name)))) el.root.classList.remove('filing');
     const j = juncEls.get(i); if (j && (!r.ok || (n && stay.has(n.name)))) { j.g.classList.remove('filing'); j.link.classList.remove('filing'); }
   }
+  // a locked card stays too (the lock on its header)
+  const locked = r.locked || [];
+  for (const i of ids) {
+    const el = nodeEls.get(i), n = S.nodes.get(i);
+    if (el && n && locked.includes(n.name)) el.root.classList.remove('filing');
+  }
   if (stay.size) toast('info', `${[...stay].join(', ')} ${stay.size > 1 ? 'are' : 'is'} still at work and stays. Stop it or let it finish first.`, { ms: 6000 });
+  else if (locked.length) toast('info', `${locked.join(', ')} ${locked.length > 1 ? 'are' : 'is'} locked and stayed on the canvas. unlock to archive`, { ms: 6000 });
   else if (!r.ok) toast('err', r.error || 'could not file that');
   if (r.ok && r.group) S.undo.push(() => revive(r.group));
 }
@@ -260,12 +266,36 @@ function filingLeft(at, stand) {
   const m = Math.ceil(s / 60);
   return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`;
 }
+/* the lock on the card's header: locked (`keep`), it never goes to the archive, nor does its flow (flows go as
+   a whole), not even dropped onto it. Lit while locked; else it shows while the pointer is on the card */
+const LOCK = {
+  offTip: 'click to lock. keeps this card and its flow on the canvas',
+  onTip: 'locked: stays on the canvas with its flow. click to unlock',
+};
+function renderLock(id, el, kept) {
+  if (!archOn()) { if (el.lk) el.lk.hidden = true; return; }
+  if (!el.lk) {
+    el.lk = h('button', { class: 'ib lk' });
+    el.lk.addEventListener('click', e => { e.stopPropagation(); keepNode(id); });
+    el.lk.addEventListener('pointerdown', e => e.stopPropagation());
+    el.gear.after(el.lk);
+  }
+  el.lk.hidden = false;
+  if (el.lk._on === kept) return;
+  el.lk._on = kept;
+  el.lk.innerHTML = kept ? ICON.lock : ICON.unlock;
+  el.lk.classList.toggle('on', kept);
+  el.lk.title = kept ? LOCK.onTip : LOCK.offTip;
+  el.lk.setAttribute('aria-label', el.lk.title);
+  el.lk.setAttribute('aria-pressed', String(kept));
+}
 function renderFiling(id, n, r) {
   const el = nodeEls.get(id); if (!el || !n) return;
   const at = r && r.archive_at, kept = !!n.keep;
+  renderLock(id, el, kept);
   // finished, but a draft nobody armed keeps its flow here (loose.rs): that one is named instead
   const held = !at && !kept && r && r.held && S.nodes.has(r.held.id) ? r.held : null;
-  if (!archOn() || !(at || kept || held)) { if (el.fil) el.fil.hidden = true; return; }
+  if (!archOn() || kept || !(at || held)) { if (el.fil) el.fil.hidden = true; return; }
   if (!el.fil) {
     el.fil = h('button', { class: 'fil' });
     el.fil.addEventListener('click', e => {
@@ -288,21 +318,19 @@ function renderFiling(id, n, r) {
     el.fil.title = `finished, but it stays on the canvas: ${held.name || held.id} is a draft nobody armed, and its flow goes to the archive only as a whole. click to show it (arm it, or delete it)`;
     return;
   }
-  el.fil.classList.toggle('on', kept);
-  const writing = !kept && !!(r && r.archive_stand);
-  const left = kept ? '' : filingLeft(at, r && r.archive_stand);
-  const paused = !kept && (!!S.idle || !!S.hold || writing);
-  const key = kept ? 'k' : 'a' + left + (paused ? 'p' : '') + (writing ? 'w' : '');
+  const writing = !!(r && r.archive_stand);
+  const left = filingLeft(at, r && r.archive_stand);
+  const paused = !!S.idle || !!S.hold || writing;
+  const key = 'a' + left + (paused ? 'p' : '') + (writing ? 'w' : '');
   if (el.fil._key === key) return;
   el.fil._key = key;
-  el.fil.innerHTML = (kept ? ICON.keep : ICON.archive) + `<span>${kept ? 'kept' : left}</span>`;
+  el.fil.innerHTML = ICON.archive + `<span>${left}</span>`;
   el.fil.classList.toggle('paused', paused);
-  const flow = !kept && [...S.rt.values()].filter(x => x.archive_at === at).length > 1;
-  el.fil.title = kept ? 'kept on the canvas: it does not go to the archive by itself, nor does its flow. click to let it go'
-    : `finished: goes to the archive ${left === 'soon' ? 'any moment' : 'in ' + left}${flow ? ', with the rest of its flow' : ''}`
-      + (S.hold && !kept ? ' once archiving is let go (it is held: the countdown pauses)'
+  const flow = [...S.rt.values()].filter(x => x.archive_at === at).length > 1;
+  el.fil.title = `finished: goes to the archive ${left === 'soon' ? 'any moment' : 'in ' + left}${flow ? ', with the rest of its flow' : ''}`
+      + (S.hold ? ' once archiving is let go (it is held: the countdown pauses)'
         : writing ? ' of work here once nobody writes a prompt into it (the countdown pauses meanwhile)'
-          : paused ? ' of work here (the clock waits while nobody is at the canvas)' : '') + '. click to keep it on the canvas';
+          : paused ? ' of work here (the clock waits while nobody is at the canvas)' : '') + '. click to lock and keep it on the canvas';
 }
 function refreshFiling() {
   if (!archOn()) return;
@@ -348,7 +376,7 @@ function archItems(id) {
   if (!archOn() || !n) return [];
   return [
     { label: 'archive', hint: 'drag onto ↙', run: () => fileAway([id]) },
-    { k: n.keep ? '●' : ' ', label: 'keep on the canvas', hint: n.keep ? 'kept' : 'never filed by itself', run: () => keepNode(id) },
+    { label: n.keep ? 'unlock card' : 'lock card', hint: n.keep ? 'can be archived' : 'never archived', run: () => keepNode(id) },
   ];
 }
 function archMulti(ids) {

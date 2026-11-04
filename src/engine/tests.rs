@@ -2606,6 +2606,27 @@ fn what_is_still_at_work_stays_on_the_canvas_when_dropped_on_the_archive() {
 }
 
 #[test]
+fn a_locked_card_stays_on_the_canvas_when_dropped_on_the_archive() {
+    let mut e = engine();
+    add(&mut e, "n1", "locked one", "go");
+    add(&mut e, "n2", "done one", "go");
+    finished(&mut e, "n1", true, 1);
+    finished(&mut e, "n2", true, 1);
+    e.flow.nodes.iter_mut().find(|n| n.id == "n1").unwrap().keep = true;
+    let r = e.cmd_archive(vec!["n1".into()]);
+    assert_eq!(r["ok"], false);
+    assert_eq!(r["locked"], json!(["locked one"]));
+    assert!(r["error"].as_str().unwrap().starts_with("locked one "));
+    assert!(e.node("n1").is_some() && e.archive.groups.is_empty());
+    // dropped with another one: that one goes, the locked one stays and the reply names it
+    let r = e.cmd_archive(vec!["n1".into(), "n2".into()]);
+    assert_eq!(r["ok"], true);
+    assert_eq!(r["locked"], json!(["locked one"]));
+    assert!(e.node("n1").is_some() && e.node("n2").is_none());
+    assert_eq!(e.archive.groups[0].cards.len(), 1);
+}
+
+#[test]
 fn the_archive_file_stays_out_of_git() {
     let dir = std::env::temp_dir().join(format!("weft-gitignore-{}", std::process::id()));
     let p = dir.join(".weft").join(".gitignore");

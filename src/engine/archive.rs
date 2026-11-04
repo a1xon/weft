@@ -705,13 +705,20 @@ impl Engine {
             .collect()
     }
 
-    /// Cards dropped on the archive. What is still at work stays where it is, and the reply says which.
+    /// Cards dropped on the archive. What is still at work stays where it is, and so does a locked
+    /// card (`keep`, the lock on its header); the reply says which.
     pub(super) fn cmd_archive(&mut self, ids: Vec<String>) -> Value {
-        let (rest, busy): (Vec<String>, Vec<String>) =
-            ids.into_iter().filter(|id| self.node(id).is_some()).partition(|id| self.rt.get(id).is_some_and(|r| r.at_rest()));
+        let (ids, locked): (Vec<String>, Vec<String>) =
+            ids.into_iter().filter(|id| self.node(id).is_some()).partition(|id| self.node(id).is_some_and(|n| !n.keep));
+        let locked: Vec<String> = locked.iter().filter_map(|id| self.node(id).map(|n| n.name.clone())).collect();
+        let (rest, busy): (Vec<String>, Vec<String>) = ids.into_iter().partition(|id| self.rt.get(id).is_some_and(|r| r.at_rest()));
         let busy: Vec<String> = busy.iter().filter_map(|id| self.node(id).map(|n| n.name.clone())).collect();
         match self.file_away(&rest, false) {
-            Some(group) => json!({"ok": true, "group": group, "busy": busy}),
+            Some(group) => json!({"ok": true, "group": group, "busy": busy, "locked": locked}),
+            None if busy.is_empty() && !locked.is_empty() => {
+                let is = if locked.len() > 1 { "are" } else { "is" };
+                json!({"ok": false, "locked": locked, "error": format!("{} {is} locked. unlock to archive", locked.join(", "))})
+            }
             None if busy.is_empty() => json!({"ok": false, "error": "nothing to file"}),
             None => json!({"ok": false, "busy": busy,
                            "error": format!("{} is still at work: stop it or let it finish first", busy.join(", "))}),
