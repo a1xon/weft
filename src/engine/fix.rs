@@ -97,7 +97,7 @@ impl Engine {
 
     /// Who fixes: the CLI most of the failed agents ran (the person's own on a tie, or when no agent
     /// was behind them), their model, and a reasoning level above the highest of theirs.
-    fn fixer_agent(&self, todo: &[String]) -> Option<(String, String, String)> {
+    pub(super) fn fixer_agent(&self, todo: &[String]) -> Option<(String, String, String)> {
         let prefs = &self.cfg.prefs;
         let behind: Vec<&Node> = todo
             .iter()

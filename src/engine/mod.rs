@@ -52,6 +52,7 @@ mod loose;
 mod marks;
 mod merge;
 mod moves;
+mod owners;
 mod reads;
 mod repo;
 mod resume;
@@ -139,6 +140,8 @@ pub enum Ev {
     },
     /// Branch and uncommitted changes of the folders agents work in (the project's first).
     Proj(Vec<(PathBuf, Value)>),
+    /// whose the uncommitted files of each work tree are (owners.rs)
+    Owners(Vec<(PathBuf, Value)>),
     /// A watch's own command finished (capture or test run).
     Check {
         node: String,
@@ -315,6 +318,15 @@ pub struct Engine {
     proj_at: Instant,
     proj_busy: bool,
     proj_due: bool,
+    /// each work tree's uncommitted files and the cards they are put to (owners.rs); what that was
+    /// worked out from, when, whether a look is running and whether another one is due
+    owners: HashMap<PathBuf, Value>,
+    owners_key: u64,
+    owners_at: Instant,
+    owners_busy: bool,
+    owners_due: bool,
+    /// the agent asked to commit what no card claims in a work tree
+    strays: HashMap<PathBuf, String>,
     /// a reconnect loop for tmux is running
     tmux_retrying: bool,
     /// the second the watches were last looked at
@@ -393,6 +405,12 @@ impl Engine {
             proj_at: Instant::now(),
             proj_busy: false,
             proj_due: false,
+            owners: HashMap::new(),
+            owners_key: 0,
+            owners_at: Instant::now(),
+            owners_busy: false,
+            owners_due: true,
+            strays: HashMap::new(),
             tmux_retrying: false,
             last_check_sec: 0,
             models: HashMap::new(),
@@ -645,6 +663,7 @@ impl Engine {
             Ev::Rewound { id, res } => self.on_rewound(id, res),
             Ev::Snapshot { id, snap } => self.on_snapshot(id, snap),
             Ev::Proj(v) => self.on_project(v),
+            Ev::Owners(v) => self.on_owners(v),
             Ev::Hand { to, from, brief, facts } => self.on_hand(&to, &from, brief, facts),
             Ev::Check { node, check, kind, ok, out, img } => self.on_check(&node, &check, kind, ok, &out, &img),
             Ev::Models { agent, res } => {
@@ -663,6 +682,8 @@ impl Engine {
             Ev::Asks { id, ticket, asks } => self.on_asks(&id, ticket, asks),
             Ev::Conn { id, tx } => {
                 self.clients.insert(id, Client { tx, watch: None });
+                // (nobody looked meanwhile: whose the files are is looked at again)
+                self.owners_due = true;
                 self.worked();
                 self.sync_user_config();
                 self.look_at_boards();
@@ -675,6 +696,7 @@ impl Engine {
             // (git takes a moment: the log answers by itself, the engine does not wait for it)
             Ev::Cmd { cmd: Cmd::Log { dir, branch, n, show, remote }, reply, .. } => self.cmd_log(dir, branch, n, show, remote, reply),
             Ev::Cmd { cmd: Cmd::CpDiff { id, n }, reply, .. } => self.cmd_cp_diff(id, n, reply),
+            Ev::Cmd { cmd: Cmd::DirtDiff { top, path }, reply, .. } => self.cmd_dirt_diff(top, path, reply),
             // (a sleeping board's daemon takes a moment to come up)
             Ev::Cmd { cmd: Cmd::BoardOpen { dir, window }, reply, .. } => self.cmd_board_open(dir, window, reply),
             Ev::Boards(list) => self.on_boards(list),

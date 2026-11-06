@@ -278,6 +278,20 @@ pub enum Cmd {
         id: String,
         n: u32,
     },
+    /// What is uncommitted in one file of a work tree, as a diff (answered by itself: see `Engine::handle`).
+    DirtDiff {
+        top: String,
+        path: String,
+    },
+    /// An agent looks at the uncommitted files of a work tree that no card changed and commits what
+    /// is still valid and needed (see owners.rs); it is placed near `x`, `y`.
+    Strays {
+        top: String,
+        #[serde(default)]
+        x: Option<f64>,
+        #[serde(default)]
+        y: Option<f64>,
+    },
     /// Undo steps `from..=to` of an agent (`to` missing: to its last); `force` also puts back files
     /// that changed after them.
     Rewind {
@@ -489,6 +503,7 @@ impl Cmd {
                 | Cmd::Result { .. }
                 | Cmd::Ls {}
                 | Cmd::Eta { .. }
+                | Cmd::DirtDiff { .. }
                 | Cmd::Tell { .. }
                 | Cmd::Done { .. }
         )
@@ -528,7 +543,7 @@ impl Engine {
             Cmd::Models { agent, force } => self.cmd_models(agent, force),
             Cmd::Usage { agent, again } => self.cmd_usage(agent, again),
             // (these answer when their job is done: `Engine::handle` gives them the caller's reply)
-            Cmd::Log { .. } | Cmd::CpDiff { .. } | Cmd::BoardOpen { .. } | Cmd::CardMove { .. } => {
+            Cmd::Log { .. } | Cmd::CpDiff { .. } | Cmd::DirtDiff { .. } | Cmd::BoardOpen { .. } | Cmd::CardMove { .. } => {
                 json!({"ok": false, "error": "it answers by itself"})
             }
             Cmd::CardTake { pack, wins, from, board } => self.cmd_card_take(pack, wins, from, board),
@@ -546,6 +561,7 @@ impl Engine {
             Cmd::GateChanges { id, text } => self.cmd_gate_changes(id, text),
             Cmd::GateRetry { id, fix } => self.cmd_gate_retry(id, fix),
             Cmd::Fix { ids } => self.cmd_fix(ids),
+            Cmd::Strays { top, x, y } => self.cmd_strays(top, x, y),
             Cmd::Retry { id, text, by } => self.cmd_retry(id, text, by),
             Cmd::GateShot { id, name } => self.cmd_gate_shot(id, name),
             Cmd::Fire { id } => self.cmd_fire(id),

@@ -546,17 +546,18 @@ function renderHead() {
 function renderRows() {
   const d = GT.data;
   const list = (d.commits || []).slice();
-  // the files no one committed yet sit on top of what is checked out
-  if (!d.pick && GT.dirty > 0 && d.dir === GT.dir && list.length) {
+  // the files no one committed yet sit on top of what is checked out (whose they are: 88-whose.js)
+  const own = treeOwn(), work = own ? own.n : GT.dirty;
+  if (!d.pick && work > 0 && d.dir === GT.dir && list.length) {
     const at = list.findIndex(c => c.h === d.at);
-    if (at >= 0 && list.slice(0, at).every(c => c.i)) list.splice(at, 0, { h: '', p: [d.at], work: GT.dirty });
+    if (at >= 0 && list.slice(0, at).every(c => c.i)) list.splice(at, 0, { h: '', p: [d.at], work });
   }
   const L = lay(list);
   const lw = L.width > 10 ? Math.max(5, 120 / L.width) : 12, x0 = 6;
   treeEl.style.setProperty('--gx', `${x0 + L.width * lw + 6}px`);
   const svg = sv('svg', { class: 'glanes' });
   const rows = list.map(c => {
-    if (c.work) return h('div', { class: 'gr work' }, h('div', { class: 'gline', title: 'changed files no one has committed yet' }, h('span', { class: 'gs' }, `${c.work} uncommitted`)));
+    if (c.work) return workRow(c.work, own);
     const when = new Date(c.t * 1000);
     const where = c.o ? '\nnot pushed yet' : c.i ? `\non ${d.up}, not here yet: a pull brings it` : '';
     const row = h('div', { class: 'gr' + (GT.unfold === c.h ? ' open' : '') + (d.fresh.has(c.h) ? ' fresh' : '') + (c.o ? ' out' : c.i ? ' in' : ''), 'data-h': c.h },
@@ -573,6 +574,7 @@ function renderRows() {
     svg.setAttribute('width', x0 + L.width * lw + 6);
     svg.setAttribute('height', treeEl.inner.offsetHeight);
   }
+  revealOwnFocus();
   treeEl.foot.replaceChildren(...nn([d.more && GT.n < 600 ? h('button', { onclick: () => { GT.n += 200; loadTree(); } }, 'older commits…') : null]));
 }
 async function unfoldCommit(hash) {

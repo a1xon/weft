@@ -1,0 +1,52 @@
+/* ------------------------------------------------------------------ whose the uncommitted files are (88-whose.js)
+   On a card: a notch hanging from its bottom edge with how many uncommitted files it changed. It is
+   drawn like the card (its border colour, its bottom fill, chamfered sides) and covers the card's
+   bottom line where it hangs, so the card opens into it. In the git tree: the "N uncommitted" row
+   says how many no card has and unfolds into the files by card. */
+.ucn{position:absolute;top:100%;right:34px;margin-top:-1px;z-index:4;display:flex;align-items:center;gap:4px;
+  height:calc(20px*var(--fs));padding:0 15px 1px;background:var(--edge);clip-path:polygon(0 0,100% 0,calc(100% - 8px) 100%,8px 100%);
+  font:500 calc(10.5px*var(--fs)) var(--mono);color:var(--am);white-space:nowrap;cursor:pointer}
+.ucn::before{content:"";position:absolute;inset:0 1px 1px;z-index:-1;background:var(--bg);
+  clip-path:polygon(0 0,100% 0,calc(100% - 7.6px) 100%,7.6px 100%)}
+.ucn b{font-weight:700}
+.ucn i{font-style:normal;color:var(--i3)}
+.ucn:hover,.ucn:focus-visible{color:#ffd08a;background:var(--am)}
+.ucn:hover i{color:var(--i2)}
+.ucn[hidden]{display:none}
+/* what unfolds under the card starts under the notch */
+.nw.notched .under{top:calc(100% + 28px)}
+
+#gtree .gr.work.own{cursor:pointer}
+#gtree .gr.work.own:hover .gs{color:#ffd08a}
+#gtree .gr.work .gs{flex:none}
+#gtree .gleft{flex:none;padding:0 5px;background:var(--am);color:#04121c;font:700 calc(10px*var(--fs))/calc(15px*var(--fs)) var(--mono)}
+#gtree .gfold{flex:1;text-align:right;font:calc(10px*var(--fs)) var(--mono);color:var(--i3)}
+#gtree .gr.work.open{background:var(--s2)}
+
+/* the files by card */
+#gtree .gwork{padding:4px 0 6px;border-left-color:rgba(255,180,84,.55);cursor:default;user-select:none}
+#gtree .gwg{padding:3px 8px 4px}
+#gtree .gwg+.gwg{border-top:1px solid var(--l0)}
+#gtree .gwg.focus{animation:gwfocus 3s ease-out}
+@keyframes gwfocus{0%,30%{background:rgba(255,180,84,.16)}}
+#gtree .gwh{display:flex;align-items:center;gap:6px;min-width:0;margin-bottom:2px;white-space:nowrap}
+#gtree .gwh.left b{font:700 calc(10.5px*var(--fs)) var(--mono);color:var(--am);letter-spacing:.04em;text-transform:uppercase}
+#gtree .gwc{min-width:0;max-width:20ch;overflow:hidden;text-overflow:ellipsis;padding:0 5px;border:1px solid var(--l3);
+  font:600 calc(10.5px*var(--fs))/calc(16px*var(--fs)) var(--mono);color:var(--i0)}
+#gtree .gwc:hover,#gtree .gwc:focus-visible{border-color:var(--cy);color:var(--cy)}
+#gtree .gwp{color:var(--i3)}
+#gtree .gwn{color:var(--i3);font-size:calc(10.5px*var(--fs))}
+#gtree .gwm{padding:0 4px;border:1px dashed var(--i3);color:var(--i2);font-size:calc(10px*var(--fs))}
+#gtree .gwgo{margin-left:auto;flex:none;padding:0 7px;height:calc(19px*var(--fs));border:1px solid var(--am);color:var(--am);
+  font:600 calc(10.5px*var(--fs)) var(--display);letter-spacing:.04em;background:rgba(255,180,84,.07)}
+#gtree .gwgo:hover,#gtree .gwgo:focus-visible{background:rgba(255,180,84,.18);color:#ffd08a;box-shadow:0 0 10px rgba(255,180,84,.2)}
+#gtree .gwf{display:flex;align-items:center;gap:6px;width:100%;min-width:0;padding:0 2px;text-align:left;white-space:nowrap;
+  font:calc(11px*var(--fs))/calc(18px*var(--fs)) var(--mono);color:var(--i2)}
+#gtree .gwf:hover,#gtree .gwf:focus-visible{background:rgba(92,200,255,.06);color:var(--i0)}
+#gtree .gwf span:not(.ga){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;direction:rtl;text-align:left}
+#gtree .gwf .ga{flex:none}
+#gtree .gst{flex:none;width:1.3em;text-align:center;font-weight:700;color:var(--am)}
+#gtree .gst.sn,#gtree .gst.sA{color:var(--gr)}
+#gtree .gst.sD{color:var(--rd)}
+#gtree .gst.sR{color:var(--vi)}
+@media (prefers-reduced-motion:reduce){ #gtree .gwg.focus{animation:none;background:rgba(255,180,84,.12)} }

@@ -62,6 +62,7 @@ function onMsg(m) {
     // (a daemon making way for a new build: the socket closes and the page reconnects to the new one)
     case 'bye': if (!m.replace) farewell(m); break;
     case 'archive': onArchive(m); break;
+    case 'owners': onOwners(m.top, m.own); break;
     case 'boards': onBoards(m.list); break;
     case 'board': onBoardName(m.name); break;
     case 'idle': S.idle = m.since || null; refreshFiling(); break;
@@ -89,6 +90,7 @@ function loadState(m) {
   onBoards(m.boards || []);
   S.rt.clear();
   for (const r of m.rt) S.rt.set(r.id, r);
+  loadOwners(m.owners);   // (whose the uncommitted files are: 88-whose.js)
   if (!loaded) {
     loaded = true;
     try {

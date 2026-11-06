@@ -293,6 +293,7 @@ impl Engine {
             "talk": self.talk_log(),
             "rt": rts,
             "archive": self.archive_json(),
+            "owners": self.owners_json(),
             "boards": self.boards.list(),
             // (the page offers to fix what failed only to a daemon that can: see fix.rs)
             "fix": true,

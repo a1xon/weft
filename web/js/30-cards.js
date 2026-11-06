@@ -360,6 +360,7 @@ function renderNode(id) {
   renderPlea(id, n, r);
   renderEta(id, n, r);
   renderCps(id, n, r);
+  renderOwn(id);
   renderFiling(id, n, r);
   const k = kindOf(n);
   const st = r ? r.status : 'new';

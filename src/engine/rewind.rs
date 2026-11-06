@@ -16,6 +16,9 @@ pub(super) struct Cp {
     /// what it was asked (the first line), or which steps the person rewound
     pub(super) what: String,
     pub(super) at: u64,
+    /// when it ended (0 while it runs, and for steps from before this was kept: see owners.rs)
+    #[serde(default)]
+    pub(super) end: u64,
     /// the work tree it was taken in, and the shadow repository that keeps it
     #[serde(default)]
     pub(super) dir: PathBuf,
@@ -109,6 +112,7 @@ impl Engine {
         let Some(rt) = self.rt.get_mut(id) else { return };
         let Some(c) = rt.cps.iter_mut().rev().find(|c| c.after.is_empty() && !c.ending && !c.rewind) else { return };
         c.ending = true;
+        c.end = now_ms();
         if c.before.is_empty() {
             c.end_due = true;
             return;

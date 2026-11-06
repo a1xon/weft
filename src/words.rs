@@ -910,6 +910,62 @@ pub fn fixed(by: &str, note: &str) -> String {
     format!("## This failed last time; what was fixed since{by}\n{}", note.trim())
 }
 
+// ------------------------------------------------------------------ uncommitted files no card claims
+
+/// An uncommitted file no card on the board changed (see `engine/owners.rs`).
+pub struct Stray {
+    pub path: String,
+    /// git's letter for it: M changed, A added, D deleted, R renamed, ? new to git
+    pub st: String,
+    /// when it was last written (ms since the epoch), if it is still there
+    pub at: Option<u64>,
+}
+
+/// The git tree's "commit with an agent": a fresh agent looks at the uncommitted files that no card
+/// on the board changed and commits the ones that are still valid and needed.
+pub fn strays_request(top: &str, files: &[Stray], more: usize, now: u64) -> String {
+    let ago = |t: u64| {
+        let s = now.saturating_sub(t) / 1000;
+        match s {
+            0..=59 => "just now".to_string(),
+            60..=3599 => format!("{} min ago", s / 60),
+            3600..=172_799 => format!("{} h ago", s / 3600),
+            _ => format!("{} days ago", s / 86_400),
+        }
+    };
+    let what = |st: &str| match st {
+        "?" => "new, not in git yet",
+        "D" => "deleted",
+        "A" => "added",
+        "R" => "renamed",
+        _ => "changed",
+    };
+    let mut s = format!(
+        "These files in {top} have uncommitted changes that no card on this weft board made: work left over by an agent that is gone, \
+an earlier session, or the person. Look at each one, and commit the ones that are still valid and needed. You are asked to commit them: \
+this is the task, not a request to leave git alone.\n\n"
+    );
+    for f in files {
+        let when = f.at.map(|t| format!(", written {}", ago(t))).unwrap_or_default();
+        s += &format!("- {} ({}{when})\n", f.path, what(&f.st));
+    }
+    if more > 0 {
+        s += &format!("- and {more} more: `git status` lists them\n");
+    }
+    s += "\nHow to go about it:\n\
+1. Look at what each change is (`git diff HEAD -- <file>`, or read a new file) and whether it still fits the code as it is now: is it complete, \
+is it used, is it not already done some other way, does it build.\n\
+2. Other agents may be at work in this folder with uncommitted files of their own. Stage only files from this list, by name \
+(`git add -- <file>`): never `git add -A`, `git add .` or `git commit -a`. A file written in the last few minutes may still be in someone's \
+hands: leave it unless it is clearly finished.\n\
+3. Commit what is valid and needed: one commit for each piece of work that belongs together, its message saying what the change does \
+(not \"leftover files\").\n\
+4. Do not delete, revert, stash or move anything, and do not push. A file that looks wrong, unfinished or no longer needed stays as it is: \
+name it in your report with why, so the person decides what happens to it.\n\n\
+Then report each commit with its files, and each file you left and why.";
+    s
+}
+
 // ------------------------------------------------------------------ for each
 
 /// The standing order of a card whose answer goes down a "for each" link: the next step runs once per

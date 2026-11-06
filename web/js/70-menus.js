@@ -171,7 +171,8 @@ function edgeMenu(id, x, y) {
 /* where a new card fits without overlapping another (and without covering a junction).
    lane: a card that starts working now keeps its row free to the right of it (no card that runs
    or has run there), so what is queued after it lines up next to it */
-const filmH = id => { const el = nodeEls.get(id); return el && el.under ? el.under.offsetHeight + 12 : 0; };
+/* (from where it starts: a notch under the card pushes it down, 88-whose.js) */
+const filmH = id => { const el = nodeEls.get(id); return el && el.under ? el.under.offsetTop - el.root.offsetHeight + el.under.offsetHeight + 4 : 0; };
 /* the room a card takes: its ports, a margin, and what unfolds under it */
 const cardRoom = n => ({ x: n.x - JX - 20, y: n.y - 14, w: nw(n) + JX + 40, h: nh(n) + 28 + filmH(n.id) });
 function freeSpot(x, y, lane) {

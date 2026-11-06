@@ -100,13 +100,15 @@ async fn git_info(dir: &Path) -> Value {
         return json!({"repo": false, "missing": true});
     }
     let probe = async {
-        let (inside, out) = git_run(dir, &["rev-parse", "--is-inside-work-tree", "--git-common-dir"]).await?;
+        let (inside, out) = git_run(dir, &["rev-parse", "--is-inside-work-tree", "--git-common-dir", "--show-toplevel"]).await?;
         if !inside {
             return Ok::<Value, String>(json!({"repo": false}));
         }
         // which repository it is: git's shared folder, the same for every folder of a checkout and
         // for the checkout's worktrees (git prints it relative to the folder asked about, or absolute)
         let common = out.lines().nth(1).map(|c| dir.join(c.trim())).map(|c| c.canonicalize().unwrap_or(c)).unwrap_or_default();
+        // the work tree it is in (whose uncommitted files are put to cards: owners.rs)
+        let top = out.lines().nth(2).map(str::trim).unwrap_or_default().to_string();
         let (ok, b) = git_run(dir, &["symbolic-ref", "--short", "-q", "HEAD"]).await?;
         let branch = if ok && !b.trim().is_empty() {
             b.trim().to_string()
@@ -122,7 +124,7 @@ async fn git_info(dir: &Path) -> Value {
         // (a commit on any branch, a fetch, a new branch: the git tree in the corner looks again)
         let (_, refs) = git_run(dir, &["for-each-ref", "--format=%(objectname)%(refname)", "refs/heads", "refs/remotes"]).await?;
         let refs = fingerprint(&refs);
-        Ok(json!({"repo": true, "branch": branch, "dirty": dirty, "last": last, "refs": refs, "common": common}))
+        Ok(json!({"repo": true, "branch": branch, "dirty": dirty, "last": last, "refs": refs, "common": common, "top": top}))
     };
     match tokio::time::timeout(Duration::from_secs(4), probe).await {
         Ok(Ok(v)) => v,
@@ -292,8 +294,10 @@ impl Engine {
     pub(super) fn on_project(&mut self, list: Vec<(PathBuf, Value)>) {
         self.proj_busy = false;
         let mut seen = HashMap::with_capacity(list.len());
+        let mut changed = false;
         for (d, v) in list {
             if self.proj.get(&d) != Some(&v) {
+                changed = true;
                 self.bcast(&json!({"t": "proj", "dir": d, "git": v}));
                 // a push, a fetch, a commit: what a push nobody armed has left is looked at again (loose.rs)
                 for rt in self.rt.values_mut() {
@@ -303,7 +307,10 @@ impl Engine {
             seen.insert(d, v);
         }
         // a folder nobody works in any more is not looked at again
+        changed |= self.proj.len() != seen.len();
         self.proj = seen;
+        // and whose its uncommitted files are
+        self.refresh_owners(changed);
         if std::mem::take(&mut self.proj_due) {
             self.refresh_project();
         }

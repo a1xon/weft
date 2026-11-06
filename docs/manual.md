@@ -435,6 +435,18 @@ another folder, the tree does too. It is live: weft looks at the folder every fe
 page is open, and a commit by any agent, a fetch or a new branch shows up by itself, lit up for a
 moment. Files nobody committed yet sit on top as *N uncommitted*.
 
+* **Whose the uncommitted files are.** Each card counts the uncommitted files it changed
+  (a notch under its bottom edge, *3 uncommitted*; hover for the list). weft knows from the snapshots it takes
+  before and after every step (see *Rewind*); where several agents work in one folder at the same
+  time, a file goes to the card that names it in its report or that alone was at work when the file
+  was last written, else to all of them as *maybe* (dashed). What a commit took is no one's any
+  more. The *N uncommitted* row says how many files **no card** on the board changed (left over by
+  a card that was filed or deleted, another session, you), and a click unfolds the files by card: a
+  file shows its diff, a card's name shows the card, and **commit with an agent** starts a fresh
+  agent that looks at each of the left-over files, commits the ones that are still valid and needed
+  (staged by name, nothing else) and names the rest for you; it deletes and pushes nothing. A click
+  on a card's count opens that list at its files.
+
 * **Another branch.** Click the name in its head: the checked-out one (it follows a switch),
   *every branch* at once, or any local or remote branch. Only what is shown changes, nothing is
   checked out; the choice is kept per folder. A branch weft cut for an agent's worktree wears that
@@ -1015,6 +1027,7 @@ src/engine/        the single actor that owns all state
     limits.rs      an agent at its usage limit sleeps until the reset its CLI names, then carries on (after an API error: a while)
     usage.rs       how much of each agent's plan is used (the meter by the agents), asked every 15 min at most
     rewind.rs      every step snapshotted before and after in a shadow repository: its diff, and undo
+    owners.rs      whose the uncommitted files are (from those snapshots), and an agent for the ones no card has
     resume.rs      a card keeps its agent's conversation: session ids, an agent that rests and comes back, twins
     loose.rs       loose ends: a push an older weft left waiting to be armed says what it has left, or is done by itself
     deploy.rs      the deploy step: the folder's deploy command on a checkout of the pushed commit
