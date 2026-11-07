@@ -1080,6 +1080,102 @@ fn a_step_that_gave_its_last_word_is_not_held_by_what_it_left_running() {
 }
 
 #[test]
+fn every_kind_of_background_work_claude_code_names_holds_the_step() {
+    // rubbermetrics n454 (2026-11-07): its turn ended on "1 shell, 6 monitors still running" over an
+    // agent of its own that waited too; weft knew only "shell(s) still running", took the quiet for
+    // the end of the step, and the commit step after it asked the agent to commit in the middle of it
+    let e = engine();
+    let cfg = e.cfg.agents.get("claude");
+    let rule = "\u{2500}".repeat(60);
+    let screen = |above: &str, bar: &str, panel: &[&str]| {
+        let mut s = format!("{above}\r\n\r\n{rule}\r\n\u{276f} \r\n{rule}\r\n  {bar}\r\n");
+        for p in panel {
+            s.push_str(&format!("  {p}\r\n"));
+        }
+        s
+    };
+    let seen = |s: &str| {
+        let mut r = Rt::new(160, 45);
+        r.parser.process(s.as_bytes());
+        r.read_screen(cfg, Instant::now());
+        (r.work, r.turn)
+    };
+    let quiet = "\u{23f5}\u{23f5} bypass permissions on";
+    // the line under the turn names it, whatever kind it names last
+    for running in [
+        "1 shell still running",
+        "1 shell, 1 monitor still running",
+        "2 shells, 6 monitors still running",
+        "1 monitor still running",
+        "1 shell, 1 local agent still running",
+        "1 MCP task still running",
+    ] {
+        let s = screen(&format!("\u{25cf} Waiting.\r\n\r\n\u{273b} Cooked for 32s \u{b7} done 18:50 \u{b7} {running}"), quiet, &[]);
+        assert_eq!(seen(&s), (true, false), "{running}");
+    }
+    assert!(seen(&screen("\u{273b} Waiting for 2 background agents to finish", quiet, &[])).0);
+    // so does the status bar, which stays in sight while the view is scrolled up
+    let up = "  an older line\r\n                    Jump to bottom (ctrl+End) \u{2193}";
+    assert!(seen(&screen(up, &format!("{quiet} \u{b7} 1 shell, 2 monitors \u{b7} \u{2193} to manage"), &[])).0);
+    // nothing runs: Claude Code ran a shell command, and still offers the subagents that ended
+    let done = "  Ran 1 shell command\r\n\r\n\u{273b} Worked for 6s \u{b7} done 18:48";
+    assert!(!seen(&screen(done, &format!("{quiet} \u{b7} /tasks to see subagents \u{b7} \u{2193} to manage"), &[])).0);
+    // a row for each background agent under the status bar: n454's one, and five, which hide neither
+    // the line under the turn nor the turn marker in the status bar
+    let n454 = ["\u{25cf} main", "\u{25ef} general-purpose  Checking fetch progress and failures     20m 24s \u{b7} \u{2193} 566.4k tokens"];
+    let s = screen("\u{273b} Worked for 1h 48m \u{b7} done 18:33 \u{b7} 1 shell, 6 monitors still running", quiet, &n454);
+    assert_eq!(seen(&s), (true, false));
+    let mut five = vec!["\u{25cf} main".to_string()];
+    five.extend((1..=5).map(|i| format!("\u{25ef} general-purpose  Tester {i}     3m 1{i}s \u{b7} \u{2193} 35.0k tokens")));
+    let five: Vec<&str> = five.iter().map(String::as_str).collect();
+    let s = screen("\u{273b} Worked for 2m \u{b7} done 18:33 \u{b7} 2 monitors still running", quiet, &five);
+    assert_eq!(seen(&s), (true, false));
+    let s = screen("\u{2722} Thinking\u{2026}", &format!("{quiet} \u{b7} esc to interrupt"), &five);
+    assert_eq!(seen(&s), (false, true));
+}
+
+#[test]
+fn the_wait_for_background_work_counts_from_the_last_turn() {
+    // n454 woke whenever a watch of its own fired, for over an hour. The status bar names the watch
+    // during each turn too: that time must not count toward the cap on resting
+    let mut e = engine();
+    e.cfg.background_s = 60.0;
+    alive_agent(&mut e, "a", "build ui");
+    e.flow.nodes[0].agent = "claude".into();
+    {
+        let r = e.rt.get_mut("a").unwrap();
+        r.armed = true;
+        r.status = Status::Busy;
+        r.cur = Some(Step::new("go".into(), vec![]));
+    }
+    let paint = |e: &mut Engine, s: &str| {
+        let r = e.rt.get_mut("a").unwrap();
+        r.parser.process(format!("\x1b[2J\x1b[H{s}").as_bytes());
+        r.dirty = true;
+    };
+    let bar = "\u{23f5}\u{23f5} bypass permissions on \u{b7} 1 monitor";
+    let rests = |said: &str| format!("\u{25cf} {said}\r\n\r\n\u{273b} Worked for 2s \u{b7} done 7:07 \u{b7} 1 monitor still running\r\n\r\n\u{276f} \r\n  {bar} \u{b7} \u{2193} to manage\r\n");
+    let t0 = Instant::now();
+    let at = |s: u64| t0 + Duration::from_secs(s);
+    paint(&mut e, &rests("Waiting for the tester."));
+    e.eval("a", at(0));
+    e.eval("a", at(50));
+    assert!(e.rt["a"].bg && !e.rt["a"].finished);
+    // the watch fires: it works a little, sets another and rests again
+    paint(&mut e, &format!("\u{25cf} Not there yet.\r\n\r\n\u{2722} Thinking\u{2026}\r\n\r\n\u{276f} \r\n  {bar} \u{b7} esc to interrupt \u{b7} \u{2193} to manage\r\n"));
+    e.eval("a", at(55));
+    assert!(e.rt["a"].turn && e.rt["a"].work && !e.rt["a"].bg);
+    paint(&mut e, &rests("Waiting."));
+    e.eval("a", at(70));
+    e.eval("a", at(125));
+    assert!(e.rt["a"].bg && !e.rt["a"].finished, "less than the cap since its last turn");
+    // resting longer than the cap since its last turn: it counts as finished
+    e.eval("a", at(140));
+    e.eval("a", at(150));
+    assert!(e.rt["a"].finished);
+}
+
+#[test]
 fn messages_typed_to_an_agent_carry_its_addenda_unless_they_are_commands() {
     let mut e = engine();
     let mut n = node("a", "build ui", "go");

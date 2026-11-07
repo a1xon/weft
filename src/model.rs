@@ -654,6 +654,26 @@ fn strings(v: &[&str]) -> Vec<String> {
     v.iter().map(|s| s.to_string()).collect()
 }
 
+/// What Claude Code shows while something it started runs in the background. It names that work
+/// in two places: the line under a turn ("✻ Brewed for 3s · done 7:07 · 1 shell, 2 monitors still
+/// running") and its status bar ("⏵⏵ bypass permissions on · 1 shell, 2 monitors · ↓ to manage"),
+/// which stays in sight while the view is scrolled up. Any kind can end the list, so every kind is
+/// here, in both places. A turn that waits for agents it runs in the background ends with "✻ Waiting
+/// for 2 background agents to finish". Only "shell(s) still running" was known: rubbermetrics n454
+/// went quiet on "1 shell, 6 monitors still running" and its commit step asked it to commit
+/// mid-work, n429 the same on "Waiting for 2 background agents to finish".
+fn claude_background() -> Vec<String> {
+    // its own words: "Artifact comment monitor" ends in "monitor", "remote/background dynamic workflow"
+    // in "workflow". Not a bare "agent": the bar keeps "/tasks to see subagents · " after they ended
+    let kinds = ["shell", "monitor", "team", "local agent", "cloud session", "MCP task", "workflow"];
+    let mut v: Vec<String> = kinds
+        .iter()
+        .flat_map(|k| [format!("{k} still running"), format!("{k}s still running"), format!("{k} \u{b7} "), format!("{k}s \u{b7} ")])
+        .collect();
+    v.extend(strings(&["agent to finish", "agents to finish", "workflow to finish", "workflows to finish"]));
+    v
+}
+
 /// The agents weft knows how to start. Everything here is only a default: the user's
 /// `config.json` is merged over it, so an upgrade keeps improving what they did not touch.
 fn default_agents() -> BTreeMap<String, AgentCfg> {
@@ -682,7 +702,7 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
             efforts: strings(&levels),
             yolo_arg: "--dangerously-skip-permissions".into(),
             // "✻ Brewed for 3s · done 7:07 · 1 shell still running": it will wake up when it ends
-            working: strings(&["shell still running", "shells still running"]),
+            working: claude_background(),
             busy: strings(&["esc to interrupt"]),
             queued: strings(&["Press up to edit queued messages"]),
             // for some seconds after a paste the footer reads only this, "esc to interrupt" is gone

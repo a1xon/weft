@@ -331,6 +331,20 @@ pub fn input_holds(screen: &Screen, probe: &str) -> bool {
     (probe.chars().count() >= 6 && t.contains(probe)) || t.contains("[pasted")
 }
 
+/// How many of these rows (the empty ones left out) stand under the lowest rule near the bottom.
+/// Claude Code draws its input box between two rules, its status bar under the box, and under that
+/// a row for each agent it runs in the background ("● main", "◯ general-purpose  Checking …").
+/// At least 1, the status bar; 1 as well where no such box is drawn.
+pub fn under_box(rows: &[&str]) -> usize {
+    // the status bar, "● main" and a row for each of up to 14 agents
+    const MOST: usize = 16;
+    let rule = |l: &&str| {
+        let t = l.trim();
+        t.chars().count() >= 20 && t.chars().all(|c| c == '─')
+    };
+    rows.iter().rev().take(MOST + 1).position(rule).unwrap_or(1).max(1)
+}
+
 /// Is one of an agent's dialogs (`patterns`: its question or one of its options) up on the screen?
 /// A dialog takes over the bottom of the screen and offers choices: the phrase must be near the
 /// bottom with a choice at or under it ("❯ 1. Yes", "› 2. No", "> Yes, I trust this folder"), or be

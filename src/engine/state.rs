@@ -976,11 +976,15 @@ impl Rt {
         self.attn = term::dialog_on(&text, attention);
         let has = |hay: &str, v: &[String]| v.iter().any(|p| !p.is_empty() && hay.contains(p.as_str()));
         // the status line lives just above the input box: look only at the bottom of the screen,
-        // so a sentence that merely mentions it, scrolled up, does not hold anything back
-        let bottom: String = text.lines().rev().filter(|l| !l.trim().is_empty()).take(10).collect::<Vec<_>>().join("\n");
+        // so a sentence that merely mentions it, scrolled up, does not hold anything back. Rows under
+        // the status bar widen it: Claude Code lists its background agents there, one row each, and
+        // with three of them its status bar was out of the last four lines
+        let rows: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+        let extra = term::under_box(&rows) - 1;
+        let bottom: String = rows.iter().rev().take(10 + extra).copied().collect::<Vec<_>>().join("\n");
         self.work = has(&bottom, working);
         // the turn marker sits in the status bar, the last lines: not in what the agent wrote above them
-        let bar: String = bottom.lines().take(4).collect::<Vec<_>>().join("\n");
+        let bar: String = bottom.lines().take(4 + extra).collect::<Vec<_>>().join("\n");
         // a message waits for the turn to end: it is one
         self.queued = has(&bar, queued);
         let marker = has(&bar, busy) || self.queued;
@@ -1026,7 +1030,11 @@ impl Rt {
             self.last_change = now;
         }
         let closed = self.cur.as_ref().is_some_and(|c| c.closed);
-        let holding = self.work && self.armed && !self.finished && idle_finish && !self.attn && !closed;
+        // in a turn it is at work, not waiting: the time it may wait for what runs in the background
+        // counts from the end of its last turn. The status bar names that work during turns as well,
+        // and an agent that a watch of its own wakes every few minutes (rubbermetrics n454, for over
+        // an hour) is at work, not stuck
+        let holding = self.work && !self.turn && self.armed && !self.finished && idle_finish && !self.attn && !closed;
         if holding {
             let since = *self.work_since.get_or_insert(now);
             if now.duration_since(since) < hold {
