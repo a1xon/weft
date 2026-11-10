@@ -611,6 +611,9 @@ fn model_and_reasoning_become_plain_flags() {
     assert_eq!(tuning_args(claude, "opus", "high"), " --model opus --effort high");
     assert_eq!(tuning_args(claude, "", ""), "", "no choice, no flag");
     assert_eq!(tuning_args(claude, "opus", ""), " --model opus");
+    // Fable is one of the fixed choices, the most capable first
+    assert_eq!(claude.models.first().map(String::as_str), Some("fable"));
+    assert_eq!(tuning_args(claude, "fable", "high"), " --model fable --effort high");
     let codex = &e.cfg.agents["codex"];
     assert_eq!(tuning_args(codex, "gpt-5.6-terra", "max"), " -m gpt-5.6-terra -c model_reasoning_effort=max");
     // anything that could change the command line is dropped, not quoted

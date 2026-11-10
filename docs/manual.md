@@ -21,7 +21,7 @@ You open weft and see where you are and what to do:
 shop-api                        main · 3 uncommitted · last: 4f2a1c Fix cart rounding
 
 [ claude | agy | codex ]   reasoning  auto low med high xhigh max   ■ yolo
-model  default | opus | sonnet | haiku | other…
+model  default | fable | opus | sonnet | haiku | other…
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ Tell claude what to do in shop-api…                                          │
 └──────────────────────────────────────────────────────────────────────────────┘

@@ -697,7 +697,9 @@ fn default_agents() -> BTreeMap<String, AgentCfg> {
                 "Enter to confirm · Esc to cancel",
             ]),
             model_arg: "--model {}".into(),
-            models: strings(&["opus", "sonnet", "haiku"]),
+            // Claude Code's aliases for the newest of each kind ("fable" is Fable 5.2 since 2.1.322),
+            // the most capable first
+            models: strings(&["fable", "opus", "sonnet", "haiku"]),
             effort_arg: "--effort {}".into(),
             efforts: strings(&levels),
             yolo_arg: "--dangerously-skip-permissions".into(),
